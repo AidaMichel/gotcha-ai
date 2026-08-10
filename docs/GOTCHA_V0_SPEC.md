@@ -93,7 +93,7 @@ Example:
 
 > What does your AI do?
 
-> "It extracts structured information from customer messages."
+> "It schedules meetings from natural-language requests."
 
 Then the user can provide example AI outputs and mark them:
 
@@ -119,13 +119,13 @@ The proposed contract should distinguish between:
 
 Example:
 
-> Explicit numerical values must be preserved.
+> The scheduled meeting time must match the time requested by the user.
 
 ### Uncertain product decisions
 
 Example:
 
-> Can missing information be inferred from user context?
+> If the user does not provide a location, may the assistant infer one?
 
 ---
 
@@ -186,15 +186,15 @@ Example:
 
 User input:
 
-> Paid 42 AED at Talabat.
+> Schedule a meeting with Sara on Tuesday at 3 PM.
 
 Correct behavior:
 
-> Logged AED 42 at Talabat.
+> Meeting scheduled with Sara on Tuesday at 3 PM.
 
 Bad mutated behavior:
 
-> Logged AED 420 at Talabat.
+> Meeting scheduled with Sara on Tuesday at 4 PM (requested: 3 PM).
 
 Current evaluator:
 
@@ -202,7 +202,7 @@ Current evaluator:
 
 Gotcha should explain the problem in plain language:
 
-> Your checks accepted an output containing the correct merchant and format but failed to verify the explicitly provided amount.
+> Your checks accepted the correct person and day but failed to verify that the scheduled time matched the time requested by the user.
 
 ---
 
@@ -214,11 +214,11 @@ The recommendation must be specific and testable.
 
 Bad recommendation:
 
-> Improve amount accuracy.
+> Improve scheduling accuracy.
 
 Good recommendation:
 
-> When a user explicitly provides a numeric value, the resulting value must match it after valid normalization.
+> The actual scheduled meeting time must match the time requested by the user.
 
 The user can approve or reject the proposed protection.
 
@@ -260,9 +260,10 @@ Example:
 
 ```json
 {
-  "rule": "Explicit numerical values must be preserved",
+  "rule": "The scheduled meeting time must match the time requested by the user",
   "severity": "critical",
   "confidence": 0.94,
   "evidence": ["example_1", "example_4"],
   "uncertainty": null
-}n
+}
+```
