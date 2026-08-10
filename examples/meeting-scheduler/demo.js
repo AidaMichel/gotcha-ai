@@ -103,6 +103,10 @@ function calculateRankScore(mutation) {
   );
 }
 
+// ----------------------------------------
+// ATTACK ENGINE
+// ----------------------------------------
+
 function attack(evaluator, mutations) {
   const results = mutations.map((mutation) => {
     const passed = evaluator(mutation.output);
@@ -166,6 +170,10 @@ before.results.forEach((result, index) => {
   }
 });
 
+// ----------------------------------------
+// BEFORE FIX
+// ----------------------------------------
+
 console.log("\n================================");
 console.log("BEFORE FIX");
 console.log("================================\n");
@@ -185,6 +193,20 @@ before.survivors.forEach((survivor, index) => {
 // ----------------------------------------
 
 const topFinding = before.survivors[0];
+
+// Important edge case:
+// the evaluator may already catch every mutation.
+// If there are no survivors, there is nothing to rank or fix.
+if (!topFinding) {
+  console.log("\n================================");
+  console.log("RESULT");
+  console.log("================================\n");
+
+  console.log("✅ No current mutations survived.");
+  console.log("There is no Top Gotcha to fix or re-attack.");
+
+  process.exit(0);
+}
 
 console.log("\n================================");
 console.log("🚨 TOP GOTCHA");
