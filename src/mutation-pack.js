@@ -1,3 +1,7 @@
+const {
+  types: utilTypes
+} = require("node:util");
+
 const SCORE_KEYS = [
   "severity",
   "realism",
@@ -50,16 +54,8 @@ function isPromiseLike(value) {
 function isUnsupportedAsyncCallback(
   fn
 ) {
-  const constructorName =
-    fn.constructor !== undefined
-      ? fn.constructor.name
-      : null;
-
-  return (
-    constructorName ===
-      "AsyncFunction" ||
-    constructorName ===
-      "AsyncGeneratorFunction"
+  return utilTypes.isAsyncFunction(
+    fn
   );
 }
 
@@ -133,19 +129,29 @@ function validateMutationValue(
   const isArray =
     Array.isArray(value);
 
+  const prototype =
+    Object.getPrototypeOf(value);
+
   if (isArray) {
+    // Array.prototype is itself an Array.
+    // This works across realms while
+    // rejecting Array subclasses.
     if (
-      Object.getPrototypeOf(value) !==
-      Array.prototype
+      !Array.isArray(prototype)
     ) {
       throw new Error(
         `${label} must use ordinary arrays, not array subclasses.`
       );
     }
   } else if (
-    Object.getPrototypeOf(value) !==
-    Object.prototype
+    prototype === null ||
+    Object.getPrototypeOf(
+      prototype
+    ) !== null
   ) {
+    // An ordinary object's prototype is
+    // that realm's Object.prototype,
+    // whose own prototype is null.
     throw new Error(
       `${label} must use only primitives, ordinary arrays, and plain objects.`
     );
@@ -185,13 +191,23 @@ function validateMutationValue(
       );
     }
 
+    const isOrdinaryProperty =
+      descriptor.enumerable &&
+      descriptor.configurable &&
+      descriptor.writable;
+
+    const isFrozenProperty =
+      descriptor.enumerable &&
+      Object.isFrozen(value) &&
+      !descriptor.configurable &&
+      !descriptor.writable;
+
     if (
-      !descriptor.enumerable ||
-      !descriptor.configurable ||
-      !descriptor.writable
+      !isOrdinaryProperty &&
+      !isFrozenProperty
     ) {
       throw new Error(
-        `${label} properties must use ordinary data-property descriptors.`
+        `${label} properties must use ordinary or frozen data-property descriptors.`
       );
     }
 
@@ -235,6 +251,35 @@ function cloneMutationValue(
       `${label} must be safely cloneable plain structured data.`
     );
   }
+}
+
+function freezeMutationValue(
+  value,
+  seen = new WeakSet()
+) {
+  if (
+    value === null ||
+    typeof value !== "object"
+  ) {
+    return value;
+  }
+
+  if (seen.has(value)) {
+    return value;
+  }
+
+  seen.add(value);
+
+  Object.keys(value).forEach(
+    (key) => {
+      freezeMutationValue(
+        value[key],
+        seen
+      );
+    }
+  );
+
+  return Object.freeze(value);
 }
 
 function captureMutation(
@@ -478,7 +523,10 @@ function compileMutationPack({
         description:
           mutation.description,
 
-        output: mutatedOutput,
+        output:
+          freezeMutationValue(
+            mutatedOutput
+          ),
 
         severity:
           mutation.scores.severity,

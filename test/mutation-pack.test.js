@@ -1046,3 +1046,259 @@ test(
     );
   }
 );
+
+test(
+  "compiled mutable outputs cannot be changed by evaluators between attacks",
+  () => {
+    const mutations =
+      compileMutationPack({
+        output: {
+          seen: false
+        },
+
+        pack: [
+          makeValidMutation({
+            id: "frozen-output",
+
+            mutate(output) {
+              return output;
+            },
+
+            protection: {
+              description:
+                "No-op protection.",
+
+              check() {
+                return true;
+              }
+            }
+          })
+        ]
+      });
+
+    function mutatingEvaluator(
+      output
+    ) {
+      const passed =
+        output.seen === false;
+
+      Reflect.set(
+        output,
+        "seen",
+        true
+      );
+
+      return passed;
+    }
+
+    const result =
+      runImprovementLoop({
+        evaluator:
+          mutatingEvaluator,
+
+        mutations,
+
+        knownGoodOutput: {
+          seen: false
+        }
+      });
+
+    assert.equal(
+      Object.isFrozen(
+        mutations[0].output
+      ),
+      true
+    );
+
+    assert.equal(
+      mutations[0].output.seen,
+      false
+    );
+
+    assert.equal(
+      result.before.survivors.length,
+      1
+    );
+
+    assert.equal(
+      result.after.survivors.length,
+      1
+    );
+
+    assert.equal(
+      result.improvement,
+      0
+    );
+  }
+);
+
+test(
+  "async callback detection ignores spoofed constructor properties",
+  () => {
+    let invoked = false;
+
+    async function asyncMutation() {
+      invoked = true;
+      return "mutated";
+    }
+
+    Object.defineProperty(
+      asyncMutation,
+      "constructor",
+      {
+        value: Function,
+        configurable: true
+      }
+    );
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: "original",
+
+          pack: [
+            makeValidMutation({
+              mutate:
+                asyncMutation
+            })
+          ]
+        });
+      },
+      /Async mutation functions are not supported/
+    );
+
+    assert.equal(
+      invoked,
+      false
+    );
+  }
+);
+
+test(
+  "synchronous callbacks remain valid with an own constructor property",
+  () => {
+    function syncMutation(output) {
+      return `${output}-sync`;
+    }
+
+    Object.defineProperty(
+      syncMutation,
+      "constructor",
+      {
+        value: null,
+        configurable: true
+      }
+    );
+
+    const compiled =
+      compileMutationPack({
+        output: "original",
+
+        pack: [
+          makeValidMutation({
+            mutate:
+              syncMutation
+          })
+        ]
+      });
+
+    assert.equal(
+      compiled[0].output,
+      "original-sync"
+    );
+  }
+);
+
+test(
+  "ordinary cross-realm arrays are accepted",
+  () => {
+    const vm =
+      require("node:vm");
+
+    const crossRealmArray =
+      vm.runInNewContext(
+        "[1, { value: 2 }]"
+      );
+
+    const compiled =
+      compileMutationPack({
+        output:
+          crossRealmArray,
+
+        pack: [
+          makeValidMutation({
+            mutate(output) {
+              return output;
+            }
+          })
+        ]
+      });
+
+    assert.deepEqual(
+      compiled[0].output,
+      [
+        1,
+        {
+          value: 2
+        }
+      ]
+    );
+  }
+);
+
+test(
+  "ordinary cross-realm plain objects are accepted while array subclasses remain rejected",
+  () => {
+    const vm =
+      require("node:vm");
+
+    const crossRealmObject =
+      vm.runInNewContext(
+        "({ value: 2, nested: { ok: true } })"
+      );
+
+    const compiled =
+      compileMutationPack({
+        output:
+          crossRealmObject,
+
+        pack: [
+          makeValidMutation({
+            mutate(output) {
+              return output;
+            }
+          })
+        ]
+      });
+
+    assert.deepEqual(
+      compiled[0].output,
+      {
+        value: 2,
+        nested: {
+          ok: true
+        }
+      }
+    );
+
+    class CustomArray
+      extends Array {}
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output:
+            new CustomArray(
+              1,
+              2
+            ),
+
+          pack: [
+            makeValidMutation()
+          ]
+        });
+      },
+      /array subclasses/
+    );
+  }
+);
