@@ -126,6 +126,54 @@ function mutateScheduledMeeting(
   );
 }
 
+function normalizeTimeToMinutes(time) {
+  if (time === null || time === undefined) {
+    return null;
+  }
+
+  const normalized = time.trim();
+
+  const twelveHourMatch = normalized.match(
+    /^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)$/i
+  );
+
+  if (twelveHourMatch) {
+    let hour = Number(twelveHourMatch[1]);
+    const minutes =
+      Number(twelveHourMatch[2] ?? "0");
+    const meridiem =
+      twelveHourMatch[3].toUpperCase();
+
+    if (
+      hour < 1 ||
+      hour > 12 ||
+      minutes < 0 ||
+      minutes > 59
+    ) {
+      return null;
+    }
+
+    hour =
+      (hour % 12) +
+      (meridiem === "PM" ? 12 : 0);
+
+    return hour * 60 + minutes;
+  }
+
+  const twentyFourHourMatch = normalized.match(
+    /^([01]?\d|2[0-3]):([0-5]\d)$/
+  );
+
+  if (twentyFourHourMatch) {
+    return (
+      Number(twentyFourHourMatch[1]) * 60 +
+      Number(twentyFourHourMatch[2])
+    );
+  }
+
+  return null;
+}
+
 function chooseDifferentTime(time) {
   const normalized = time.trim();
 
@@ -316,9 +364,18 @@ function generateMutations(output) {
         "The actual scheduled meeting time must exactly match the time requested by the user.",
 
       protectionCheck(candidateOutput) {
+        const actualTime =
+          normalizeTimeToMinutes(
+            extractScheduledTime(candidateOutput)
+          );
+
+        const expectedTime =
+          normalizeTimeToMinutes(time);
+
         return (
-          extractScheduledTime(candidateOutput) ===
-          time.toUpperCase()
+          actualTime !== null &&
+          expectedTime !== null &&
+          actualTime === expectedTime
         );
       }
     },
@@ -485,6 +542,22 @@ function calculateRankScore(mutation) {
 function attack(evaluator, mutations) {
   const results = mutations.map((mutation) => {
     const passed = evaluator(mutation.output);
+
+    if (
+      passed !== null &&
+      typeof passed === "object" &&
+      typeof passed.then === "function"
+    ) {
+      throw new Error(
+        "Async evaluators are not supported by this deterministic demo."
+      );
+    }
+
+    if (typeof passed !== "boolean") {
+      throw new Error(
+        "Evaluator must return a boolean."
+      );
+    }
 
     return {
       ...mutation,
