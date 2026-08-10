@@ -103,38 +103,44 @@ function calculateRankScore(mutation) {
   );
 }
 
+function attack(evaluator, mutations) {
+  const results = mutations.map((mutation) => {
+    const passed = evaluator(mutation.output);
+
+    return {
+      ...mutation,
+      evaluatorResult: passed ? "PASS" : "FAIL",
+      survived: passed
+    };
+  });
+
+  const caught = results.filter((result) => !result.survived);
+
+  const survivors = results
+    .filter((result) => result.survived)
+    .map((survivor) => ({
+      ...survivor,
+      rankScore: calculateRankScore(survivor)
+    }))
+    .sort((a, b) => b.rankScore - a.rankScore);
+
+  return {
+    results,
+    caught,
+    survivors
+  };
+}
+
 // ----------------------------------------
-// ATTACK
+// FIRST ATTACK
 // ----------------------------------------
 
 const mutations = generateMutations(example.expectedOutput);
 
-const results = mutations.map((mutation) => {
-  const passed = weakEvaluator(mutation.output);
-
-  return {
-    ...mutation,
-    evaluatorResult: passed ? "PASS" : "FAIL",
-    survived: passed
-  };
-});
-
-const caught = results.filter((result) => !result.survived);
-
-const survivors = results
-  .filter((result) => result.survived)
-  .map((survivor) => ({
-    ...survivor,
-    rankScore: calculateRankScore(survivor)
-  }))
-  .sort((a, b) => b.rankScore - a.rankScore);
-
-// ----------------------------------------
-// REPORT
-// ----------------------------------------
+const before = attack(weakEvaluator, mutations);
 
 console.log("\n================================");
-console.log("GOTCHA — MUTATION ATTACK");
+console.log("GOTCHA — ATTACK");
 console.log("================================\n");
 
 console.log("User:");
@@ -149,63 +155,129 @@ console.log("\n================================");
 console.log("ATTACK RESULTS");
 console.log("================================");
 
-results.forEach((result, index) => {
+before.results.forEach((result, index) => {
   console.log(`\n${index + 1}. ${result.id}`);
-  console.log(`Type: ${result.type}`);
   console.log(`Mutation: ${result.output}`);
 
   if (result.survived) {
-    console.log("Evaluator: PASS ✅");
     console.log("Result: 🚨 SURVIVED");
   } else {
-    console.log("Evaluator: FAIL ❌");
+    console.log("Result: ✅ CAUGHT");
+  }
+});
+
+console.log("\n================================");
+console.log("BEFORE FIX");
+console.log("================================\n");
+
+console.log(`Caught: ${before.caught.length}`);
+console.log(`Survived: ${before.survivors.length}`);
+
+before.survivors.forEach((survivor, index) => {
+  console.log(
+    `\n#${index + 1} ${survivor.id} — score ${survivor.rankScore.toFixed(2)}`
+  );
+  console.log(survivor.output);
+});
+
+// ----------------------------------------
+// TOP GOTCHA
+// ----------------------------------------
+
+const topFinding = before.survivors[0];
+
+console.log("\n================================");
+console.log("🚨 TOP GOTCHA");
+console.log("================================\n");
+
+console.log(topFinding.output);
+
+console.log("\nWhy it matters:");
+console.log(topFinding.description);
+
+// ----------------------------------------
+// CATCH THIS
+// ----------------------------------------
+
+console.log("\n================================");
+console.log("CATCH THIS");
+console.log("================================\n");
+
+const proposedProtection =
+  "The scheduled meeting time must match the time explicitly requested by the user.";
+
+console.log("Proposed protection:");
+console.log(proposedProtection);
+
+// ----------------------------------------
+// IMPROVED EVALUATOR
+// ----------------------------------------
+
+function improvedEvaluator(output) {
+  const hasCorrectPerson = output.includes("Sara");
+  const hasCorrectDay = output.includes("Tuesday");
+  const hasCorrectTime = output.includes("3 PM");
+
+  return (
+    hasCorrectPerson &&
+    hasCorrectDay &&
+    hasCorrectTime
+  );
+}
+
+// ----------------------------------------
+// RE-ATTACK EVERYTHING
+// ----------------------------------------
+
+const after = attack(improvedEvaluator, mutations);
+
+console.log("\n================================");
+console.log("GOTCHA — RE-ATTACK");
+console.log("================================\n");
+
+after.results.forEach((result, index) => {
+  console.log(`\n${index + 1}. ${result.id}`);
+
+  if (result.survived) {
+    console.log("Result: 🚨 STILL SURVIVED");
+  } else {
     console.log("Result: ✅ CAUGHT");
   }
 });
 
 // ----------------------------------------
-// SUMMARY
+// FINAL RESULT
 // ----------------------------------------
 
 console.log("\n================================");
-console.log("SUMMARY");
+console.log("RESULT");
 console.log("================================\n");
 
-console.log(`Total attacks: ${results.length}`);
-console.log(`Caught: ${caught.length}`);
-console.log(`Survived: ${survivors.length}`);
+console.log("Before protection:");
+console.log(`Caught: ${before.caught.length}`);
+console.log(`Survived: ${before.survivors.length}`);
 
-if (survivors.length > 0) {
-  console.log("\n🚨 GOTCHA");
+console.log("\nAfter protection:");
+console.log(`Caught: ${after.caught.length}`);
+console.log(`Survived: ${after.survivors.length}`);
+
+const improvement =
+  before.survivors.length - after.survivors.length;
+
+console.log(
+  `\n✅ ${improvement} additional bad behavior(s) are now caught.`
+);
+
+if (after.survivors.length > 0) {
+  console.log("\n⚠️ Gotcha is not claiming the system is perfect.");
+
   console.log(
-    `${survivors.length} convincing bad behaviors slipped through the current quality checks.`
+    `${after.survivors.length} blind spot(s) still remain:`
   );
 
-  console.log("\n================================");
-  console.log("RANKED SURVIVORS");
-  console.log("================================");
-
-  survivors.forEach((survivor, index) => {
-    console.log(`\n#${index + 1} ${survivor.id}`);
-    console.log(`Priority score: ${survivor.rankScore.toFixed(2)}`);
-    console.log(`Type: ${survivor.type}`);
-    console.log(`Output: ${survivor.output}`);
-    console.log(`Why it matters: ${survivor.description}`);
+  after.survivors.forEach((survivor) => {
+    console.log(`- ${survivor.id}`);
   });
-
-  const topFinding = survivors[0];
-
-  console.log("\n================================");
-  console.log("TOP GOTCHA");
-  console.log("================================\n");
-
-  console.log(`🚨 ${topFinding.id}`);
-  console.log(topFinding.output);
-
-  console.log("\nWhy this is the top finding:");
-  console.log(topFinding.description);
-
-  console.log(
-    "\nGotcha ranked this failure highest based on severity, realism, subtlety, novelty, and fixability."
-  );
+} else {
+  console.log("\n✅ No current mutations survived.");
 }
