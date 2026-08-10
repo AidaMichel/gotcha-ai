@@ -111,16 +111,14 @@ function runImprovementLoop({
         "Evaluator"
       );
 
-    const passesNewProtection =
-      evaluateBoolean(
-        topFinding.protectionCheck,
-        output,
-        "Protection check"
-      );
+    if (!passesExistingChecks) {
+      return false;
+    }
 
-    return (
-      passesExistingChecks &&
-      passesNewProtection
+    return evaluateBoolean(
+      topFinding.protectionCheck,
+      output,
+      "Protection check"
     );
   }
 
