@@ -69,6 +69,34 @@ function rejectPromiseLike(
   throw new Error(message);
 }
 
+function cloneMutationValue(
+  value
+) {
+  if (
+    value === null ||
+    typeof value !== "object"
+  ) {
+    return value;
+  }
+
+  if (
+    typeof structuredClone !==
+    "function"
+  ) {
+    throw new Error(
+      "Mutable mutation outputs require structuredClone support."
+    );
+  }
+
+  try {
+    return structuredClone(value);
+  } catch {
+    throw new Error(
+      "Mutable mutation outputs must be structured-cloneable."
+    );
+  }
+}
+
 function validateMutation(
   mutation,
   index,
@@ -194,9 +222,10 @@ function compileMutationPack({
   }
 
   const ids = new Set();
+  const validatedMutations = [];
 
-  // Validate the entire pack before
-  // executing any mutation.
+  // Validate and snapshot the entire pack
+  // before executing any mutation.
   for (
     let index = 0;
     index < pack.length;
@@ -213,18 +242,54 @@ function compileMutationPack({
       );
     }
 
+    const mutation = pack[index];
+
     validateMutation(
-      pack[index],
+      mutation,
       index,
       ids
     );
+
+    validatedMutations.push({
+      id: mutation.id,
+      type: mutation.type,
+      description:
+        mutation.description,
+
+      mutate: mutation.mutate,
+
+      scores: {
+        severity:
+          mutation.scores.severity,
+        realism:
+          mutation.scores.realism,
+        subtlety:
+          mutation.scores.subtlety,
+        novelty:
+          mutation.scores.novelty,
+        fixability:
+          mutation.scores.fixability
+      },
+
+      protection: {
+        description:
+          mutation.protection.description,
+        check:
+          mutation.protection.check
+      }
+    });
   }
 
-  return pack.map(
+  return validatedMutations.map(
     (mutation) => {
+      const mutationInput =
+        cloneMutationValue(output);
+
       const mutatedOutput =
         rejectPromiseLike(
-          mutation.mutate(output),
+          mutation.mutate(
+            mutationInput
+          ),
           "Async mutation functions are not supported by this deterministic compiler."
         );
 
@@ -253,9 +318,14 @@ function compileMutationPack({
         protectionCheck(
           candidateOutput
         ) {
+          const protectionInput =
+            cloneMutationValue(
+              candidateOutput
+            );
+
           return rejectPromiseLike(
             mutation.protection.check(
-              candidateOutput
+              protectionInput
             ),
             "Async protection checks are not supported by this deterministic compiler."
           );

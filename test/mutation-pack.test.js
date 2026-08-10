@@ -592,3 +592,128 @@ test(
     );
   }
 );
+
+test(
+  "validated pack is snapshotted before mutations execute",
+  () => {
+    const pack = [];
+
+    pack.push(
+      makeValidMutation({
+        id: "first",
+
+        mutate(output) {
+          // Mutate the original pack after
+          // validation has completed.
+          pack.pop();
+
+          return `${output}-first`;
+        }
+      }),
+
+      makeValidMutation({
+        id: "second",
+
+        mutate(output) {
+          return `${output}-second`;
+        }
+      })
+    );
+
+    const compiled =
+      compileMutationPack({
+        output: "original",
+        pack
+      });
+
+    assert.equal(
+      compiled.length,
+      2
+    );
+
+    assert.deepEqual(
+      compiled.map(
+        (mutation) => mutation.id
+      ),
+      [
+        "first",
+        "second"
+      ]
+    );
+
+    assert.deepEqual(
+      compiled.map(
+        (mutation) => mutation.output
+      ),
+      [
+        "original-first",
+        "original-second"
+      ]
+    );
+  }
+);
+
+test(
+  "each mutation receives an isolated mutable output",
+  () => {
+    const baseline = {
+      value: 0
+    };
+
+    const compiled =
+      compileMutationPack({
+        output: baseline,
+
+        pack: [
+          makeValidMutation({
+            id: "set-one",
+
+            mutate(output) {
+              output.value = 1;
+              return output;
+            }
+          }),
+
+          makeValidMutation({
+            id: "set-two",
+
+            mutate(output) {
+              output.value = 2;
+              return output;
+            }
+          })
+        ]
+      });
+
+    assert.deepEqual(
+      baseline,
+      {
+        value: 0
+      }
+    );
+
+    assert.deepEqual(
+      compiled[0].output,
+      {
+        value: 1
+      }
+    );
+
+    assert.deepEqual(
+      compiled[1].output,
+      {
+        value: 2
+      }
+    );
+
+    assert.notEqual(
+      compiled[0].output,
+      compiled[1].output
+    );
+
+    assert.notEqual(
+      compiled[0].output,
+      baseline
+    );
+  }
+);
