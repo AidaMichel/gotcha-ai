@@ -8,25 +8,39 @@ function calculateRankScore(mutation) {
   );
 }
 
+function evaluateBoolean(
+  check,
+  output,
+  label
+) {
+  const result = check(output);
+
+  if (
+    result !== null &&
+    typeof result === "object" &&
+    typeof result.then === "function"
+  ) {
+    throw new Error(
+      "Async checks are not supported by this deterministic engine."
+    );
+  }
+
+  if (typeof result !== "boolean") {
+    throw new Error(
+      `${label} must return a boolean.`
+    );
+  }
+
+  return result;
+}
+
 function attack(evaluator, mutations) {
   const results = mutations.map((mutation) => {
-    const passed = evaluator(mutation.output);
-
-    if (
-      passed !== null &&
-      typeof passed === "object" &&
-      typeof passed.then === "function"
-    ) {
-      throw new Error(
-        "Async evaluators are not supported by this deterministic engine."
-      );
-    }
-
-    if (typeof passed !== "boolean") {
-      throw new Error(
-        "Evaluator must return a boolean."
-      );
-    }
+    const passed = evaluateBoolean(
+      evaluator,
+      mutation.output,
+      "Evaluator"
+    );
 
     return {
       ...mutation,
@@ -56,7 +70,97 @@ function attack(evaluator, mutations) {
   };
 }
 
+function runImprovementLoop({
+  evaluator,
+  mutations,
+  knownGoodOutput
+}) {
+  const before = attack(
+    evaluator,
+    mutations
+  );
+
+  const topFinding =
+    before.survivors[0] || null;
+
+  if (!topFinding) {
+    return {
+      before,
+      topFinding: null,
+      proposedProtection: null,
+      positiveControlPassed: null,
+      after: null,
+      improvement: 0
+    };
+  }
+
+  if (
+    typeof topFinding.protectionCheck !==
+    "function"
+  ) {
+    throw new Error(
+      "Top finding must provide a protectionCheck function."
+    );
+  }
+
+  function improvedEvaluator(output) {
+    const passesExistingChecks =
+      evaluateBoolean(
+        evaluator,
+        output,
+        "Evaluator"
+      );
+
+    const passesNewProtection =
+      evaluateBoolean(
+        topFinding.protectionCheck,
+        output,
+        "Protection check"
+      );
+
+    return (
+      passesExistingChecks &&
+      passesNewProtection
+    );
+  }
+
+  const positiveControlPassed =
+    improvedEvaluator(knownGoodOutput);
+
+  if (!positiveControlPassed) {
+    return {
+      before,
+      topFinding,
+      proposedProtection:
+        topFinding.protection,
+      positiveControlPassed: false,
+      after: null,
+      improvement: 0
+    };
+  }
+
+  const after = attack(
+    improvedEvaluator,
+    mutations
+  );
+
+  const improvement =
+    before.survivors.length -
+    after.survivors.length;
+
+  return {
+    before,
+    topFinding,
+    proposedProtection:
+      topFinding.protection,
+    positiveControlPassed: true,
+    after,
+    improvement
+  };
+}
+
 module.exports = {
   attack,
-  calculateRankScore
+  calculateRankScore,
+  runImprovementLoop
 };

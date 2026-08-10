@@ -1,4 +1,4 @@
-const { attack } = require("../../src/engine");
+const { runImprovementLoop } = require("../../src/engine");
 
 const example = {
   userInput: "Schedule a meeting with Sara on Tuesday at 3 PM.",
@@ -538,10 +538,18 @@ const mutations = generateMutations(
   example.expectedOutput
 );
 
-const before = attack(
-  weakEvaluator,
-  mutations
-);
+const {
+  before,
+  topFinding,
+  proposedProtection,
+  positiveControlPassed,
+  after,
+  improvement
+} = runImprovementLoop({
+  evaluator: weakEvaluator,
+  mutations,
+  knownGoodOutput: example.expectedOutput
+});
 
 console.log("\n================================");
 console.log("GOTCHA — ATTACK");
@@ -600,8 +608,6 @@ before.survivors.forEach(
 // TOP GOTCHA
 // ----------------------------------------
 
-const topFinding = before.survivors[0];
-
 // The evaluator may already catch every mutation.
 // In that case, there is nothing to rank or fix.
 if (!topFinding) {
@@ -638,46 +644,24 @@ console.log("\n================================");
 console.log("CATCH THIS");
 console.log("================================\n");
 
-// The protection now comes from the actual
-// finding selected by the Survivor Ranker.
-const proposedProtection =
-  topFinding.protection;
+// The protection comes from the Top Gotcha
+// selected by the reusable Gotcha engine.
 
 console.log("Proposed protection:");
 console.log(proposedProtection);
 
-// ----------------------------------------
-// IMPROVED EVALUATOR
-// ----------------------------------------
-
-// Keep everything the original evaluator already
-// checked, then add the protection that belongs
-// specifically to the selected Top Gotcha.
-function improvedEvaluator(output) {
-  const passesExistingChecks =
-    weakEvaluator(output);
-
-  const passesNewProtection =
-    topFinding.protectionCheck(output);
-
-  return (
-    passesExistingChecks &&
-    passesNewProtection
-  );
-}
+// Improvement evaluation now lives in
+// the reusable Gotcha engine.
 
 // ----------------------------------------
 // POSITIVE CONTROL
 // ----------------------------------------
 
-const expectedOutputStillPasses =
-  improvedEvaluator(example.expectedOutput);
-
 console.log("\n================================");
 console.log("POSITIVE CONTROL");
 console.log("================================\n");
 
-if (!expectedOutputStillPasses) {
+if (!positiveControlPassed) {
   console.log(
     "❌ The new protection rejects the known-good output."
   );
@@ -696,11 +680,6 @@ console.log(
 // ----------------------------------------
 // RE-ATTACK EVERYTHING
 // ----------------------------------------
-
-const after = attack(
-  improvedEvaluator,
-  mutations
-);
 
 console.log("\n================================");
 console.log("GOTCHA — RE-ATTACK");
@@ -737,10 +716,6 @@ console.log(`Caught: ${after.caught.length}`);
 console.log(
   `Survived: ${after.survivors.length}`
 );
-
-const improvement =
-  before.survivors.length -
-  after.survivors.length;
 
 console.log(
   `\n✅ ${improvement} additional bad behavior(s) are now caught.`
