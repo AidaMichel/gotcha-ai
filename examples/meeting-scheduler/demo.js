@@ -4,7 +4,8 @@ const example = {
   expected: {
     person: "Sara",
     day: "Tuesday",
-    time: "3 PM"
+    time: "3 PM",
+    location: null
   }
 };
 
@@ -48,12 +49,64 @@ function extractScheduledDay(output) {
   return match ? match[1] : null;
 }
 
+function chooseDifferentTime(time) {
+  const match = time.trim().match(
+    /^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)$/i
+  );
+
+  if (!match) {
+    throw new Error(`Unsupported time format: ${time}`);
+  }
+
+  let hour = Number(match[1]);
+  const minutes = Number(match[2] ?? "0");
+  const meridiem = match[3].toUpperCase();
+
+  if (
+    hour < 1 ||
+    hour > 12 ||
+    minutes < 0 ||
+    minutes > 59
+  ) {
+    throw new Error(`Invalid time: ${time}`);
+  }
+
+  let hour24 =
+    (hour % 12) + (meridiem === "PM" ? 12 : 0);
+
+  hour24 = (hour24 + 1) % 24;
+
+  const nextMeridiem =
+    hour24 >= 12 ? "PM" : "AM";
+
+  hour = hour24 % 12;
+
+  if (hour === 0) {
+    hour = 12;
+  }
+
+  const minutePart = match[2]
+    ? `:${String(minutes).padStart(2, "0")}`
+    : "";
+
+  return `${hour}${minutePart} ${nextMeridiem}`;
+}
+
+function extractScheduledLocation(output) {
+  const match = output.match(
+    /\bat\s+\d{1,2}(?::\d{2})?\s*(?:AM|PM)(?:\s*\([^)]*\))?\s+in\s+(.+?)(?:\.|$)/i
+  );
+
+  return match ? match[1].trim() : null;
+}
+
 // ----------------------------------------
 // MUTATION ENGINE
 // ----------------------------------------
 
 function generateMutations(output) {
   const { person, day, time } = example.expected;
+  const wrongTime = chooseDifferentTime(time);
 
   return [
     {
@@ -65,7 +118,7 @@ function generateMutations(output) {
       // A naive output.includes("3 PM") check would incorrectly pass it.
       output: output.replace(
         time,
-        `4 PM (requested: ${time})`
+        `${wrongTime} (requested: ${time})`
       ),
 
       severity: 1.0,
@@ -174,8 +227,15 @@ function generateMutations(output) {
         "The assistant must not invent a meeting location that the user did not provide.",
 
       protectionCheck(candidateOutput) {
-        return !candidateOutput.includes(
-          "Conference Room B"
+        const actualLocation =
+          extractScheduledLocation(candidateOutput);
+
+        if (example.expected.location === null) {
+          return actualLocation === null;
+        }
+
+        return (
+          actualLocation === example.expected.location
         );
       }
     }
@@ -385,6 +445,33 @@ function improvedEvaluator(output) {
     passesNewProtection
   );
 }
+
+// ----------------------------------------
+// POSITIVE CONTROL
+// ----------------------------------------
+
+const expectedOutputStillPasses =
+  improvedEvaluator(example.expectedOutput);
+
+console.log("\n================================");
+console.log("POSITIVE CONTROL");
+console.log("================================\n");
+
+if (!expectedOutputStillPasses) {
+  console.log(
+    "❌ The new protection rejects the known-good output."
+  );
+
+  console.log(
+    "Gotcha will not claim an improvement."
+  );
+
+  process.exit(1);
+}
+
+console.log(
+  "✅ Known-good output still passes the improved evaluator."
+);
 
 // ----------------------------------------
 // RE-ATTACK EVERYTHING
