@@ -848,3 +848,201 @@ test(
     );
   }
 );
+
+test(
+  "custom class outputs are rejected before mutation execution",
+  () => {
+    class CustomOutput {
+      constructor() {
+        this.value = 1;
+      }
+
+      read() {
+        return this.value;
+      }
+    }
+
+    let invoked = false;
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output:
+            new CustomOutput(),
+
+          pack: [
+            makeValidMutation({
+              mutate(output) {
+                invoked = true;
+                return output;
+              }
+            })
+          ]
+        });
+      },
+      /plain objects/
+    );
+
+    assert.equal(
+      invoked,
+      false
+    );
+  }
+);
+
+test(
+  "Buffer mutation values are rejected",
+  () => {
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output:
+            Buffer.from("hello"),
+
+          pack: [
+            makeValidMutation()
+          ]
+        });
+      },
+      /Buffer values/
+    );
+  }
+);
+
+test(
+  "SharedArrayBuffer mutation values are rejected",
+  () => {
+    if (
+      typeof SharedArrayBuffer ===
+      "undefined"
+    ) {
+      return;
+    }
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output:
+            new SharedArrayBuffer(8),
+
+          pack: [
+            makeValidMutation()
+          ]
+        });
+      },
+      /SharedArrayBuffer/
+    );
+  }
+);
+
+test(
+  "source output is snapshotted once before mutations execute",
+  () => {
+    const baseline = {
+      value: 0
+    };
+
+    const observed = [];
+
+    const compiled =
+      compileMutationPack({
+        output: baseline,
+
+        pack: [
+          makeValidMutation({
+            id: "first",
+
+            mutate(output) {
+              observed.push(
+                output.value
+              );
+
+              baseline.value = 99;
+
+              return output;
+            }
+          }),
+
+          makeValidMutation({
+            id: "second",
+
+            mutate(output) {
+              observed.push(
+                output.value
+              );
+
+              return output;
+            }
+          })
+        ]
+      });
+
+    assert.deepEqual(
+      observed,
+      [
+        0,
+        0
+      ]
+    );
+
+    assert.deepEqual(
+      compiled[0].output,
+      {
+        value: 0
+      }
+    );
+
+    assert.deepEqual(
+      compiled[1].output,
+      {
+        value: 0
+      }
+    );
+
+    assert.equal(
+      baseline.value,
+      99
+    );
+  }
+);
+
+test(
+  "accessor-based mutation values are rejected without invoking getters",
+  () => {
+    let getterReads = 0;
+
+    const baseline = {};
+
+    Object.defineProperty(
+      baseline,
+      "value",
+      {
+        enumerable: true,
+        configurable: true,
+
+        get() {
+          getterReads += 1;
+          return getterReads;
+        }
+      }
+    );
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: baseline,
+
+          pack: [
+            makeValidMutation()
+          ]
+        });
+      },
+      /accessor properties/
+    );
+
+    assert.equal(
+      getterReads,
+      0
+    );
+  }
+);

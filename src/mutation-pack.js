@@ -77,9 +77,141 @@ function rejectPromiseLike(
   throw new Error(message);
 }
 
-function cloneMutationValue(
-  value
+function validateMutationValue(
+  value,
+  label,
+  seen = new WeakSet()
 ) {
+  if (value === null) {
+    return;
+  }
+
+  const valueType =
+    typeof value;
+
+  if (
+    valueType === "string" ||
+    valueType === "number" ||
+    valueType === "boolean" ||
+    valueType === "undefined" ||
+    valueType === "bigint"
+  ) {
+    return;
+  }
+
+  if (valueType !== "object") {
+    throw new Error(
+      `${label} must use only primitives, ordinary arrays, and plain objects.`
+    );
+  }
+
+  if (
+    typeof SharedArrayBuffer !==
+      "undefined" &&
+    value instanceof SharedArrayBuffer
+  ) {
+    throw new Error(
+      `${label} must not contain SharedArrayBuffer values.`
+    );
+  }
+
+  if (
+    typeof Buffer !== "undefined" &&
+    Buffer.isBuffer(value)
+  ) {
+    throw new Error(
+      `${label} must not contain Buffer values.`
+    );
+  }
+
+  if (seen.has(value)) {
+    return;
+  }
+
+  seen.add(value);
+
+  const isArray =
+    Array.isArray(value);
+
+  if (isArray) {
+    if (
+      Object.getPrototypeOf(value) !==
+      Array.prototype
+    ) {
+      throw new Error(
+        `${label} must use ordinary arrays, not array subclasses.`
+      );
+    }
+  } else if (
+    Object.getPrototypeOf(value) !==
+    Object.prototype
+  ) {
+    throw new Error(
+      `${label} must use only primitives, ordinary arrays, and plain objects.`
+    );
+  }
+
+  const descriptors =
+    Object.getOwnPropertyDescriptors(
+      value
+    );
+
+  for (
+    const key of
+      Reflect.ownKeys(descriptors)
+  ) {
+    if (
+      isArray &&
+      key === "length"
+    ) {
+      continue;
+    }
+
+    if (typeof key === "symbol") {
+      throw new Error(
+        `${label} must not contain symbol-keyed properties.`
+      );
+    }
+
+    const descriptor =
+      descriptors[key];
+
+    if (
+      "get" in descriptor ||
+      "set" in descriptor
+    ) {
+      throw new Error(
+        `${label} must not contain accessor properties.`
+      );
+    }
+
+    if (
+      !descriptor.enumerable ||
+      !descriptor.configurable ||
+      !descriptor.writable
+    ) {
+      throw new Error(
+        `${label} properties must use ordinary data-property descriptors.`
+      );
+    }
+
+    validateMutationValue(
+      descriptor.value,
+      `${label}.${String(key)}`,
+      seen
+    );
+  }
+}
+
+function cloneMutationValue(
+  value,
+  label = "Mutation value"
+) {
+  validateMutationValue(
+    value,
+    label
+  );
+
   if (
     value === null ||
     typeof value !== "object"
@@ -100,7 +232,7 @@ function cloneMutationValue(
     return structuredClone(value);
   } catch {
     throw new Error(
-      "Mutable mutation outputs must be structured-cloneable."
+      `${label} must be safely cloneable plain structured data.`
     );
   }
 }
@@ -269,6 +401,12 @@ function compileMutationPack({
     );
   }
 
+  const sourceOutputSnapshot =
+    cloneMutationValue(
+      output,
+      "Source output"
+    );
+
   const packLength = pack.length;
   const packEntries = [];
 
@@ -312,7 +450,10 @@ function compileMutationPack({
   return validatedMutations.map(
     (mutation) => {
       const mutationInput =
-        cloneMutationValue(output);
+        cloneMutationValue(
+          sourceOutputSnapshot,
+          "Mutation input"
+        );
 
       const mutationResult =
         rejectPromiseLike(
@@ -327,7 +468,8 @@ function compileMutationPack({
       // mutable object unrelated to input.
       const mutatedOutput =
         cloneMutationValue(
-          mutationResult
+          mutationResult,
+          `Mutation ${mutation.id} output`
         );
 
       return {
@@ -357,7 +499,8 @@ function compileMutationPack({
         ) {
           const protectionInput =
             cloneMutationValue(
-              candidateOutput
+              candidateOutput,
+              "Protection input"
             );
 
           return rejectPromiseLike(
