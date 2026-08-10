@@ -94,8 +94,17 @@ test(
     );
 
     assert.equal(
-      compiled[0].protectionCheck,
-      protectionCheck
+      compiled[0].protectionCheck(
+        "good"
+      ),
+      true
+    );
+
+    assert.equal(
+      compiled[0].protectionCheck(
+        "bad"
+      ),
+      false
     );
   }
 );
@@ -415,6 +424,171 @@ test(
     // unhandled rejection if one escaped.
     await new Promise(
       (resolve) => setImmediate(resolve)
+    );
+  }
+);
+
+test(
+  "native async protection checks are rejected before mutations run",
+  () => {
+    let mutateCalls = 0;
+
+    const first =
+      makeValidMutation({
+        id: "first",
+
+        mutate(output) {
+          mutateCalls += 1;
+          return `${output}-first`;
+        }
+      });
+
+    const second =
+      makeValidMutation({
+        id: "second",
+
+        protection: {
+          description:
+            "Async protection.",
+
+          async check() {
+            return true;
+          }
+        }
+      });
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: "original",
+          pack: [
+            first,
+            second
+          ]
+        });
+      },
+      /Async protection checks are not supported/
+    );
+
+    assert.equal(
+      mutateCalls,
+      0
+    );
+  }
+);
+
+test(
+  "promise-returning protection checks are rejected safely",
+  async () => {
+    const mutations =
+      compileMutationPack({
+        output: "good",
+
+        pack: [
+          makeValidMutation({
+            mutate() {
+              return "bad";
+            },
+
+            protection: {
+              description:
+                "Rejecting protection.",
+
+              check() {
+                return Promise.reject(
+                  new Error(
+                    "rejected protection"
+                  )
+                );
+              }
+            }
+          })
+        ]
+      });
+
+    assert.throws(
+      () => {
+        runImprovementLoop({
+          evaluator() {
+            return true;
+          },
+
+          mutations,
+          knownGoodOutput: "good"
+        });
+      },
+      /Async protection checks are not supported/
+    );
+
+    // Give Node one turn to expose an
+    // unhandled rejection if one escaped.
+    await new Promise(
+      (resolve) =>
+        setImmediate(resolve)
+    );
+  }
+);
+
+test(
+  "entire pack validates before mutations execute",
+  () => {
+    let mutateCalls = 0;
+
+    const valid =
+      makeValidMutation({
+        id: "valid",
+
+        mutate(output) {
+          mutateCalls += 1;
+          return `${output}-mutated`;
+        }
+      });
+
+    const malformed =
+      makeValidMutation({
+        id: "malformed",
+        type: ""
+      });
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: "original",
+          pack: [
+            valid,
+            malformed
+          ]
+        });
+      },
+      /type must be a non-empty string/
+    );
+
+    assert.equal(
+      mutateCalls,
+      0
+    );
+  }
+);
+
+test(
+  "sparse mutation packs are rejected",
+  () => {
+    const sparsePack =
+      new Array(2);
+
+    sparsePack[1] =
+      makeValidMutation({
+        id: "second"
+      });
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: "original",
+          pack: sparsePack
+        });
+      },
+      /Mutation at index 0 must be present/
     );
   }
 );

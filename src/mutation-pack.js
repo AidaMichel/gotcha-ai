@@ -55,6 +55,134 @@ function isAsyncFunction(fn) {
   );
 }
 
+function rejectPromiseLike(
+  value,
+  message
+) {
+  if (!isPromiseLike(value)) {
+    return value;
+  }
+
+  Promise.resolve(value)
+    .catch(() => {});
+
+  throw new Error(message);
+}
+
+function validateMutation(
+  mutation,
+  index,
+  ids
+) {
+  const label =
+    `Mutation at index ${index}`;
+
+  if (
+    mutation === null ||
+    typeof mutation !== "object" ||
+    Array.isArray(mutation)
+  ) {
+    throw new Error(
+      `${label} must be an object.`
+    );
+  }
+
+  requireNonEmptyString(
+    mutation.id,
+    `${label} id`
+  );
+
+  if (ids.has(mutation.id)) {
+    throw new Error(
+      `Duplicate mutation id: ${mutation.id}`
+    );
+  }
+
+  ids.add(mutation.id);
+
+  requireNonEmptyString(
+    mutation.type,
+    `${label} type`
+  );
+
+  requireNonEmptyString(
+    mutation.description,
+    `${label} description`
+  );
+
+  if (
+    typeof mutation.mutate !==
+    "function"
+  ) {
+    throw new Error(
+      `${label} mutate must be a function.`
+    );
+  }
+
+  if (isAsyncFunction(mutation.mutate)) {
+    throw new Error(
+      "Async mutation functions are not supported by this deterministic compiler."
+    );
+  }
+
+  if (
+    mutation.scores === null ||
+    typeof mutation.scores !==
+      "object" ||
+    Array.isArray(mutation.scores)
+  ) {
+    throw new Error(
+      `${label} scores must be an object.`
+    );
+  }
+
+  SCORE_KEYS.forEach(
+    (scoreKey) => {
+      requireScore(
+        mutation.scores[scoreKey],
+        `${label} ${scoreKey}`
+      );
+    }
+  );
+
+  if (
+    mutation.protection === null ||
+    typeof mutation.protection !==
+      "object" ||
+    Array.isArray(
+      mutation.protection
+    )
+  ) {
+    throw new Error(
+      `${label} protection must be an object.`
+    );
+  }
+
+  requireNonEmptyString(
+    mutation.protection.description,
+    `${label} protection description`
+  );
+
+  if (
+    typeof mutation.protection.check !==
+    "function"
+  ) {
+    throw new Error(
+      `${label} protection check must be a function.`
+    );
+  }
+
+  if (
+    isAsyncFunction(
+      mutation.protection.check
+    )
+  ) {
+    throw new Error(
+      "Async protection checks are not supported by this deterministic compiler."
+    );
+  }
+}
+
 function compileMutationPack({
   output,
   pack
@@ -67,117 +195,38 @@ function compileMutationPack({
 
   const ids = new Set();
 
+  // Validate the entire pack before
+  // executing any mutation.
+  for (
+    let index = 0;
+    index < pack.length;
+    index += 1
+  ) {
+    if (
+      !Object.prototype.hasOwnProperty.call(
+        pack,
+        index
+      )
+    ) {
+      throw new Error(
+        `Mutation at index ${index} must be present.`
+      );
+    }
+
+    validateMutation(
+      pack[index],
+      index,
+      ids
+    );
+  }
+
   return pack.map(
-    (mutation, index) => {
-      const label =
-        `Mutation at index ${index}`;
-
-      if (
-        mutation === null ||
-        typeof mutation !== "object" ||
-        Array.isArray(mutation)
-      ) {
-        throw new Error(
-          `${label} must be an object.`
-        );
-      }
-
-      requireNonEmptyString(
-        mutation.id,
-        `${label} id`
-      );
-
-      if (ids.has(mutation.id)) {
-        throw new Error(
-          `Duplicate mutation id: ${mutation.id}`
-        );
-      }
-
-      ids.add(mutation.id);
-
-      requireNonEmptyString(
-        mutation.type,
-        `${label} type`
-      );
-
-      requireNonEmptyString(
-        mutation.description,
-        `${label} description`
-      );
-
-      if (
-        typeof mutation.mutate !==
-        "function"
-      ) {
-        throw new Error(
-          `${label} mutate must be a function.`
-        );
-      }
-
-      if (
-        mutation.scores === null ||
-        typeof mutation.scores !==
-          "object" ||
-        Array.isArray(mutation.scores)
-      ) {
-        throw new Error(
-          `${label} scores must be an object.`
-        );
-      }
-
-      SCORE_KEYS.forEach(
-        (scoreKey) => {
-          requireScore(
-            mutation.scores[scoreKey],
-            `${label} ${scoreKey}`
-          );
-        }
-      );
-
-      if (
-        mutation.protection === null ||
-        typeof mutation.protection !==
-          "object" ||
-        Array.isArray(
-          mutation.protection
-        )
-      ) {
-        throw new Error(
-          `${label} protection must be an object.`
-        );
-      }
-
-      requireNonEmptyString(
-        mutation.protection.description,
-        `${label} protection description`
-      );
-
-      if (
-        typeof mutation.protection.check !==
-        "function"
-      ) {
-        throw new Error(
-          `${label} protection check must be a function.`
-        );
-      }
-
-      if (isAsyncFunction(mutation.mutate)) {
-        throw new Error(
-          "Async mutation functions are not supported by this deterministic compiler."
-        );
-      }
-
+    (mutation) => {
       const mutatedOutput =
-        mutation.mutate(output);
-
-      if (isPromiseLike(mutatedOutput)) {
-        Promise.resolve(mutatedOutput)
-          .catch(() => {});
-
-        throw new Error(
+        rejectPromiseLike(
+          mutation.mutate(output),
           "Async mutation functions are not supported by this deterministic compiler."
         );
-      }
 
       return {
         id: mutation.id,
@@ -201,8 +250,16 @@ function compileMutationPack({
         protection:
           mutation.protection.description,
 
-        protectionCheck:
-          mutation.protection.check
+        protectionCheck(
+          candidateOutput
+        ) {
+          return rejectPromiseLike(
+            mutation.protection.check(
+              candidateOutput
+            ),
+            "Async protection checks are not supported by this deterministic compiler."
+          );
+        }
       };
     }
   );
