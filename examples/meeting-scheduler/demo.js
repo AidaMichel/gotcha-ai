@@ -19,34 +19,99 @@ const example = {
 // "Meeting scheduled ... at 4 PM (requested: 3 PM)."
 //
 // This returns "4 PM", not "3 PM".
-function extractScheduledTime(output) {
+function parseScheduledMeeting(output) {
   const match = output.match(
-    /\bat\s+(\d{1,2}(?::\d{2})?\s*(?:AM|PM))\b/i
+    /\bMeeting scheduled with (.+?) on ([A-Za-z]+)(?: at (\d{1,2}(?::\d{2})?\s*(?:AM|PM)))?/i
   );
 
   if (!match) {
     return null;
   }
 
-  return match[1]
-    .replace(/\s+/g, " ")
-    .toUpperCase();
+  return {
+    fullMatch: match[0],
+    index: match.index,
+    person: match[1].trim(),
+    day: match[2],
+    time: match[3]
+      ? match[3]
+          .replace(/\s+/g, " ")
+          .toUpperCase()
+      : null
+  };
+}
+
+function extractScheduledTime(output) {
+  const scheduled =
+    parseScheduledMeeting(output);
+
+  return scheduled
+    ? scheduled.time
+    : null;
 }
 
 function extractScheduledPerson(output) {
-  const match = output.match(
-    /meeting scheduled with (.+?) on /i
-  );
+  const scheduled =
+    parseScheduledMeeting(output);
 
-  return match ? match[1].trim() : null;
+  return scheduled
+    ? scheduled.person
+    : null;
 }
 
 function extractScheduledDay(output) {
-  const match = output.match(
-    /\bon\s+([A-Za-z]+)(?:\s+at|\.)/i
-  );
+  const scheduled =
+    parseScheduledMeeting(output);
 
-  return match ? match[1] : null;
+  return scheduled
+    ? scheduled.day
+    : null;
+}
+
+function mutateScheduledMeeting(
+  output,
+  changes
+) {
+  const scheduled =
+    parseScheduledMeeting(output);
+
+  if (!scheduled) {
+    throw new Error(
+      "Could not find the scheduled meeting clause."
+    );
+  }
+
+  const person =
+    changes.person ?? scheduled.person;
+
+  const day =
+    changes.day ?? scheduled.day;
+
+  const hasTimeChange =
+    Object.prototype.hasOwnProperty.call(
+      changes,
+      "time"
+    );
+
+  const time = hasTimeChange
+    ? changes.time
+    : scheduled.time;
+
+  let replacement =
+    `Meeting scheduled with ${person} on ${day}`;
+
+  if (time !== null) {
+    replacement += ` at ${time}`;
+  }
+
+  return (
+    output.slice(0, scheduled.index) +
+    replacement +
+    output.slice(
+      scheduled.index +
+        scheduled.fullMatch.length
+    )
+  );
 }
 
 function chooseDifferentTime(time) {
@@ -136,20 +201,21 @@ function chooseDifferentDay(day) {
 }
 
 function extractScheduledLocation(output) {
-  const patterns = [
-    /\b(?:will\s+be\s+held|held)\s+in\s+(.+?)(?:\.|$)/i,
-    /(?:,\s*|\s+)in\s+(.+?)(?:\.|$)/i
-  ];
+  const heldLocation = output.match(
+    /\b(?:meeting\s+)?(?:will\s+be\s+held|is\s+held|held)\s+in\s+(.+?)(?=[.,]|$)/i
+  );
 
-  for (const pattern of patterns) {
-    const match = output.match(pattern);
-
-    if (match) {
-      return match[1].trim();
-    }
+  if (heldLocation) {
+    return heldLocation[1].trim();
   }
 
-  return null;
+  const directLocation = output.match(
+    /\bMeeting scheduled with .+? on [A-Za-z]+(?: at \d{1,2}(?::\d{2})?\s*(?:AM|PM)(?:\s*\([^)]*\))?)?\s*,?\s+in\s+(.+?)(?=[.,]|$)/i
+  );
+
+  return directLocation
+    ? directLocation[1].trim()
+    : null;
 }
 
 // ----------------------------------------
@@ -176,9 +242,12 @@ function generateMutations(output) {
 
       // This deliberately repeats the requested time elsewhere.
       // A naive output.includes("3 PM") check would incorrectly pass it.
-      output: output.replace(
-        time,
-        `${wrongTime} (requested: ${time})`
+      output: mutateScheduledMeeting(
+        output,
+        {
+          time:
+            `${wrongTime} (requested: ${time})`
+        }
       ),
 
       severity: 1.0,
@@ -203,9 +272,11 @@ function generateMutations(output) {
       type: "entity-substitution",
       description: "Changes the requested person.",
 
-      output: output.replace(
-        person,
-        wrongPerson
+      output: mutateScheduledMeeting(
+        output,
+        {
+          person: wrongPerson
+        }
       ),
 
       severity: 1.0,
@@ -229,9 +300,11 @@ function generateMutations(output) {
       type: "date-substitution",
       description: "Changes the requested day.",
 
-      output: output.replace(
-        day,
-        wrongDay
+      output: mutateScheduledMeeting(
+        output,
+        {
+          day: wrongDay
+        }
       ),
 
       severity: 1.0,
@@ -255,7 +328,12 @@ function generateMutations(output) {
 
       // Remove only the time from the supplied output.
       // Everything else in the output is preserved.
-      output: output.replace(` at ${time}`, ""),
+      output: mutateScheduledMeeting(
+        output,
+        {
+          time: null
+        }
+      ),
 
       severity: 0.9,
       realism: 0.95,
