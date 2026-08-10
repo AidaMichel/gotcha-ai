@@ -1,3 +1,5 @@
+const { runImprovementLoop } = require("../../src/engine");
+
 const example = {
   userInput: "Schedule a meeting with Sara on Tuesday at 3 PM.",
   expectedOutput: "Meeting scheduled with Sara on Tuesday at 3 PM.",
@@ -522,70 +524,11 @@ function weakEvaluator(output) {
 }
 
 // ----------------------------------------
-// SURVIVOR RANKER
+// GOTCHA ENGINE
 // ----------------------------------------
 
-function calculateRankScore(mutation) {
-  return (
-    0.30 * mutation.severity +
-    0.25 * mutation.realism +
-    0.20 * mutation.subtlety +
-    0.15 * mutation.novelty +
-    0.10 * mutation.fixability
-  );
-}
-
-// ----------------------------------------
-// ATTACK ENGINE
-// ----------------------------------------
-
-function attack(evaluator, mutations) {
-  const results = mutations.map((mutation) => {
-    const passed = evaluator(mutation.output);
-
-    if (
-      passed !== null &&
-      typeof passed === "object" &&
-      typeof passed.then === "function"
-    ) {
-      throw new Error(
-        "Async evaluators are not supported by this deterministic demo."
-      );
-    }
-
-    if (typeof passed !== "boolean") {
-      throw new Error(
-        "Evaluator must return a boolean."
-      );
-    }
-
-    return {
-      ...mutation,
-      evaluatorResult: passed ? "PASS" : "FAIL",
-      survived: passed
-    };
-  });
-
-  const caught = results.filter(
-    (result) => !result.survived
-  );
-
-  const survivors = results
-    .filter((result) => result.survived)
-    .map((survivor) => ({
-      ...survivor,
-      rankScore: calculateRankScore(survivor)
-    }))
-    .sort(
-      (a, b) => b.rankScore - a.rankScore
-    );
-
-  return {
-    results,
-    caught,
-    survivors
-  };
-}
+// Generic attack and survivor-ranking logic lives
+// in ../../src/engine.js.
 
 // ----------------------------------------
 // FIRST ATTACK
@@ -595,10 +538,18 @@ const mutations = generateMutations(
   example.expectedOutput
 );
 
-const before = attack(
-  weakEvaluator,
-  mutations
-);
+const {
+  before,
+  topFinding,
+  proposedProtection,
+  positiveControlPassed,
+  after,
+  improvement
+} = runImprovementLoop({
+  evaluator: weakEvaluator,
+  mutations,
+  knownGoodOutput: example.expectedOutput
+});
 
 console.log("\n================================");
 console.log("GOTCHA — ATTACK");
@@ -657,8 +608,6 @@ before.survivors.forEach(
 // TOP GOTCHA
 // ----------------------------------------
 
-const topFinding = before.survivors[0];
-
 // The evaluator may already catch every mutation.
 // In that case, there is nothing to rank or fix.
 if (!topFinding) {
@@ -695,46 +644,24 @@ console.log("\n================================");
 console.log("CATCH THIS");
 console.log("================================\n");
 
-// The protection now comes from the actual
-// finding selected by the Survivor Ranker.
-const proposedProtection =
-  topFinding.protection;
+// The protection comes from the Top Gotcha
+// selected by the reusable Gotcha engine.
 
 console.log("Proposed protection:");
 console.log(proposedProtection);
 
-// ----------------------------------------
-// IMPROVED EVALUATOR
-// ----------------------------------------
-
-// Keep everything the original evaluator already
-// checked, then add the protection that belongs
-// specifically to the selected Top Gotcha.
-function improvedEvaluator(output) {
-  const passesExistingChecks =
-    weakEvaluator(output);
-
-  const passesNewProtection =
-    topFinding.protectionCheck(output);
-
-  return (
-    passesExistingChecks &&
-    passesNewProtection
-  );
-}
+// Improvement evaluation now lives in
+// the reusable Gotcha engine.
 
 // ----------------------------------------
 // POSITIVE CONTROL
 // ----------------------------------------
 
-const expectedOutputStillPasses =
-  improvedEvaluator(example.expectedOutput);
-
 console.log("\n================================");
 console.log("POSITIVE CONTROL");
 console.log("================================\n");
 
-if (!expectedOutputStillPasses) {
+if (!positiveControlPassed) {
   console.log(
     "❌ The new protection rejects the known-good output."
   );
@@ -753,11 +680,6 @@ console.log(
 // ----------------------------------------
 // RE-ATTACK EVERYTHING
 // ----------------------------------------
-
-const after = attack(
-  improvedEvaluator,
-  mutations
-);
 
 console.log("\n================================");
 console.log("GOTCHA — RE-ATTACK");
@@ -794,10 +716,6 @@ console.log(`Caught: ${after.caught.length}`);
 console.log(
   `Survived: ${after.survivors.length}`
 );
-
-const improvement =
-  before.survivors.length -
-  after.survivors.length;
 
 console.log(
   `\n✅ ${improvement} additional bad behavior(s) are now caught.`
