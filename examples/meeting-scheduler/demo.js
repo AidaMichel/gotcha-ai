@@ -92,12 +92,64 @@ function chooseDifferentTime(time) {
   return `${hour}${minutePart} ${nextMeridiem}`;
 }
 
-function extractScheduledLocation(output) {
-  const match = output.match(
-    /\bat\s+\d{1,2}(?::\d{2})?\s*(?:AM|PM)(?:\s*\([^)]*\))?\s+in\s+(.+?)(?:\.|$)/i
+function chooseDifferentPerson(person) {
+  const normalizedPerson =
+    person.trim().toLowerCase();
+
+  const candidates = [
+    "Maya",
+    "Omar",
+    "Lina",
+    "Noah"
+  ];
+
+  return (
+    candidates.find(
+      (candidate) =>
+        candidate.toLowerCase() !== normalizedPerson
+    ) || "Someone Else"
+  );
+}
+
+function chooseDifferentDay(day) {
+  const days = [
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+    "Sunday"
+  ];
+
+  const index = days.findIndex(
+    (candidate) =>
+      candidate.toLowerCase() ===
+      day.trim().toLowerCase()
   );
 
-  return match ? match[1].trim() : null;
+  if (index === -1) {
+    return "Monday";
+  }
+
+  return days[(index + 1) % days.length];
+}
+
+function extractScheduledLocation(output) {
+  const patterns = [
+    /\b(?:will\s+be\s+held|held)\s+in\s+(.+?)(?:\.|$)/i,
+    /(?:,\s*|\s+)in\s+(.+?)(?:\.|$)/i
+  ];
+
+  for (const pattern of patterns) {
+    const match = output.match(pattern);
+
+    if (match) {
+      return match[1].trim();
+    }
+  }
+
+  return null;
 }
 
 // ----------------------------------------
@@ -106,7 +158,15 @@ function extractScheduledLocation(output) {
 
 function generateMutations(output) {
   const { person, day, time } = example.expected;
-  const wrongTime = chooseDifferentTime(time);
+
+  const wrongTime =
+    chooseDifferentTime(time);
+
+  const wrongPerson =
+    chooseDifferentPerson(person);
+
+  const wrongDay =
+    chooseDifferentDay(day);
 
   return [
     {
@@ -143,7 +203,10 @@ function generateMutations(output) {
       type: "entity-substitution",
       description: "Changes the requested person.",
 
-      output: output.replace(person, "Maya"),
+      output: output.replace(
+        person,
+        wrongPerson
+      ),
 
       severity: 1.0,
       realism: 0.9,
@@ -166,7 +229,10 @@ function generateMutations(output) {
       type: "date-substitution",
       description: "Changes the requested day.",
 
-      output: output.replace(day, "Wednesday"),
+      output: output.replace(
+        day,
+        wrongDay
+      ),
 
       severity: 1.0,
       realism: 0.95,
@@ -214,8 +280,8 @@ function generateMutations(output) {
       // Add the unsupported detail to the supplied output
       // rather than rebuilding the whole response.
       output: output.endsWith(".")
-        ? `${output.slice(0, -1)} in Conference Room B.`
-        : `${output} in Conference Room B.`,
+        ? `${output.slice(0, -1)}, and will be held in Conference Room B.`
+        : `${output}, and will be held in Conference Room B.`,
 
       severity: 0.65,
       realism: 0.8,
