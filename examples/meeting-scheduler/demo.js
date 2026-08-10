@@ -1,64 +1,155 @@
 const example = {
   userInput: "Schedule a meeting with Sara on Tuesday at 3 PM.",
-  expectedOutput: "Meeting scheduled with Sara on Tuesday at 3 PM."
+  expectedOutput: "Meeting scheduled with Sara on Tuesday at 3 PM.",
+  expected: {
+    person: "Sara",
+    day: "Tuesday",
+    time: "3 PM"
+  }
 };
+
+// ----------------------------------------
+// OUTPUT PARSERS
+// ----------------------------------------
+
+// Extract the actual scheduled time.
+//
+// Example:
+// "Meeting scheduled ... at 4 PM (requested: 3 PM)."
+//
+// This returns "4 PM", not "3 PM".
+function extractScheduledTime(output) {
+  const match = output.match(
+    /\bat\s+(\d{1,2}(?::\d{2})?\s*(?:AM|PM))\b/i
+  );
+
+  if (!match) {
+    return null;
+  }
+
+  return match[1]
+    .replace(/\s+/g, " ")
+    .toUpperCase();
+}
+
+function extractScheduledPerson(output) {
+  const match = output.match(
+    /meeting scheduled with (.+?) on /i
+  );
+
+  return match ? match[1].trim() : null;
+}
+
+function extractScheduledDay(output) {
+  const match = output.match(
+    /\bon\s+([A-Za-z]+)(?:\s+at|\.)/i
+  );
+
+  return match ? match[1] : null;
+}
 
 // ----------------------------------------
 // MUTATION ENGINE
 // ----------------------------------------
 
 function generateMutations(output) {
+  const { person, day, time } = example.expected;
+
   return [
     {
       id: "wrong-time",
       type: "value-substitution",
       description: "Changes the requested meeting time.",
-      output: output.replace("3 PM", "4 PM"),
+
+      // This deliberately repeats the requested time elsewhere.
+      // A naive output.includes("3 PM") check would incorrectly pass it.
+      output: output.replace(
+        time,
+        `4 PM (requested: ${time})`
+      ),
 
       severity: 1.0,
       realism: 1.0,
       subtlety: 0.95,
       novelty: 1.0,
-      fixability: 1.0
+      fixability: 1.0,
+
+      protection:
+        "The actual scheduled meeting time must exactly match the time requested by the user.",
+
+      protectionCheck(candidateOutput) {
+        return (
+          extractScheduledTime(candidateOutput) ===
+          time.toUpperCase()
+        );
+      }
     },
 
     {
       id: "wrong-person",
       type: "entity-substitution",
       description: "Changes the requested person.",
-      output: output.replace("Sara", "Maya"),
+
+      output: output.replace(person, "Maya"),
 
       severity: 1.0,
       realism: 0.9,
       subtlety: 0.8,
       novelty: 1.0,
-      fixability: 1.0
+      fixability: 1.0,
+
+      protection:
+        "The scheduled meeting person must match the person requested by the user.",
+
+      protectionCheck(candidateOutput) {
+        return (
+          extractScheduledPerson(candidateOutput) === person
+        );
+      }
     },
 
     {
       id: "wrong-day",
       type: "date-substitution",
       description: "Changes the requested day.",
-      output: output.replace("Tuesday", "Wednesday"),
+
+      output: output.replace(day, "Wednesday"),
 
       severity: 1.0,
       realism: 0.95,
       subtlety: 0.85,
       novelty: 1.0,
-      fixability: 1.0
+      fixability: 1.0,
+
+      protection:
+        "The scheduled meeting day must match the day requested by the user.",
+
+      protectionCheck(candidateOutput) {
+        return extractScheduledDay(candidateOutput) === day;
+      }
     },
 
     {
       id: "missing-time",
       type: "missing-information",
       description: "Removes the explicitly requested time.",
-      output: "Meeting scheduled with Sara on Tuesday.",
+
+      // Remove only the time from the supplied output.
+      // Everything else in the output is preserved.
+      output: output.replace(` at ${time}`, ""),
 
       severity: 0.9,
       realism: 0.95,
       subtlety: 0.85,
       novelty: 0.9,
-      fixability: 0.95
+      fixability: 0.95,
+
+      protection:
+        "An explicitly requested meeting time must be present in the scheduled result.",
+
+      protectionCheck(candidateOutput) {
+        return extractScheduledTime(candidateOutput) !== null;
+      }
     },
 
     {
@@ -66,14 +157,27 @@ function generateMutations(output) {
       type: "unsupported-information",
       description:
         "Invents a meeting location that the user never requested.",
-      output:
-        "Meeting scheduled with Sara on Tuesday at 3 PM in Conference Room B.",
+
+      // Add the unsupported detail to the supplied output
+      // rather than rebuilding the whole response.
+      output: output.endsWith(".")
+        ? `${output.slice(0, -1)} in Conference Room B.`
+        : `${output} in Conference Room B.`,
 
       severity: 0.65,
       realism: 0.8,
       subtlety: 0.7,
       novelty: 0.85,
-      fixability: 0.75
+      fixability: 0.75,
+
+      protection:
+        "The assistant must not invent a meeting location that the user did not provide.",
+
+      protectionCheck(candidateOutput) {
+        return !candidateOutput.includes(
+          "Conference Room B"
+        );
+      }
     }
   ];
 }
@@ -82,9 +186,16 @@ function generateMutations(output) {
 // CURRENT EVALUATOR
 // ----------------------------------------
 
+// Deliberately weak.
+//
+// It checks only whether the expected person and day
+// appear somewhere in the output.
 function weakEvaluator(output) {
-  const hasCorrectPerson = output.includes("Sara");
-  const hasCorrectDay = output.includes("Tuesday");
+  const hasCorrectPerson =
+    output.includes(example.expected.person);
+
+  const hasCorrectDay =
+    output.includes(example.expected.day);
 
   return hasCorrectPerson && hasCorrectDay;
 }
@@ -118,7 +229,9 @@ function attack(evaluator, mutations) {
     };
   });
 
-  const caught = results.filter((result) => !result.survived);
+  const caught = results.filter(
+    (result) => !result.survived
+  );
 
   const survivors = results
     .filter((result) => result.survived)
@@ -126,7 +239,9 @@ function attack(evaluator, mutations) {
       ...survivor,
       rankScore: calculateRankScore(survivor)
     }))
-    .sort((a, b) => b.rankScore - a.rankScore);
+    .sort(
+      (a, b) => b.rankScore - a.rankScore
+    );
 
   return {
     results,
@@ -139,9 +254,14 @@ function attack(evaluator, mutations) {
 // FIRST ATTACK
 // ----------------------------------------
 
-const mutations = generateMutations(example.expectedOutput);
+const mutations = generateMutations(
+  example.expectedOutput
+);
 
-const before = attack(weakEvaluator, mutations);
+const before = attack(
+  weakEvaluator,
+  mutations
+);
 
 console.log("\n================================");
 console.log("GOTCHA — ATTACK");
@@ -153,7 +273,9 @@ console.log(example.userInput);
 console.log("\nExpected:");
 console.log(example.expectedOutput);
 
-console.log(`\nAttacks generated: ${mutations.length}`);
+console.log(
+  `\nAttacks generated: ${mutations.length}`
+);
 
 console.log("\n================================");
 console.log("ATTACK RESULTS");
@@ -161,6 +283,7 @@ console.log("================================");
 
 before.results.forEach((result, index) => {
   console.log(`\n${index + 1}. ${result.id}`);
+  console.log(`Type: ${result.type}`);
   console.log(`Mutation: ${result.output}`);
 
   if (result.survived) {
@@ -179,14 +302,19 @@ console.log("BEFORE FIX");
 console.log("================================\n");
 
 console.log(`Caught: ${before.caught.length}`);
-console.log(`Survived: ${before.survivors.length}`);
+console.log(
+  `Survived: ${before.survivors.length}`
+);
 
-before.survivors.forEach((survivor, index) => {
-  console.log(
-    `\n#${index + 1} ${survivor.id} — score ${survivor.rankScore.toFixed(2)}`
-  );
-  console.log(survivor.output);
-});
+before.survivors.forEach(
+  (survivor, index) => {
+    console.log(
+      `\n#${index + 1} ${survivor.id} — score ${survivor.rankScore.toFixed(2)}`
+    );
+
+    console.log(survivor.output);
+  }
+);
 
 // ----------------------------------------
 // TOP GOTCHA
@@ -194,16 +322,20 @@ before.survivors.forEach((survivor, index) => {
 
 const topFinding = before.survivors[0];
 
-// Important edge case:
-// the evaluator may already catch every mutation.
-// If there are no survivors, there is nothing to rank or fix.
+// The evaluator may already catch every mutation.
+// In that case, there is nothing to rank or fix.
 if (!topFinding) {
   console.log("\n================================");
   console.log("RESULT");
   console.log("================================\n");
 
-  console.log("✅ No current mutations survived.");
-  console.log("There is no Top Gotcha to fix or re-attack.");
+  console.log(
+    "✅ No current mutations survived."
+  );
+
+  console.log(
+    "There is no Top Gotcha to fix or re-attack."
+  );
 
   process.exit(0);
 }
@@ -212,6 +344,7 @@ console.log("\n================================");
 console.log("🚨 TOP GOTCHA");
 console.log("================================\n");
 
+console.log(`Finding: ${topFinding.id}`);
 console.log(topFinding.output);
 
 console.log("\nWhy it matters:");
@@ -225,8 +358,10 @@ console.log("\n================================");
 console.log("CATCH THIS");
 console.log("================================\n");
 
+// The protection now comes from the actual
+// finding selected by the Survivor Ranker.
 const proposedProtection =
-  "The scheduled meeting time must match the time explicitly requested by the user.";
+  topFinding.protection;
 
 console.log("Proposed protection:");
 console.log(proposedProtection);
@@ -235,15 +370,19 @@ console.log(proposedProtection);
 // IMPROVED EVALUATOR
 // ----------------------------------------
 
+// Keep everything the original evaluator already
+// checked, then add the protection that belongs
+// specifically to the selected Top Gotcha.
 function improvedEvaluator(output) {
-  const hasCorrectPerson = output.includes("Sara");
-  const hasCorrectDay = output.includes("Tuesday");
-  const hasCorrectTime = output.includes("3 PM");
+  const passesExistingChecks =
+    weakEvaluator(output);
+
+  const passesNewProtection =
+    topFinding.protectionCheck(output);
 
   return (
-    hasCorrectPerson &&
-    hasCorrectDay &&
-    hasCorrectTime
+    passesExistingChecks &&
+    passesNewProtection
   );
 }
 
@@ -251,7 +390,10 @@ function improvedEvaluator(output) {
 // RE-ATTACK EVERYTHING
 // ----------------------------------------
 
-const after = attack(improvedEvaluator, mutations);
+const after = attack(
+  improvedEvaluator,
+  mutations
+);
 
 console.log("\n================================");
 console.log("GOTCHA — RE-ATTACK");
@@ -261,7 +403,9 @@ after.results.forEach((result, index) => {
   console.log(`\n${index + 1}. ${result.id}`);
 
   if (result.survived) {
-    console.log("Result: 🚨 STILL SURVIVED");
+    console.log(
+      "Result: 🚨 STILL SURVIVED"
+    );
   } else {
     console.log("Result: ✅ CAUGHT");
   }
@@ -277,21 +421,28 @@ console.log("================================\n");
 
 console.log("Before protection:");
 console.log(`Caught: ${before.caught.length}`);
-console.log(`Survived: ${before.survivors.length}`);
+console.log(
+  `Survived: ${before.survivors.length}`
+);
 
 console.log("\nAfter protection:");
 console.log(`Caught: ${after.caught.length}`);
-console.log(`Survived: ${after.survivors.length}`);
+console.log(
+  `Survived: ${after.survivors.length}`
+);
 
 const improvement =
-  before.survivors.length - after.survivors.length;
+  before.survivors.length -
+  after.survivors.length;
 
 console.log(
   `\n✅ ${improvement} additional bad behavior(s) are now caught.`
 );
 
 if (after.survivors.length > 0) {
-  console.log("\n⚠️ Gotcha is not claiming the system is perfect.");
+  console.log(
+    "\n⚠️ Gotcha is not claiming the system is perfect."
+  );
 
   console.log(
     `${after.survivors.length} blind spot(s) still remain:`
@@ -301,5 +452,7 @@ if (after.survivors.length > 0) {
     console.log(`- ${survivor.id}`);
   });
 } else {
-  console.log("\n✅ No current mutations survived.");
+  console.log(
+    "\n✅ No current mutations survived."
+  );
 }
