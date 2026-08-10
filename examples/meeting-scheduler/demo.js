@@ -1,3 +1,5 @@
+const { attack } = require("../../src/engine");
+
 const example = {
   userInput: "Schedule a meeting with Sara on Tuesday at 3 PM.",
   expectedOutput: "Meeting scheduled with Sara on Tuesday at 3 PM.",
@@ -522,70 +524,11 @@ function weakEvaluator(output) {
 }
 
 // ----------------------------------------
-// SURVIVOR RANKER
+// GOTCHA ENGINE
 // ----------------------------------------
 
-function calculateRankScore(mutation) {
-  return (
-    0.30 * mutation.severity +
-    0.25 * mutation.realism +
-    0.20 * mutation.subtlety +
-    0.15 * mutation.novelty +
-    0.10 * mutation.fixability
-  );
-}
-
-// ----------------------------------------
-// ATTACK ENGINE
-// ----------------------------------------
-
-function attack(evaluator, mutations) {
-  const results = mutations.map((mutation) => {
-    const passed = evaluator(mutation.output);
-
-    if (
-      passed !== null &&
-      typeof passed === "object" &&
-      typeof passed.then === "function"
-    ) {
-      throw new Error(
-        "Async evaluators are not supported by this deterministic demo."
-      );
-    }
-
-    if (typeof passed !== "boolean") {
-      throw new Error(
-        "Evaluator must return a boolean."
-      );
-    }
-
-    return {
-      ...mutation,
-      evaluatorResult: passed ? "PASS" : "FAIL",
-      survived: passed
-    };
-  });
-
-  const caught = results.filter(
-    (result) => !result.survived
-  );
-
-  const survivors = results
-    .filter((result) => result.survived)
-    .map((survivor) => ({
-      ...survivor,
-      rankScore: calculateRankScore(survivor)
-    }))
-    .sort(
-      (a, b) => b.rankScore - a.rankScore
-    );
-
-  return {
-    results,
-    caught,
-    survivors
-  };
-}
+// Generic attack and survivor-ranking logic lives
+// in ../../src/engine.js.
 
 // ----------------------------------------
 // FIRST ATTACK
