@@ -47,11 +47,19 @@ function isPromiseLike(value) {
   );
 }
 
-function isAsyncFunction(fn) {
+function isUnsupportedAsyncCallback(
+  fn
+) {
+  const constructorName =
+    fn.constructor !== undefined
+      ? fn.constructor.name
+      : null;
+
   return (
-    fn.constructor !== undefined &&
-    fn.constructor.name ===
-      "AsyncFunction"
+    constructorName ===
+      "AsyncFunction" ||
+    constructorName ===
+      "AsyncGeneratorFunction"
   );
 }
 
@@ -97,7 +105,7 @@ function cloneMutationValue(
   }
 }
 
-function validateMutation(
+function captureMutation(
   mutation,
   index,
   ids
@@ -115,84 +123,109 @@ function validateMutation(
     );
   }
 
+  // Capture every public field once.
+  const id = mutation.id;
+  const type = mutation.type;
+  const description =
+    mutation.description;
+  const mutate = mutation.mutate;
+  const scores = mutation.scores;
+  const protection =
+    mutation.protection;
+
   requireNonEmptyString(
-    mutation.id,
+    id,
     `${label} id`
   );
 
-  if (ids.has(mutation.id)) {
+  if (ids.has(id)) {
     throw new Error(
-      `Duplicate mutation id: ${mutation.id}`
+      `Duplicate mutation id: ${id}`
     );
   }
 
-  ids.add(mutation.id);
+  ids.add(id);
 
   requireNonEmptyString(
-    mutation.type,
+    type,
     `${label} type`
   );
 
   requireNonEmptyString(
-    mutation.description,
+    description,
     `${label} description`
   );
 
   if (
-    typeof mutation.mutate !==
-    "function"
+    typeof mutate !== "function"
   ) {
     throw new Error(
       `${label} mutate must be a function.`
     );
   }
 
-  if (isAsyncFunction(mutation.mutate)) {
+  if (
+    isUnsupportedAsyncCallback(
+      mutate
+    )
+  ) {
     throw new Error(
       "Async mutation functions are not supported by this deterministic compiler."
     );
   }
 
   if (
-    mutation.scores === null ||
-    typeof mutation.scores !==
-      "object" ||
-    Array.isArray(mutation.scores)
+    scores === null ||
+    typeof scores !== "object" ||
+    Array.isArray(scores)
   ) {
     throw new Error(
       `${label} scores must be an object.`
     );
   }
 
+  const capturedScores = {};
+
   SCORE_KEYS.forEach(
     (scoreKey) => {
+      // Read each score exactly once.
+      const score =
+        scores[scoreKey];
+
       requireScore(
-        mutation.scores[scoreKey],
+        score,
         `${label} ${scoreKey}`
       );
+
+      capturedScores[scoreKey] =
+        score;
     }
   );
 
   if (
-    mutation.protection === null ||
-    typeof mutation.protection !==
+    protection === null ||
+    typeof protection !==
       "object" ||
-    Array.isArray(
-      mutation.protection
-    )
+    Array.isArray(protection)
   ) {
     throw new Error(
       `${label} protection must be an object.`
     );
   }
 
+  const protectionDescription =
+    protection.description;
+
+  const protectionCheck =
+    protection.check;
+
   requireNonEmptyString(
-    mutation.protection.description,
+    protectionDescription,
     `${label} protection description`
   );
 
   if (
-    typeof mutation.protection.check !==
+    typeof protectionCheck !==
     "function"
   ) {
     throw new Error(
@@ -201,14 +234,29 @@ function validateMutation(
   }
 
   if (
-    isAsyncFunction(
-      mutation.protection.check
+    isUnsupportedAsyncCallback(
+      protectionCheck
     )
   ) {
     throw new Error(
       "Async protection checks are not supported by this deterministic compiler."
     );
   }
+
+  return {
+    id,
+    type,
+    description,
+    mutate,
+
+    scores: capturedScores,
+
+    protection: {
+      description:
+        protectionDescription,
+      check: protectionCheck
+    }
+  };
 }
 
 function compileMutationPack({
@@ -221,14 +269,14 @@ function compileMutationPack({
     );
   }
 
-  const ids = new Set();
-  const validatedMutations = [];
+  const packLength = pack.length;
+  const packEntries = [];
 
-  // Validate and snapshot the entire pack
-  // before executing any mutation.
+  // Snapshot the pack entries before
+  // reading mutation metadata.
   for (
     let index = 0;
-    index < pack.length;
+    index < packLength;
     index += 1
   ) {
     if (
@@ -242,55 +290,44 @@ function compileMutationPack({
       );
     }
 
-    const mutation = pack[index];
-
-    validateMutation(
-      mutation,
-      index,
-      ids
+    packEntries.push(
+      pack[index]
     );
-
-    validatedMutations.push({
-      id: mutation.id,
-      type: mutation.type,
-      description:
-        mutation.description,
-
-      mutate: mutation.mutate,
-
-      scores: {
-        severity:
-          mutation.scores.severity,
-        realism:
-          mutation.scores.realism,
-        subtlety:
-          mutation.scores.subtlety,
-        novelty:
-          mutation.scores.novelty,
-        fixability:
-          mutation.scores.fixability
-      },
-
-      protection: {
-        description:
-          mutation.protection.description,
-        check:
-          mutation.protection.check
-      }
-    });
   }
+
+  const ids = new Set();
+
+  // Capture and validate the exact
+  // values that compilation will use.
+  const validatedMutations =
+    packEntries.map(
+      (mutation, index) =>
+        captureMutation(
+          mutation,
+          index,
+          ids
+        )
+    );
 
   return validatedMutations.map(
     (mutation) => {
       const mutationInput =
         cloneMutationValue(output);
 
-      const mutatedOutput =
+      const mutationResult =
         rejectPromiseLike(
           mutation.mutate(
             mutationInput
           ),
           "Async mutation functions are not supported by this deterministic compiler."
+        );
+
+      // Isolate the returned value too.
+      // A callback may return a shared
+      // mutable object unrelated to input.
+      const mutatedOutput =
+        cloneMutationValue(
+          mutationResult
         );
 
       return {

@@ -717,3 +717,134 @@ test(
     );
   }
 );
+
+test(
+  "shared mutable mutation results are isolated",
+  () => {
+    const shared = {
+      value: 0
+    };
+
+    const compiled =
+      compileMutationPack({
+        output: "original",
+
+        pack: [
+          makeValidMutation({
+            id: "shared-one",
+
+            mutate() {
+              shared.value = 1;
+              return shared;
+            }
+          }),
+
+          makeValidMutation({
+            id: "shared-two",
+
+            mutate() {
+              shared.value = 2;
+              return shared;
+            }
+          })
+        ]
+      });
+
+    assert.deepEqual(
+      compiled[0].output,
+      {
+        value: 1
+      }
+    );
+
+    assert.deepEqual(
+      compiled[1].output,
+      {
+        value: 2
+      }
+    );
+
+    assert.notEqual(
+      compiled[0].output,
+      shared
+    );
+
+    assert.notEqual(
+      compiled[0].output,
+      compiled[1].output
+    );
+  }
+);
+
+test(
+  "async-generator mutations are rejected",
+  () => {
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: "original",
+
+          pack: [
+            makeValidMutation({
+              async *mutate() {
+                yield "mutated";
+              }
+            })
+          ]
+        });
+      },
+      /Async mutation functions are not supported/
+    );
+  }
+);
+
+test(
+  "score values are captured exactly once",
+  () => {
+    let severityReads = 0;
+
+    const scores = {
+      realism: 0.9,
+      subtlety: 0.8,
+      novelty: 0.7,
+      fixability: 0.6
+    };
+
+    Object.defineProperty(
+      scores,
+      "severity",
+      {
+        enumerable: true,
+
+        get() {
+          severityReads += 1;
+
+          return severityReads === 1
+            ? 0.75
+            : Number.NaN;
+        }
+      }
+    );
+
+    const compiled =
+      compileMutationPack({
+        output: "original",
+
+        pack: [
+          makeValidMutation({
+            scores
+          })
+        ]
+      });
+
+    assert.equal(
+      severityReads,
+      1
+    );
+
+    assert.equal(
+      compiled[0].severity,
+      0.75
+    );
+  }
+);
