@@ -39,8 +39,19 @@ function requireScore(
 function isPromiseLike(value) {
   return (
     value !== null &&
-    typeof value === "object" &&
+    (
+      typeof value === "object" ||
+      typeof value === "function"
+    ) &&
     typeof value.then === "function"
+  );
+}
+
+function isAsyncFunction(fn) {
+  return (
+    fn.constructor !== undefined &&
+    fn.constructor.name ===
+      "AsyncFunction"
   );
 }
 
@@ -150,10 +161,19 @@ function compileMutationPack({
         );
       }
 
+      if (isAsyncFunction(mutation.mutate)) {
+        throw new Error(
+          "Async mutation functions are not supported by this deterministic compiler."
+        );
+      }
+
       const mutatedOutput =
         mutation.mutate(output);
 
       if (isPromiseLike(mutatedOutput)) {
+        Promise.resolve(mutatedOutput)
+          .catch(() => {});
+
         throw new Error(
           "Async mutation functions are not supported by this deterministic compiler."
         );

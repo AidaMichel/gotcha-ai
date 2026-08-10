@@ -356,3 +356,65 @@ test(
     );
   }
 );
+
+test(
+  "rejected native async mutations are rejected before invocation",
+  () => {
+    let invoked = false;
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: "original",
+
+          pack: [
+            makeValidMutation({
+              async mutate() {
+                invoked = true;
+
+                throw new Error(
+                  "should never execute"
+                );
+              }
+            })
+          ]
+        });
+      },
+      /Async mutation functions are not supported/
+    );
+
+    assert.equal(invoked, false);
+  }
+);
+
+test(
+  "promise-returning mutations are rejected safely",
+  async () => {
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: "original",
+
+          pack: [
+            makeValidMutation({
+              mutate() {
+                return Promise.reject(
+                  new Error(
+                    "rejected mutation"
+                  )
+                );
+              }
+            })
+          ]
+        });
+      },
+      /Async mutation functions are not supported/
+    );
+
+    // Give Node one turn to surface an
+    // unhandled rejection if one escaped.
+    await new Promise(
+      (resolve) => setImmediate(resolve)
+    );
+  }
+);
