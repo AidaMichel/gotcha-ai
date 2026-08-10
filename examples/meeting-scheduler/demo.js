@@ -20,24 +20,36 @@ const example = {
 //
 // This returns "4 PM", not "3 PM".
 function parseScheduledMeeting(output) {
-  const match = output.match(
-    /\bMeeting scheduled with (.+?) on ([A-Za-z]+)(?: at (\d{1,2}(?::\d{2})?\s*(?:AM|PM)))?/i
+  const withTime = output.match(
+    /\bMeeting scheduled with (.+?) on (.+?) at ((?:\d{1,2}(?::\d{2})?\s*(?:AM|PM))|(?:(?:[01]?\d|2[0-3]):[0-5]\d))(?=[\s,.(]|$)/i
   );
 
-  if (!match) {
+  if (withTime) {
+    return {
+      fullMatch: withTime[0],
+      index: withTime.index,
+      person: withTime[1].trim(),
+      day: withTime[2].trim(),
+      time: withTime[3]
+        .replace(/\s+/g, " ")
+        .toUpperCase()
+    };
+  }
+
+  const withoutTime = output.match(
+    /\bMeeting scheduled with (.+?) on (.+?)(?=[.,]|$)/i
+  );
+
+  if (!withoutTime) {
     return null;
   }
 
   return {
-    fullMatch: match[0],
-    index: match.index,
-    person: match[1].trim(),
-    day: match[2],
-    time: match[3]
-      ? match[3]
-          .replace(/\s+/g, " ")
-          .toUpperCase()
-      : null
+    fullMatch: withoutTime[0],
+    index: withoutTime.index,
+    person: withoutTime[1].trim(),
+    day: withoutTime[2].trim(),
+    time: null
   };
 }
 
@@ -115,46 +127,73 @@ function mutateScheduledMeeting(
 }
 
 function chooseDifferentTime(time) {
-  const match = time.trim().match(
+  const normalized = time.trim();
+
+  const twelveHourMatch = normalized.match(
     /^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)$/i
   );
 
-  if (!match) {
-    throw new Error(`Unsupported time format: ${time}`);
+  if (twelveHourMatch) {
+    let hour = Number(twelveHourMatch[1]);
+    const minutes =
+      Number(twelveHourMatch[2] ?? "0");
+    const meridiem =
+      twelveHourMatch[3].toUpperCase();
+
+    if (
+      hour < 1 ||
+      hour > 12 ||
+      minutes < 0 ||
+      minutes > 59
+    ) {
+      throw new Error(`Invalid time: ${time}`);
+    }
+
+    let hour24 =
+      (hour % 12) +
+      (meridiem === "PM" ? 12 : 0);
+
+    hour24 = (hour24 + 1) % 24;
+
+    const nextMeridiem =
+      hour24 >= 12 ? "PM" : "AM";
+
+    hour = hour24 % 12;
+
+    if (hour === 0) {
+      hour = 12;
+    }
+
+    const minutePart = twelveHourMatch[2]
+      ? `:${String(minutes).padStart(2, "0")}`
+      : "";
+
+    return `${hour}${minutePart} ${nextMeridiem}`;
   }
 
-  let hour = Number(match[1]);
-  const minutes = Number(match[2] ?? "0");
-  const meridiem = match[3].toUpperCase();
+  const twentyFourHourMatch = normalized.match(
+    /^([01]?\d|2[0-3]):([0-5]\d)$/
+  );
 
-  if (
-    hour < 1 ||
-    hour > 12 ||
-    minutes < 0 ||
-    minutes > 59
-  ) {
-    throw new Error(`Invalid time: ${time}`);
+  if (twentyFourHourMatch) {
+    const hour =
+      Number(twentyFourHourMatch[1]);
+
+    const minutes =
+      twentyFourHourMatch[2];
+
+    const nextHour =
+      (hour + 1) % 24;
+
+    return (
+      `${String(nextHour).padStart(2, "0")}:` +
+      minutes
+    );
   }
 
-  let hour24 =
-    (hour % 12) + (meridiem === "PM" ? 12 : 0);
-
-  hour24 = (hour24 + 1) % 24;
-
-  const nextMeridiem =
-    hour24 >= 12 ? "PM" : "AM";
-
-  hour = hour24 % 12;
-
-  if (hour === 0) {
-    hour = 12;
-  }
-
-  const minutePart = match[2]
-    ? `:${String(minutes).padStart(2, "0")}`
-    : "";
-
-  return `${hour}${minutePart} ${nextMeridiem}`;
+  throw new Error(
+    `Unsupported time format: ${time}`
+  );
 }
 
 function chooseDifferentPerson(person) {
@@ -200,22 +239,39 @@ function chooseDifferentDay(day) {
   return days[(index + 1) % days.length];
 }
 
-function extractScheduledLocation(output) {
-  const heldLocation = output.match(
-    /\b(?:meeting\s+)?(?:will\s+be\s+held|is\s+held|held)\s+in\s+(.+?)(?=[.,]|$)/i
-  );
+function extractScheduledLocations(output) {
+  const locations = [];
 
-  if (heldLocation) {
-    return heldLocation[1].trim();
+  const scheduled =
+    parseScheduledMeeting(output);
+
+  if (scheduled) {
+    const tail = output.slice(
+      scheduled.index +
+      scheduled.fullMatch.length
+    );
+
+    const directLocation = tail.match(
+      /^\s*,?\s+in\s+(.+?)(?=[.,]|$)/i
+    );
+
+    if (directLocation) {
+      locations.push(
+        directLocation[1].trim()
+      );
+    }
   }
 
-  const directLocation = output.match(
-    /\bMeeting scheduled with .+? on [A-Za-z]+(?: at \d{1,2}(?::\d{2})?\s*(?:AM|PM)(?:\s*\([^)]*\))?)?\s*,?\s+in\s+(.+?)(?=[.,]|$)/i
-  );
+  const heldPattern =
+    /\b(?:meeting\s+)?(?:will\s+be\s+held|is\s+held|held)\s+in\s+(.+?)(?=[.,]|$)/gi;
 
-  return directLocation
-    ? directLocation[1].trim()
-    : null;
+  for (
+    const match of output.matchAll(heldPattern)
+  ) {
+    locations.push(match[1].trim());
+  }
+
+  return locations;
 }
 
 // ----------------------------------------
@@ -371,15 +427,19 @@ function generateMutations(output) {
         "The assistant must not invent a meeting location that the user did not provide.",
 
       protectionCheck(candidateOutput) {
-        const actualLocation =
-          extractScheduledLocation(candidateOutput);
+        const actualLocations =
+          extractScheduledLocations(
+            candidateOutput
+          );
 
         if (example.expected.location === null) {
-          return actualLocation === null;
+          return actualLocations.length === 0;
         }
 
         return (
-          actualLocation === example.expected.location
+          actualLocations.length === 1 &&
+          actualLocations[0] ===
+            example.expected.location
         );
       }
     }
