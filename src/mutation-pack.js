@@ -25,6 +25,11 @@ const safePromiseSpecies =
     [Symbol.species]: Promise
   });
 
+const callbackReceiver =
+  Object.freeze(
+    Object.create(null)
+  );
+
 const SCORE_KEYS = [
   "severity",
   "realism",
@@ -145,6 +150,77 @@ function isNativeCallbackSource(
 
   return (
     /^function(?:\s+[^()]*)?\s*\([^)]*\)\s*\{\s*\[native code\]\s*\}$/
+      .test(source.trim())
+  );
+}
+
+function isOrdinaryObjectPrototype(
+  prototype
+) {
+  if (
+    prototype === null ||
+    typeof prototype !== "object" ||
+    utilTypes.isProxy(prototype)
+  ) {
+    return false;
+  }
+
+  const constructorDescriptor =
+    Reflect.apply(
+      getOwnPropertyDescriptor,
+      Object,
+      [
+        prototype,
+        "constructor"
+      ]
+    );
+
+  if (
+    constructorDescriptor ===
+      undefined ||
+    "get" in constructorDescriptor ||
+    "set" in constructorDescriptor ||
+    typeof constructorDescriptor
+      .value !== "function" ||
+    utilTypes.isProxy(
+      constructorDescriptor.value
+    )
+  ) {
+    return false;
+  }
+
+  const constructor =
+    constructorDescriptor.value;
+
+  const prototypeDescriptor =
+    Reflect.apply(
+      getOwnPropertyDescriptor,
+      Object,
+      [
+        constructor,
+        "prototype"
+      ]
+    );
+
+  if (
+    prototypeDescriptor ===
+      undefined ||
+    "get" in prototypeDescriptor ||
+    "set" in prototypeDescriptor ||
+    prototypeDescriptor.value !==
+      prototype
+  ) {
+    return false;
+  }
+
+  const source =
+    getCallbackSource(
+      constructor
+    );
+
+  return (
+    typeof source === "string" &&
+    /^function\s+Object\s*\(\s*\)\s*\{\s*\[native code\]\s*\}$/
       .test(source.trim())
   );
 }
@@ -477,14 +553,10 @@ function validateMutationValue(
       );
     }
   } else if (
-    prototype === null ||
-    Object.getPrototypeOf(
+    !isOrdinaryObjectPrototype(
       prototype
-    ) !== null
+    )
   ) {
-    // An ordinary object's prototype is
-    // that realm's Object.prototype,
-    // whose own prototype is null.
     throw new Error(
       `${label} must use only primitives, ordinary arrays, and plain objects.`
     );
@@ -973,6 +1045,31 @@ function compileMutationPack({
 
   return validatedMutations.map(
     (mutation) => {
+      const id = mutation.id;
+      const type = mutation.type;
+      const description =
+        mutation.description;
+      const mutate =
+        mutation.mutate;
+
+      const severity =
+        mutation.scores.severity;
+      const realism =
+        mutation.scores.realism;
+      const subtlety =
+        mutation.scores.subtlety;
+      const novelty =
+        mutation.scores.novelty;
+      const fixability =
+        mutation.scores.fixability;
+
+      const protectionDescription =
+        mutation.protection
+          .description;
+
+      const protectionCheck =
+        mutation.protection.check;
+
       const mutationInput =
         cloneMutationValue(
           sourceOutputSnapshot,
@@ -981,8 +1078,12 @@ function compileMutationPack({
 
       const mutationResult =
         rejectPromiseLike(
-          mutation.mutate(
-            mutationInput
+          Reflect.apply(
+            mutate,
+            callbackReceiver,
+            [
+              mutationInput
+            ]
           ),
           "Async mutation functions are not supported by this deterministic compiler."
         );
@@ -997,29 +1098,23 @@ function compileMutationPack({
         );
 
       return {
-        id: mutation.id,
-        type: mutation.type,
-        description:
-          mutation.description,
+        id,
+        type,
+        description,
 
         output:
           freezeMutationValue(
             mutatedOutput
           ),
 
-        severity:
-          mutation.scores.severity,
-        realism:
-          mutation.scores.realism,
-        subtlety:
-          mutation.scores.subtlety,
-        novelty:
-          mutation.scores.novelty,
-        fixability:
-          mutation.scores.fixability,
+        severity,
+        realism,
+        subtlety,
+        novelty,
+        fixability,
 
         protection:
-          mutation.protection.description,
+          protectionDescription,
 
         protectionCheck(
           candidateOutput
@@ -1031,8 +1126,12 @@ function compileMutationPack({
             );
 
           return rejectPromiseLike(
-            mutation.protection.check(
-              protectionInput
+            Reflect.apply(
+              protectionCheck,
+              callbackReceiver,
+              [
+                protectionInput
+              ]
             ),
             "Async protection checks are not supported by this deterministic compiler."
           );

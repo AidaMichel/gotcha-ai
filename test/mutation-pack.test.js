@@ -2347,3 +2347,185 @@ test(
     );
   }
 );
+
+test(
+  "custom null-rooted prototypes are rejected before mutation execution",
+  () => {
+    class CustomOutput {
+      constructor() {
+        this.value = 1;
+      }
+
+      read() {
+        return this.value;
+      }
+    }
+
+    Object.setPrototypeOf(
+      CustomOutput.prototype,
+      null
+    );
+
+    let mutationCalls = 0;
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output:
+            new CustomOutput(),
+
+          pack: [
+            makeValidMutation({
+              mutate(output) {
+                mutationCalls += 1;
+
+                return output;
+              }
+            })
+          ]
+        });
+      },
+      /plain objects/
+    );
+
+    assert.equal(
+      mutationCalls,
+      0
+    );
+  }
+);
+
+test(
+  "mutation callbacks do not receive captured metadata as this",
+  () => {
+    let callbackThis;
+
+    const compiled =
+      compileMutationPack({
+        output: "original",
+
+        pack: [
+          makeValidMutation({
+            mutate(output) {
+              callbackThis = this;
+
+              if (
+                this &&
+                this.scores
+              ) {
+                this.scores.severity =
+                  Number.NaN;
+              }
+
+              return `${output}-safe`;
+            }
+          })
+        ]
+      });
+
+    assert.equal(
+      Object.isFrozen(
+        callbackThis
+      ),
+      true
+    );
+
+    assert.equal(
+      Object.getPrototypeOf(
+        callbackThis
+      ),
+      null
+    );
+
+    assert.equal(
+      callbackThis.id,
+      undefined
+    );
+
+    assert.equal(
+      callbackThis.scores,
+      undefined
+    );
+
+    assert.equal(
+      compiled[0].severity,
+      1
+    );
+
+    assert.equal(
+      compiled[0].id,
+      "wrong-value"
+    );
+
+    assert.equal(
+      compiled[0].output,
+      "original-safe"
+    );
+  }
+);
+
+test(
+  "protection callbacks do not receive captured metadata as this",
+  () => {
+    let callbackThis;
+
+    function protectionCheck(
+      output
+    ) {
+      callbackThis = this;
+
+      return (
+        output === "candidate"
+      );
+    }
+
+    const compiled =
+      compileMutationPack({
+        output: "original",
+
+        pack: [
+          makeValidMutation({
+            protection: {
+              description:
+                "Detached protection.",
+
+              check:
+                protectionCheck
+            }
+          })
+        ]
+      });
+
+    assert.equal(
+      compiled[0]
+        .protectionCheck(
+          "candidate"
+        ),
+      true
+    );
+
+    assert.equal(
+      Object.isFrozen(
+        callbackThis
+      ),
+      true
+    );
+
+    assert.equal(
+      Object.getPrototypeOf(
+        callbackThis
+      ),
+      null
+    );
+
+    assert.equal(
+      callbackThis.description,
+      undefined
+    );
+
+    assert.equal(
+      callbackThis.check,
+      undefined
+    );
+  }
+);
