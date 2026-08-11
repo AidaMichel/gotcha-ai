@@ -2,6 +2,15 @@ const {
   types: utilTypes
 } = require("node:util");
 
+const functionToString =
+  Function.prototype.toString;
+
+const promiseThen =
+  Promise.prototype.then;
+
+const promiseResolve =
+  Promise.resolve.bind(Promise);
+
 const SCORE_KEYS = [
   "severity",
   "realism",
@@ -40,7 +49,15 @@ function requireScore(
   }
 }
 
-function isPromiseLike(value) {
+function isPromiseLike(
+  value
+) {
+  if (
+    utilTypes.isPromise(value)
+  ) {
+    return true;
+  }
+
   return (
     value !== null &&
     (
@@ -51,11 +68,85 @@ function isPromiseLike(value) {
   );
 }
 
-function isUnsupportedAsyncCallback(
+function isUnsupportedCallbackWrapper(
   fn
 ) {
-  return utilTypes.isAsyncFunction(
-    fn
+  try {
+    const source =
+      Reflect.apply(
+        functionToString,
+        fn,
+        []
+      );
+
+    return source.includes(
+      "[native code]"
+    );
+  } catch {
+    return true;
+  }
+}
+
+function requireSyncCallback(
+  fn,
+  asyncMessage,
+  wrapperMessage
+) {
+  if (
+    utilTypes.isAsyncFunction(fn)
+  ) {
+    throw new Error(
+      asyncMessage
+    );
+  }
+
+  // Bound functions, callable proxies,
+  // and native functions stringify as
+  // native-code wrappers. Their original
+  // callback kind cannot be inspected
+  // safely without invocation.
+  if (
+    isUnsupportedCallbackWrapper(
+      fn
+    )
+  ) {
+    throw new Error(
+      wrapperMessage
+    );
+  }
+}
+
+function consumePromiseRejection(
+  value
+) {
+  if (
+    utilTypes.isPromise(value)
+  ) {
+    // Use the intrinsic directly so an
+    // own `then` or `catch` property
+    // cannot hide a native Promise.
+    Reflect.apply(
+      promiseThen,
+      value,
+      [
+        undefined,
+        () => {}
+      ]
+    );
+
+    return;
+  }
+
+  const normalized =
+    promiseResolve(value);
+
+  Reflect.apply(
+    promiseThen,
+    normalized,
+    [
+      undefined,
+      () => {}
+    ]
   );
 }
 
@@ -67,8 +158,9 @@ function rejectPromiseLike(
     return value;
   }
 
-  Promise.resolve(value)
-    .catch(() => {});
+  consumePromiseRejection(
+    value
+  );
 
   throw new Error(message);
 }
@@ -102,9 +194,9 @@ function validateMutationValue(
   }
 
   if (
-    typeof SharedArrayBuffer !==
-      "undefined" &&
-    value instanceof SharedArrayBuffer
+    utilTypes.isSharedArrayBuffer(
+      value
+    )
   ) {
     throw new Error(
       `${label} must not contain SharedArrayBuffer values.`
@@ -341,15 +433,11 @@ function captureMutation(
     );
   }
 
-  if (
-    isUnsupportedAsyncCallback(
-      mutate
-    )
-  ) {
-    throw new Error(
-      "Async mutation functions are not supported by this deterministic compiler."
-    );
-  }
+  requireSyncCallback(
+    mutate,
+    "Async mutation functions are not supported by this deterministic compiler.",
+    "Bound, proxied, or native mutation callbacks are not supported by this deterministic compiler."
+  );
 
   if (
     scores === null ||
@@ -410,15 +498,11 @@ function captureMutation(
     );
   }
 
-  if (
-    isUnsupportedAsyncCallback(
-      protectionCheck
-    )
-  ) {
-    throw new Error(
-      "Async protection checks are not supported by this deterministic compiler."
-    );
-  }
+  requireSyncCallback(
+    protectionCheck,
+    "Async protection checks are not supported by this deterministic compiler.",
+    "Bound, proxied, or native protection callbacks are not supported by this deterministic compiler."
+  );
 
   return {
     id,

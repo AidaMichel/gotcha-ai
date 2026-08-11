@@ -1302,3 +1302,213 @@ test(
     );
   }
 );
+
+test(
+  "bound async mutations are rejected before invocation",
+  () => {
+    let invoked = false;
+
+    async function asyncMutation() {
+      invoked = true;
+      return "mutated";
+    }
+
+    const boundMutation =
+      asyncMutation.bind(null);
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: "original",
+
+          pack: [
+            makeValidMutation({
+              mutate:
+                boundMutation
+            })
+          ]
+        });
+      },
+      /Bound, proxied, or native mutation callbacks/
+    );
+
+    assert.equal(
+      invoked,
+      false
+    );
+  }
+);
+
+test(
+  "bound async protection checks are rejected before mutations execute",
+  () => {
+    let mutationInvoked = false;
+
+    async function asyncProtection() {
+      return true;
+    }
+
+    const boundProtection =
+      asyncProtection.bind(null);
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: "original",
+
+          pack: [
+            makeValidMutation({
+              mutate(output) {
+                mutationInvoked = true;
+                return output;
+              },
+
+              protection: {
+                description:
+                  "Bound protection.",
+
+                check:
+                  boundProtection
+              }
+            })
+          ]
+        });
+      },
+      /Bound, proxied, or native protection callbacks/
+    );
+
+    assert.equal(
+      mutationInvoked,
+      false
+    );
+  }
+);
+
+test(
+  "SharedArrayBuffer is rejected even after prototype replacement",
+  () => {
+    if (
+      typeof SharedArrayBuffer ===
+      "undefined"
+    ) {
+      return;
+    }
+
+    const shared =
+      new SharedArrayBuffer(8);
+
+    Object.setPrototypeOf(
+      shared,
+      Object.prototype
+    );
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: shared,
+
+          pack: [
+            makeValidMutation()
+          ]
+        });
+      },
+      /SharedArrayBuffer/
+    );
+  }
+);
+
+test(
+  "rejected native mutation promises with shadowed then are consumed safely",
+  async () => {
+    function mutation() {
+      const rejected =
+        Promise.reject(
+          new Error("boom")
+        );
+
+      Object.defineProperty(
+        rejected,
+        "then",
+        {
+          value: null,
+          configurable: true
+        }
+      );
+
+      return rejected;
+    }
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: "original",
+
+          pack: [
+            makeValidMutation({
+              mutate: mutation
+            })
+          ]
+        });
+      },
+      /Async mutation functions are not supported/
+    );
+
+    await new Promise(
+      (resolve) =>
+        setImmediate(resolve)
+    );
+  }
+);
+
+test(
+  "rejected native protection promises with shadowed then are consumed safely",
+  async () => {
+    function protection() {
+      const rejected =
+        Promise.reject(
+          new Error("boom")
+        );
+
+      Object.defineProperty(
+        rejected,
+        "then",
+        {
+          value: null,
+          configurable: true
+        }
+      );
+
+      return rejected;
+    }
+
+    const compiled =
+      compileMutationPack({
+        output: "original",
+
+        pack: [
+          makeValidMutation({
+            protection: {
+              description:
+                "Promise protection.",
+              check: protection
+            }
+          })
+        ]
+      });
+
+    assert.throws(
+      () => {
+        compiled[0]
+          .protectionCheck(
+            "candidate"
+          );
+      },
+      /Async protection checks are not supported/
+    );
+
+    await new Promise(
+      (resolve) =>
+        setImmediate(resolve)
+    );
+  }
+);
