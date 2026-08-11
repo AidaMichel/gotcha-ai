@@ -8,9 +8,6 @@ const functionToString =
 const promiseThen =
   Promise.prototype.then;
 
-const promiseResolve =
-  Promise.resolve.bind(Promise);
-
 const getOwnPropertyDescriptor =
   Object.getOwnPropertyDescriptor;
 
@@ -72,39 +69,98 @@ function isPromiseLike(
     return true;
   }
 
-  return (
-    value !== null &&
+  if (
+    value === null ||
     (
-      typeof value === "object" ||
-      typeof value === "function"
-    ) &&
-    typeof value.then === "function"
+      typeof value !== "object" &&
+      typeof value !== "function"
+    )
+  ) {
+    return false;
+  }
+
+  // Do not perform reflection through
+  // user-controlled Proxy traps.
+  if (
+    utilTypes.isProxy(value)
+  ) {
+    return false;
+  }
+
+  const thenDescriptor =
+    Reflect.apply(
+      getOwnPropertyDescriptor,
+      Object,
+      [
+        value,
+        "then"
+      ]
+    );
+
+  if (
+    thenDescriptor === undefined
+  ) {
+    return false;
+  }
+
+  // Accessor-based values belong to the
+  // unsupported deterministic-data path.
+  // Never invoke the getter here.
+  if (
+    "get" in thenDescriptor ||
+    "set" in thenDescriptor
+  ) {
+    return false;
+  }
+
+  return (
+    typeof thenDescriptor.value ===
+    "function"
   );
 }
 
-function isUnsupportedCallbackWrapper(
+function getCallbackSource(
   fn
 ) {
   try {
-    const source =
-      Reflect.apply(
-        functionToString,
-        fn,
-        []
-      );
-
-    return source.includes(
-      "[native code]"
+    return Reflect.apply(
+      functionToString,
+      fn,
+      []
     );
   } catch {
+    return null;
+  }
+}
+
+function isNativeCallbackSource(
+  source
+) {
+  if (source === null) {
     return true;
   }
+
+  return (
+    /^function(?:\s+[^()]*)?\s*\([^)]*\)\s*\{\s*\[native code\]\s*\}$/
+      .test(source.trim())
+  );
+}
+
+function isClassConstructorSource(
+  source
+) {
+  return (
+    typeof source === "string" &&
+    /^class(?:\s|\{)/
+      .test(source.trimStart())
+  );
 }
 
 function requireSyncCallback(
   fn,
   asyncMessage,
-  wrapperMessage
+  wrapperMessage,
+  classMessage
 ) {
   if (
     utilTypes.isAsyncFunction(fn)
@@ -114,14 +170,25 @@ function requireSyncCallback(
     );
   }
 
-  // Bound functions, callable proxies,
-  // and native functions stringify as
-  // native-code wrappers. Their original
-  // callback kind cannot be inspected
-  // safely without invocation.
+  const source =
+    getCallbackSource(fn);
+
   if (
-    isUnsupportedCallbackWrapper(
-      fn
+    isClassConstructorSource(
+      source
+    )
+  ) {
+    throw new Error(
+      classMessage
+    );
+  }
+
+  // Bound functions, callable proxies,
+  // and native functions have the exact
+  // native-function representation.
+  if (
+    isNativeCallbackSource(
+      source
     )
   ) {
     throw new Error(
@@ -220,21 +287,10 @@ function consumePromiseRejection(
     consumeNativePromiseRejection(
       value
     );
-
-    return;
   }
 
-  const normalized =
-    promiseResolve(value);
-
-  Reflect.apply(
-    promiseThen,
-    normalized,
-    [
-      undefined,
-      () => {}
-    ]
-  );
+  // Non-native thenables are rejected
+  // without invoking their `then`.
 }
 
 function rejectPromiseLike(
@@ -621,7 +677,8 @@ function captureMutation(
   requireSyncCallback(
     mutate,
     "Async mutation functions are not supported by this deterministic compiler.",
-    "Bound, proxied, or native mutation callbacks are not supported by this deterministic compiler."
+    "Bound, proxied, or native mutation callbacks are not supported by this deterministic compiler.",
+    "Class constructors cannot be used as mutation callbacks in this deterministic compiler."
   );
 
   if (
@@ -686,7 +743,8 @@ function captureMutation(
   requireSyncCallback(
     protectionCheck,
     "Async protection checks are not supported by this deterministic compiler.",
-    "Bound, proxied, or native protection callbacks are not supported by this deterministic compiler."
+    "Bound, proxied, or native protection callbacks are not supported by this deterministic compiler.",
+    "Class constructors cannot be used as protection callbacks in this deterministic compiler."
   );
 
   return {

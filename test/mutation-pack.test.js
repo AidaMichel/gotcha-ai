@@ -1705,3 +1705,196 @@ test(
     );
   }
 );
+
+test(
+  "native-code text inside an ordinary callback does not cause rejection",
+  () => {
+    function mutation(output) {
+      const marker =
+        "[native code]";
+
+      return marker
+        ? `${output}-safe`
+        : output;
+    }
+
+    const compiled =
+      compileMutationPack({
+        output: "original",
+
+        pack: [
+          makeValidMutation({
+            mutate: mutation
+          })
+        ]
+      });
+
+    assert.equal(
+      compiled[0].output,
+      "original-safe"
+    );
+  }
+);
+
+test(
+  "then accessors on mutation results are rejected without invocation",
+  () => {
+    let getterReads = 0;
+
+    const result = {};
+
+    Object.defineProperty(
+      result,
+      "then",
+      {
+        enumerable: true,
+        configurable: true,
+
+        get() {
+          getterReads += 1;
+
+          return undefined;
+        }
+      }
+    );
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: "original",
+
+          pack: [
+            makeValidMutation({
+              mutate() {
+                return result;
+              }
+            })
+          ]
+        });
+      },
+      /accessor properties/
+    );
+
+    assert.equal(
+      getterReads,
+      0
+    );
+  }
+);
+
+test(
+  "non-native thenables are rejected without invoking then",
+  () => {
+    let thenCalls = 0;
+
+    const thenable = {
+      then() {
+        thenCalls += 1;
+      }
+    };
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: "original",
+
+          pack: [
+            makeValidMutation({
+              mutate() {
+                return thenable;
+              }
+            })
+          ]
+        });
+      },
+      /Async mutation functions are not supported/
+    );
+
+    assert.equal(
+      thenCalls,
+      0
+    );
+  }
+);
+
+test(
+  "class mutation callbacks are rejected before any mutation executes",
+  () => {
+    let mutationCalls = 0;
+
+    class InvalidMutation {}
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: "original",
+
+          pack: [
+            makeValidMutation({
+              id: "first",
+
+              mutate(output) {
+                mutationCalls += 1;
+
+                return output;
+              }
+            }),
+
+            makeValidMutation({
+              id: "class-mutation",
+              mutate:
+                InvalidMutation
+            })
+          ]
+        });
+      },
+      /Class constructors cannot be used as mutation callbacks/
+    );
+
+    assert.equal(
+      mutationCalls,
+      0
+    );
+  }
+);
+
+test(
+  "class protection callbacks are rejected before mutations execute",
+  () => {
+    let mutationCalls = 0;
+
+    class InvalidProtection {}
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: "original",
+
+          pack: [
+            makeValidMutation({
+              mutate(output) {
+                mutationCalls += 1;
+
+                return output;
+              },
+
+              protection: {
+                description:
+                  "Invalid class protection.",
+
+                check:
+                  InvalidProtection
+              }
+            })
+          ]
+        });
+      },
+      /Class constructors cannot be used as protection callbacks/
+    );
+
+    assert.equal(
+      mutationCalls,
+      0
+    );
+  }
+);
