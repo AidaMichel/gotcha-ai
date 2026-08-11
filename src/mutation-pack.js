@@ -11,6 +11,20 @@ const promiseThen =
 const promiseResolve =
   Promise.resolve.bind(Promise);
 
+const getOwnPropertyDescriptor =
+  Object.getOwnPropertyDescriptor;
+
+const defineProperty =
+  Object.defineProperty;
+
+const deleteProperty =
+  Reflect.deleteProperty;
+
+const safePromiseSpecies =
+  Object.freeze({
+    [Symbol.species]: Promise
+  });
+
 const SCORE_KEYS = [
   "severity",
   "realism",
@@ -116,15 +130,48 @@ function requireSyncCallback(
   }
 }
 
-function consumePromiseRejection(
+function consumeNativePromiseRejection(
   value
 ) {
-  if (
-    utilTypes.isPromise(value)
-  ) {
-    // Use the intrinsic directly so an
-    // own `then` or `catch` property
-    // cannot hide a native Promise.
+  const originalConstructor =
+    Reflect.apply(
+      getOwnPropertyDescriptor,
+      Object,
+      [
+        value,
+        "constructor"
+      ]
+    );
+
+  let constructorShadowed =
+    false;
+
+  try {
+    if (
+      originalConstructor ===
+        undefined ||
+      originalConstructor.configurable
+    ) {
+      Reflect.apply(
+        defineProperty,
+        Object,
+        [
+          value,
+          "constructor",
+          {
+            value:
+              safePromiseSpecies,
+            configurable: true,
+            enumerable: false,
+            writable: false
+          }
+        ]
+      );
+
+      constructorShadowed =
+        true;
+    }
+
     Reflect.apply(
       promiseThen,
       value,
@@ -132,6 +179,46 @@ function consumePromiseRejection(
         undefined,
         () => {}
       ]
+    );
+  } finally {
+    if (
+      constructorShadowed
+    ) {
+      if (
+        originalConstructor ===
+          undefined
+      ) {
+        Reflect.apply(
+          deleteProperty,
+          Reflect,
+          [
+            value,
+            "constructor"
+          ]
+        );
+      } else {
+        Reflect.apply(
+          defineProperty,
+          Object,
+          [
+            value,
+            "constructor",
+            originalConstructor
+          ]
+        );
+      }
+    }
+  }
+}
+
+function consumePromiseRejection(
+  value
+) {
+  if (
+    utilTypes.isPromise(value)
+  ) {
+    consumeNativePromiseRejection(
+      value
     );
 
     return;
@@ -165,6 +252,61 @@ function rejectPromiseLike(
   throw new Error(message);
 }
 
+function hasUnsupportedIntrinsicBrand(
+  value
+) {
+  return (
+    utilTypes.isAnyArrayBuffer(
+      value
+    ) ||
+    utilTypes.isArrayBufferView(
+      value
+    ) ||
+    utilTypes.isArgumentsObject(
+      value
+    ) ||
+    utilTypes.isBoxedPrimitive(
+      value
+    ) ||
+    utilTypes.isDate(
+      value
+    ) ||
+    utilTypes.isGeneratorObject(
+      value
+    ) ||
+    utilTypes.isMap(
+      value
+    ) ||
+    utilTypes.isMapIterator(
+      value
+    ) ||
+    utilTypes.isModuleNamespaceObject(
+      value
+    ) ||
+    utilTypes.isNativeError(
+      value
+    ) ||
+    utilTypes.isPromise(
+      value
+    ) ||
+    utilTypes.isRegExp(
+      value
+    ) ||
+    utilTypes.isSet(
+      value
+    ) ||
+    utilTypes.isSetIterator(
+      value
+    ) ||
+    utilTypes.isWeakMap(
+      value
+    ) ||
+    utilTypes.isWeakSet(
+      value
+    )
+  );
+}
+
 function validateMutationValue(
   value,
   label,
@@ -194,6 +336,14 @@ function validateMutationValue(
   }
 
   if (
+    utilTypes.isProxy(value)
+  ) {
+    throw new Error(
+      `${label} must not contain Proxy values.`
+    );
+  }
+
+  if (
     utilTypes.isSharedArrayBuffer(
       value
     )
@@ -209,6 +359,16 @@ function validateMutationValue(
   ) {
     throw new Error(
       `${label} must not contain Buffer values.`
+    );
+  }
+
+  if (
+    hasUnsupportedIntrinsicBrand(
+      value
+    )
+  ) {
+    throw new Error(
+      `${label} must use only primitives, ordinary arrays, and plain objects.`
     );
   }
 
@@ -337,8 +497,33 @@ function cloneMutationValue(
   }
 
   try {
-    return structuredClone(value);
-  } catch {
+    const cloned =
+      structuredClone(value);
+
+    validateMutationValue(
+      cloned,
+      `${label} clone`
+    );
+
+    return cloned;
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (
+        error.message.includes(
+          "must use only primitives"
+        ) ||
+        error.message.includes(
+          "must not contain"
+        ) ||
+        error.message.includes(
+          "ordinary"
+        )
+      )
+    ) {
+      throw error;
+    }
+
     throw new Error(
       `${label} must be safely cloneable plain structured data.`
     );

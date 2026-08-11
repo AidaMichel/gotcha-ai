@@ -1512,3 +1512,196 @@ test(
     );
   }
 );
+
+test(
+  "branded mutable objects remain rejected after prototype replacement",
+  () => {
+    const brandedValues = [
+      new Map(),
+      new Date(),
+      new ArrayBuffer(8),
+      new DataView(
+        new ArrayBuffer(8)
+      )
+    ];
+
+    for (
+      const value of brandedValues
+    ) {
+      Object.setPrototypeOf(
+        value,
+        Object.prototype
+      );
+
+      assert.throws(
+        () => {
+          compileMutationPack({
+            output: value,
+
+            pack: [
+              makeValidMutation()
+            ]
+          });
+        },
+        /plain objects/
+      );
+    }
+  }
+);
+
+test(
+  "proxied source outputs are rejected before reflection traps execute",
+  () => {
+    let trapCalls = 0;
+
+    const proxy =
+      new Proxy(
+        {
+          value: 1
+        },
+        {
+          getPrototypeOf() {
+            trapCalls += 1;
+
+            return Object.prototype;
+          },
+
+          ownKeys() {
+            trapCalls += 1;
+
+            return [
+              "value"
+            ];
+          },
+
+          getOwnPropertyDescriptor(
+            target,
+            key
+          ) {
+            trapCalls += 1;
+
+            return Object
+              .getOwnPropertyDescriptor(
+                target,
+                key
+              );
+          }
+        }
+      );
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: proxy,
+
+          pack: []
+        });
+      },
+      /Proxy values/
+    );
+
+    assert.equal(
+      trapCalls,
+      0
+    );
+  }
+);
+
+test(
+  "proxied mutation results are rejected before reflection traps execute",
+  () => {
+    let trapCalls = 0;
+
+    const proxy =
+      new Proxy(
+        {
+          value: 1
+        },
+        {
+          getPrototypeOf() {
+            trapCalls += 1;
+
+            return Object.prototype;
+          },
+
+          ownKeys() {
+            trapCalls += 1;
+
+            return [
+              "value"
+            ];
+          }
+        }
+      );
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: "original",
+
+          pack: [
+            makeValidMutation({
+              mutate() {
+                return proxy;
+              }
+            })
+          ]
+        });
+      },
+      /Proxy values/
+    );
+
+    assert.equal(
+      trapCalls,
+      0
+    );
+  }
+);
+
+test(
+  "rejected native promises with throwing constructor getters are consumed safely",
+  async () => {
+    function mutation() {
+      const rejected =
+        Promise.reject(
+          new Error("boom")
+        );
+
+      Object.defineProperty(
+        rejected,
+        "constructor",
+        {
+          configurable: true,
+
+          get() {
+            throw new Error(
+              "constructor accessed"
+            );
+          }
+        }
+      );
+
+      return rejected;
+    }
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: "original",
+
+          pack: [
+            makeValidMutation({
+              mutate: mutation
+            })
+          ]
+        });
+      },
+      /Async mutation functions are not supported/
+    );
+
+    await new Promise(
+      (resolve) =>
+        setImmediate(resolve)
+    );
+  }
+);
