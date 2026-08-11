@@ -640,6 +640,85 @@ function freezeMutationValue(
   return Object.freeze(value);
 }
 
+// Trust boundary:
+//
+// Mutation Pack treats pack metadata and mutation
+// values as untrusted data and validates them before
+// mutation execution.
+//
+// mutate, protection.check, and evaluators are trusted
+// local synchronous JavaScript callbacks, not sandboxed
+// code. They must not mutate process/global/prototype
+// state.
+//
+// Returning a Promise or thenable violates the
+// synchronous callback contract. Rejection cleanup is
+// defensive best-effort for ordinary native Promises,
+// not a security boundary for adversarial Promise
+// prototype/species poisoning.
+
+function captureMetadataDescriptors(
+  value,
+  label,
+  shapeMessage
+) {
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    throw new Error(
+      shapeMessage
+    );
+  }
+
+  if (
+    utilTypes.isProxy(value)
+  ) {
+    throw new Error(
+      `${label} must not be a Proxy.`
+    );
+  }
+
+  const descriptors =
+    Object.getOwnPropertyDescriptors(
+      value
+    );
+
+  for (
+    const key of
+      Reflect.ownKeys(descriptors)
+  ) {
+    const descriptor =
+      descriptors[key];
+
+    if (
+      "get" in descriptor ||
+      "set" in descriptor
+    ) {
+      throw new Error(
+        `${label} must use data properties only.`
+      );
+    }
+  }
+
+  return descriptors;
+}
+
+function readMetadataValue(
+  descriptors,
+  key
+) {
+  const descriptor =
+    descriptors[key];
+
+  if (descriptor === undefined) {
+    return undefined;
+  }
+
+  return descriptor.value;
+}
+
 function captureMutation(
   mutation,
   index,
@@ -648,25 +727,50 @@ function captureMutation(
   const label =
     `Mutation at index ${index}`;
 
-  if (
-    mutation === null ||
-    typeof mutation !== "object" ||
-    Array.isArray(mutation)
-  ) {
-    throw new Error(
+  const mutationDescriptors =
+    captureMetadataDescriptors(
+      mutation,
+      label,
       `${label} must be an object.`
     );
-  }
 
-  // Capture every public field once.
-  const id = mutation.id;
-  const type = mutation.type;
+  // Capture every public field from its
+  // data-property descriptor exactly once.
+  const id =
+    readMetadataValue(
+      mutationDescriptors,
+      "id"
+    );
+
+  const type =
+    readMetadataValue(
+      mutationDescriptors,
+      "type"
+    );
+
   const description =
-    mutation.description;
-  const mutate = mutation.mutate;
-  const scores = mutation.scores;
+    readMetadataValue(
+      mutationDescriptors,
+      "description"
+    );
+
+  const mutate =
+    readMetadataValue(
+      mutationDescriptors,
+      "mutate"
+    );
+
+  const scores =
+    readMetadataValue(
+      mutationDescriptors,
+      "scores"
+    );
+
   const protection =
-    mutation.protection;
+    readMetadataValue(
+      mutationDescriptors,
+      "protection"
+    );
 
   requireNonEmptyString(
     id,
@@ -707,23 +811,22 @@ function captureMutation(
     "Class constructors cannot be used as mutation callbacks in this deterministic compiler."
   );
 
-  if (
-    scores === null ||
-    typeof scores !== "object" ||
-    Array.isArray(scores)
-  ) {
-    throw new Error(
+  const scoreDescriptors =
+    captureMetadataDescriptors(
+      scores,
+      `${label} scores`,
       `${label} scores must be an object.`
     );
-  }
 
   const capturedScores = {};
 
   SCORE_KEYS.forEach(
     (scoreKey) => {
-      // Read each score exactly once.
       const score =
-        scores[scoreKey];
+        readMetadataValue(
+          scoreDescriptors,
+          scoreKey
+        );
 
       requireScore(
         score,
@@ -735,22 +838,24 @@ function captureMutation(
     }
   );
 
-  if (
-    protection === null ||
-    typeof protection !==
-      "object" ||
-    Array.isArray(protection)
-  ) {
-    throw new Error(
+  const protectionDescriptors =
+    captureMetadataDescriptors(
+      protection,
+      `${label} protection`,
       `${label} protection must be an object.`
     );
-  }
 
   const protectionDescription =
-    protection.description;
+    readMetadataValue(
+      protectionDescriptors,
+      "description"
+    );
 
   const protectionCheck =
-    protection.check;
+    readMetadataValue(
+      protectionDescriptors,
+      "check"
+    );
 
   requireNonEmptyString(
     protectionDescription,
@@ -794,6 +899,14 @@ function compileMutationPack({
   output,
   pack
 } = {}) {
+  if (
+    utilTypes.isProxy(pack)
+  ) {
+    throw new Error(
+      "Mutation pack must not be a Proxy."
+    );
+  }
+
   if (!Array.isArray(pack)) {
     throw new Error(
       "Mutation pack must be an array."
@@ -816,19 +929,31 @@ function compileMutationPack({
     index < packLength;
     index += 1
   ) {
-    if (
-      !Object.prototype.hasOwnProperty.call(
+    const entryDescriptor =
+      Object.getOwnPropertyDescriptor(
         pack,
         index
-      )
+      );
+
+    if (
+      entryDescriptor === undefined
     ) {
       throw new Error(
         `Mutation at index ${index} must be present.`
       );
     }
 
+    if (
+      "get" in entryDescriptor ||
+      "set" in entryDescriptor
+    ) {
+      throw new Error(
+        `Mutation at index ${index} must be stored as a data property.`
+      );
+    }
+
     packEntries.push(
-      pack[index]
+      entryDescriptor.value
     );
   }
 

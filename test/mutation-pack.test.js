@@ -799,7 +799,7 @@ test(
 );
 
 test(
-  "score values are captured exactly once",
+  "score accessor metadata is rejected without invocation",
   () => {
     let severityReads = 0;
 
@@ -819,32 +819,29 @@ test(
         get() {
           severityReads += 1;
 
-          return severityReads === 1
-            ? 0.75
-            : Number.NaN;
+          return 0.75;
         }
       }
     );
 
-    const compiled =
-      compileMutationPack({
-        output: "original",
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: "original",
 
-        pack: [
-          makeValidMutation({
-            scores
-          })
-        ]
-      });
-
-    assert.equal(
-      severityReads,
-      1
+          pack: [
+            makeValidMutation({
+              scores
+            })
+          ]
+        });
+      },
+      /scores must use data properties only/
     );
 
     assert.equal(
-      compiled[0].severity,
-      0.75
+      severityReads,
+      0
     );
   }
 );
@@ -2086,6 +2083,266 @@ test(
 
     assert.equal(
       mutationCalls,
+      0
+    );
+  }
+);
+
+test(
+  "proxied metadata records are rejected before property traps execute",
+  () => {
+    let trapCalls = 0;
+
+    function proxy(value) {
+      return new Proxy(
+        value,
+        {
+          get(target, key, receiver) {
+            trapCalls += 1;
+
+            return Reflect.get(
+              target,
+              key,
+              receiver
+            );
+          },
+
+          ownKeys(target) {
+            trapCalls += 1;
+
+            return Reflect.ownKeys(
+              target
+            );
+          },
+
+          getOwnPropertyDescriptor(
+            target,
+            key
+          ) {
+            trapCalls += 1;
+
+            return Reflect
+              .getOwnPropertyDescriptor(
+                target,
+                key
+              );
+          }
+        }
+      );
+    }
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: "original",
+          pack: proxy([
+            makeValidMutation()
+          ])
+        });
+      },
+      /Mutation pack must not be a Proxy/
+    );
+
+    assert.equal(
+      trapCalls,
+      0
+    );
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: "original",
+
+          pack: [
+            proxy(
+              makeValidMutation()
+            )
+          ]
+        });
+      },
+      /must not be a Proxy/
+    );
+
+    assert.equal(
+      trapCalls,
+      0
+    );
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: "original",
+
+          pack: [
+            makeValidMutation({
+              scores: proxy({
+                severity: 1,
+                realism: 0.9,
+                subtlety: 0.8,
+                novelty: 0.7,
+                fixability: 0.6
+              })
+            })
+          ]
+        });
+      },
+      /scores must not be a Proxy/
+    );
+
+    assert.equal(
+      trapCalls,
+      0
+    );
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: "original",
+
+          pack: [
+            makeValidMutation({
+              protection: proxy({
+                description:
+                  "Valid protection.",
+
+                check() {
+                  return true;
+                }
+              })
+            })
+          ]
+        });
+      },
+      /protection must not be a Proxy/
+    );
+
+    assert.equal(
+      trapCalls,
+      0
+    );
+  }
+);
+
+test(
+  "mutation accessor metadata is rejected without invocation",
+  () => {
+    let getterReads = 0;
+
+    const mutation =
+      makeValidMutation();
+
+    Object.defineProperty(
+      mutation,
+      "id",
+      {
+        enumerable: true,
+
+        get() {
+          getterReads += 1;
+
+          return "accessor-id";
+        }
+      }
+    );
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: "original",
+          pack: [mutation]
+        });
+      },
+      /must use data properties only/
+    );
+
+    assert.equal(
+      getterReads,
+      0
+    );
+  }
+);
+
+test(
+  "protection accessor metadata is rejected without invocation",
+  () => {
+    let getterReads = 0;
+
+    const protection = {
+      check() {
+        return true;
+      }
+    };
+
+    Object.defineProperty(
+      protection,
+      "description",
+      {
+        enumerable: true,
+
+        get() {
+          getterReads += 1;
+
+          return "Accessor protection.";
+        }
+      }
+    );
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: "original",
+
+          pack: [
+            makeValidMutation({
+              protection
+            })
+          ]
+        });
+      },
+      /protection must use data properties only/
+    );
+
+    assert.equal(
+      getterReads,
+      0
+    );
+  }
+);
+
+test(
+  "pack entry accessors are rejected without invocation",
+  () => {
+    let getterReads = 0;
+
+    const pack = [];
+
+    Object.defineProperty(
+      pack,
+      0,
+      {
+        enumerable: true,
+        configurable: true,
+
+        get() {
+          getterReads += 1;
+
+          return makeValidMutation();
+        }
+      }
+    );
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: "original",
+          pack
+        });
+      },
+      /must be stored as a data property/
+    );
+
+    assert.equal(
+      getterReads,
       0
     );
   }
