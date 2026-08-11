@@ -479,6 +479,142 @@ function rejectPromiseLike(
   throw new Error(message);
 }
 
+function captureHostBrandGetter(
+  constructorName,
+  propertyName
+) {
+  const constructor =
+    globalThis[constructorName];
+
+  if (
+    typeof constructor !== "function" ||
+    constructor.prototype === null ||
+    typeof constructor.prototype !==
+      "object"
+  ) {
+    return null;
+  }
+
+  const descriptor =
+    Reflect.apply(
+      getOwnPropertyDescriptor,
+      Object,
+      [
+        constructor.prototype,
+        propertyName
+      ]
+    );
+
+  if (
+    descriptor === undefined ||
+    typeof descriptor.get !== "function"
+  ) {
+    return null;
+  }
+
+  return descriptor.get;
+}
+
+const HOST_BRAND_GETTER_SPECS =
+  Object.freeze([
+    [
+      "AbortController",
+      "signal"
+    ],
+    [
+      "AbortSignal",
+      "aborted"
+    ],
+    [
+      "TextEncoder",
+      "encoding"
+    ],
+    [
+      "TextDecoder",
+      "encoding"
+    ],
+    [
+      "URL",
+      "href"
+    ],
+    [
+      "URLSearchParams",
+      "size"
+    ],
+    [
+      "Blob",
+      "size"
+    ],
+    [
+      "File",
+      "name"
+    ],
+    [
+      "Request",
+      "url"
+    ],
+    [
+      "Response",
+      "status"
+    ],
+    [
+      "ReadableStream",
+      "locked"
+    ],
+    [
+      "WritableStream",
+      "locked"
+    ],
+    [
+      "TransformStream",
+      "readable"
+    ]
+  ]);
+
+const unsupportedHostBrandGetters =
+  Object.freeze(
+    HOST_BRAND_GETTER_SPECS
+      .map(
+        ([
+          constructorName,
+          propertyName
+        ]) =>
+          captureHostBrandGetter(
+            constructorName,
+            propertyName
+          )
+      )
+      .filter(
+        (getter) =>
+          getter !== null
+      )
+  );
+
+function hasUnsupportedHostBrand(
+  value
+) {
+  for (
+    const getter of
+      unsupportedHostBrandGetters
+  ) {
+    try {
+      Reflect.apply(
+        getter,
+        value,
+        []
+      );
+
+      return true;
+    } catch {
+      // Native Web/host getters throw
+      // when the receiver does not carry
+      // their required internal brand.
+    }
+  }
+
+  return false;
+}
+
 function hasUnsupportedIntrinsicBrand(
   value
 ) {
@@ -529,6 +665,30 @@ function hasUnsupportedIntrinsicBrand(
       value
     ) ||
     utilTypes.isWeakSet(
+      value
+    ) ||
+    (
+      typeof utilTypes.isCryptoKey ===
+        "function" &&
+      utilTypes.isCryptoKey(
+        value
+      )
+    ) ||
+    (
+      typeof utilTypes.isKeyObject ===
+        "function" &&
+      utilTypes.isKeyObject(
+        value
+      )
+    ) ||
+    (
+      typeof utilTypes.isExternal ===
+        "function" &&
+      utilTypes.isExternal(
+        value
+      )
+    ) ||
+    hasUnsupportedHostBrand(
       value
     )
   );

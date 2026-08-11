@@ -2573,3 +2573,95 @@ test(
     );
   }
 );
+
+test(
+  "prototype-replaced AbortController source values are rejected before mutation execution",
+  () => {
+    if (
+      typeof AbortController !==
+      "function"
+    ) {
+      return;
+    }
+
+    const controller =
+      new AbortController();
+
+    Object.setPrototypeOf(
+      controller,
+      Object.prototype
+    );
+
+    let mutationCalls = 0;
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: controller,
+
+          pack: [
+            makeValidMutation({
+              mutate(output) {
+                mutationCalls += 1;
+
+                return output;
+              }
+            })
+          ]
+        });
+      },
+      /plain objects/
+    );
+
+    assert.equal(
+      mutationCalls,
+      0
+    );
+  }
+);
+
+test(
+  "prototype-replaced AbortController mutation results are rejected",
+  () => {
+    if (
+      typeof AbortController !==
+      "function"
+    ) {
+      return;
+    }
+
+    let mutationCalls = 0;
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: "original",
+
+          pack: [
+            makeValidMutation({
+              mutate() {
+                mutationCalls += 1;
+
+                const controller =
+                  new AbortController();
+
+                Object.setPrototypeOf(
+                  controller,
+                  Object.prototype
+                );
+
+                return controller;
+              }
+            })
+          ]
+        });
+      },
+      /plain objects/
+    );
+
+    assert.equal(
+      mutationCalls,
+      1
+    );
+  }
+);
