@@ -300,7 +300,7 @@ function isClassConstructorSource(
 ) {
   return (
     typeof source === "string" &&
-    /^class(?:\s|\{)/
+    /^class(?=$|\s|\{|\/[/*])/
       .test(source.trimStart())
   );
 }
@@ -567,6 +567,22 @@ const HOST_BRAND_GETTER_SPECS =
     ],
     [
       "TransformStream",
+      "readable"
+    ],
+    [
+      "TextEncoderStream",
+      "readable"
+    ],
+    [
+      "TextDecoderStream",
+      "readable"
+    ],
+    [
+      "CompressionStream",
+      "readable"
+    ],
+    [
+      "DecompressionStream",
       "readable"
     ],
     [

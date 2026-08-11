@@ -2761,3 +2761,172 @@ test(
     );
   }
 );
+
+test(
+  "prototype-replaced branded stream wrappers are rejected",
+  () => {
+    const cases = [
+      [
+        "TextEncoderStream",
+        () => new TextEncoderStream()
+      ],
+      [
+        "TextDecoderStream",
+        () => new TextDecoderStream()
+      ],
+      [
+        "CompressionStream",
+        () => new CompressionStream(
+          "gzip"
+        )
+      ],
+      [
+        "DecompressionStream",
+        () => new DecompressionStream(
+          "gzip"
+        )
+      ]
+    ];
+
+    let exercised = 0;
+
+    for (
+      const [
+        constructorName,
+        createValue
+      ] of cases
+    ) {
+      if (
+        typeof globalThis[
+          constructorName
+        ] !== "function"
+      ) {
+        continue;
+      }
+
+      exercised += 1;
+
+      const value =
+        createValue();
+
+      Object.setPrototypeOf(
+        value,
+        Object.prototype
+      );
+
+      let mutationCalls = 0;
+
+      assert.throws(
+        () => {
+          compileMutationPack({
+            output: value,
+
+            pack: [
+              makeValidMutation({
+                mutate(output) {
+                  mutationCalls += 1;
+
+                  return output;
+                }
+              })
+            ]
+          });
+        },
+        /plain objects/
+      );
+
+      assert.equal(
+        mutationCalls,
+        0
+      );
+    }
+
+    assert.ok(
+      exercised > 0,
+      "Expected at least one stream-wrapper global."
+    );
+  }
+);
+
+test(
+  "comment-separated class mutation callbacks are rejected before any mutation executes",
+  () => {
+    let mutationCalls = 0;
+
+    const CommentSeparatedClass =
+      class/**/Callback {};
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: "original",
+
+          pack: [
+            makeValidMutation({
+              id: "first",
+
+              mutate(output) {
+                mutationCalls += 1;
+
+                return output;
+              }
+            }),
+
+            makeValidMutation({
+              id: "second",
+              mutate:
+                CommentSeparatedClass
+            })
+          ]
+        });
+      },
+      /class constructor/i
+    );
+
+    assert.equal(
+      mutationCalls,
+      0
+    );
+  }
+);
+
+test(
+  "comment-separated class protection callbacks are rejected before mutations execute",
+  () => {
+    let mutationCalls = 0;
+
+    const CommentSeparatedClass =
+      class/**/Protection {};
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: "original",
+
+          pack: [
+            makeValidMutation({
+              mutate(output) {
+                mutationCalls += 1;
+
+                return output;
+              },
+
+              protection: {
+                description:
+                  "Invalid class protection.",
+                check:
+                  CommentSeparatedClass
+              }
+            })
+          ]
+        });
+      },
+      /class constructor/i
+    );
+
+    assert.equal(
+      mutationCalls,
+      0
+    );
+  }
+);
