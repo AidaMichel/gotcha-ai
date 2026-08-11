@@ -2665,3 +2665,99 @@ test(
     );
   }
 );
+
+test(
+  "prototype-replaced CountQueuingStrategy values are rejected",
+  () => {
+    if (
+      typeof CountQueuingStrategy !==
+      "function"
+    ) {
+      return;
+    }
+
+    const strategy =
+      new CountQueuingStrategy({
+        highWaterMark: 1
+      });
+
+    Object.setPrototypeOf(
+      strategy,
+      Object.prototype
+    );
+
+    let mutationCalls = 0;
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: strategy,
+
+          pack: [
+            makeValidMutation({
+              mutate(output) {
+                mutationCalls += 1;
+
+                return output;
+              }
+            })
+          ]
+        });
+      },
+      /plain objects/
+    );
+
+    assert.equal(
+      mutationCalls,
+      0
+    );
+  }
+);
+
+test(
+  "prototype-replaced ByteLengthQueuingStrategy values are rejected",
+  () => {
+    if (
+      typeof ByteLengthQueuingStrategy !==
+      "function"
+    ) {
+      return;
+    }
+
+    const strategy =
+      new ByteLengthQueuingStrategy({
+        highWaterMark: 1
+      });
+
+    Object.setPrototypeOf(
+      strategy,
+      Object.prototype
+    );
+
+    let mutationCalls = 0;
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: strategy,
+
+          pack: [
+            makeValidMutation({
+              mutate(output) {
+                mutationCalls += 1;
+
+                return output;
+              }
+            })
+          ]
+        });
+      },
+      /plain objects/
+    );
+
+    assert.equal(
+      mutationCalls,
+      0
+    );
+  }
+);

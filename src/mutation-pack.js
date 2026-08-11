@@ -568,6 +568,14 @@ const HOST_BRAND_GETTER_SPECS =
     [
       "TransformStream",
       "readable"
+    ],
+    [
+      "CountQueuingStrategy",
+      "highWaterMark"
+    ],
+    [
+      "ByteLengthQueuingStrategy",
+      "highWaterMark"
     ]
   ]);
 
