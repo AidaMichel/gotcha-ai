@@ -154,6 +154,76 @@ function isNativeCallbackSource(
   );
 }
 
+function isOrdinaryArrayPrototype(
+  prototype
+) {
+  if (
+    !Array.isArray(prototype) ||
+    utilTypes.isProxy(prototype)
+  ) {
+    return false;
+  }
+
+  const constructorDescriptor =
+    Reflect.apply(
+      getOwnPropertyDescriptor,
+      Object,
+      [
+        prototype,
+        "constructor"
+      ]
+    );
+
+  if (
+    constructorDescriptor ===
+      undefined ||
+    "get" in constructorDescriptor ||
+    "set" in constructorDescriptor ||
+    typeof constructorDescriptor
+      .value !== "function" ||
+    utilTypes.isProxy(
+      constructorDescriptor.value
+    )
+  ) {
+    return false;
+  }
+
+  const constructor =
+    constructorDescriptor.value;
+
+  const prototypeDescriptor =
+    Reflect.apply(
+      getOwnPropertyDescriptor,
+      Object,
+      [
+        constructor,
+        "prototype"
+      ]
+    );
+
+  if (
+    prototypeDescriptor ===
+      undefined ||
+    "get" in prototypeDescriptor ||
+    "set" in prototypeDescriptor ||
+    prototypeDescriptor.value !==
+      prototype
+  ) {
+    return false;
+  }
+
+  const source =
+    getCallbackSource(
+      constructor
+    );
+
+  return (
+    typeof source === "string" &&
+    /^function\s+Array\s*\(\s*\)\s*\{\s*\[native code\]\s*\}$/
+      .test(source.trim())
+  );
+}
+
 function isOrdinaryObjectPrototype(
   prototype
 ) {
@@ -542,14 +612,17 @@ function validateMutationValue(
     Object.getPrototypeOf(value);
 
   if (isArray) {
-    // Array.prototype is itself an Array.
-    // This works across realms while
-    // rejecting Array subclasses.
+    // Accept only a realm's genuine
+    // native Array.prototype. Arbitrary
+    // arrays used as prototypes would be
+    // normalized away by structuredClone.
     if (
-      !Array.isArray(prototype)
+      !isOrdinaryArrayPrototype(
+        prototype
+      )
     ) {
       throw new Error(
-        `${label} must use ordinary arrays, not array subclasses.`
+        `${label} must use ordinary arrays, not array subclasses or custom array prototypes.`
       );
     }
   } else if (

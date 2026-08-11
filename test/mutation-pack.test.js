@@ -2529,3 +2529,47 @@ test(
     );
   }
 );
+
+test(
+  "arrays with arbitrary array prototypes are rejected before mutation execution",
+  () => {
+    const customPrototype = [
+      "inherited-value"
+    ];
+
+    const output = [
+      "own-value"
+    ];
+
+    Object.setPrototypeOf(
+      output,
+      customPrototype
+    );
+
+    let mutationCalls = 0;
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output,
+
+          pack: [
+            makeValidMutation({
+              mutate(candidate) {
+                mutationCalls += 1;
+
+                return candidate;
+              }
+            })
+          ]
+        });
+      },
+      /custom array prototypes/
+    );
+
+    assert.equal(
+      mutationCalls,
+      0
+    );
+  }
+);
