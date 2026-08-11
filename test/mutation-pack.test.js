@@ -1898,3 +1898,195 @@ test(
     );
   }
 );
+
+test(
+  "rejected non-extensible native mutation promises are consumed safely",
+  async () => {
+    const harden = [
+      Object.freeze,
+      Object.seal,
+      Object.preventExtensions
+    ];
+
+    for (
+      const makeNonExtensible of harden
+    ) {
+      function mutation() {
+        const rejected =
+          Promise.reject(
+            new Error("boom")
+          );
+
+        makeNonExtensible(
+          rejected
+        );
+
+        return rejected;
+      }
+
+      assert.throws(
+        () => {
+          compileMutationPack({
+            output: "original",
+
+            pack: [
+              makeValidMutation({
+                mutate: mutation
+              })
+            ]
+          });
+        },
+        /Async mutation functions are not supported/
+      );
+    }
+
+    await new Promise(
+      (resolve) =>
+        setImmediate(resolve)
+    );
+  }
+);
+
+test(
+  "rejected non-extensible native protection promises are consumed safely",
+  async () => {
+    const harden = [
+      Object.freeze,
+      Object.seal,
+      Object.preventExtensions
+    ];
+
+    for (
+      const makeNonExtensible of harden
+    ) {
+      function protection() {
+        const rejected =
+          Promise.reject(
+            new Error("boom")
+          );
+
+        makeNonExtensible(
+          rejected
+        );
+
+        return rejected;
+      }
+
+      const compiled =
+        compileMutationPack({
+          output: "original",
+
+          pack: [
+            makeValidMutation({
+              protection: {
+                description:
+                  "Non-extensible promise protection.",
+                check: protection
+              }
+            })
+          ]
+        });
+
+      assert.throws(
+        () => {
+          compiled[0]
+            .protectionCheck(
+              "candidate"
+            );
+        },
+        /Async protection checks are not supported/
+      );
+    }
+
+    await new Promise(
+      (resolve) =>
+        setImmediate(resolve)
+    );
+  }
+);
+
+test(
+  "generator mutation callbacks are rejected before any mutation executes",
+  () => {
+    let mutationCalls = 0;
+
+    function* invalidMutation() {
+      yield "invalid";
+    }
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: "original",
+
+          pack: [
+            makeValidMutation({
+              id: "first",
+
+              mutate(output) {
+                mutationCalls += 1;
+
+                return output;
+              }
+            }),
+
+            makeValidMutation({
+              id: "generator-mutation",
+              mutate:
+                invalidMutation
+            })
+          ]
+        });
+      },
+      /Generator mutation functions are not supported/
+    );
+
+    assert.equal(
+      mutationCalls,
+      0
+    );
+  }
+);
+
+test(
+  "generator protection callbacks are rejected before mutations execute",
+  () => {
+    let mutationCalls = 0;
+
+    function* invalidProtection() {
+      yield true;
+    }
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: "original",
+
+          pack: [
+            makeValidMutation({
+              mutate(output) {
+                mutationCalls += 1;
+
+                return output;
+              },
+
+              protection: {
+                description:
+                  "Invalid generator protection.",
+
+                check:
+                  invalidProtection
+              }
+            })
+          ]
+        });
+      },
+      /Generator protection checks are not supported/
+    );
+
+    assert.equal(
+      mutationCalls,
+      0
+    );
+  }
+);

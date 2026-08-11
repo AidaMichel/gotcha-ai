@@ -11,6 +11,9 @@ const promiseThen =
 const getOwnPropertyDescriptor =
   Object.getOwnPropertyDescriptor;
 
+const isExtensible =
+  Object.isExtensible;
+
 const defineProperty =
   Object.defineProperty;
 
@@ -159,6 +162,7 @@ function isClassConstructorSource(
 function requireSyncCallback(
   fn,
   asyncMessage,
+  generatorMessage,
   wrapperMessage,
   classMessage
 ) {
@@ -167,6 +171,16 @@ function requireSyncCallback(
   ) {
     throw new Error(
       asyncMessage
+    );
+  }
+
+  if (
+    utilTypes.isGeneratorFunction(
+      fn
+    )
+  ) {
+    throw new Error(
+      generatorMessage
     );
   }
 
@@ -214,10 +228,21 @@ function consumeNativePromiseRejection(
     false;
 
   try {
-    if (
+    const canShadowConstructor =
       originalConstructor ===
-        undefined ||
-      originalConstructor.configurable
+        undefined
+        ? Reflect.apply(
+            isExtensible,
+            Object,
+            [
+              value
+            ]
+          )
+        : originalConstructor
+            .configurable;
+
+    if (
+      canShadowConstructor
     ) {
       Reflect.apply(
         defineProperty,
@@ -677,6 +702,7 @@ function captureMutation(
   requireSyncCallback(
     mutate,
     "Async mutation functions are not supported by this deterministic compiler.",
+    "Generator mutation functions are not supported by this deterministic compiler.",
     "Bound, proxied, or native mutation callbacks are not supported by this deterministic compiler.",
     "Class constructors cannot be used as mutation callbacks in this deterministic compiler."
   );
@@ -743,6 +769,7 @@ function captureMutation(
   requireSyncCallback(
     protectionCheck,
     "Async protection checks are not supported by this deterministic compiler.",
+    "Generator protection checks are not supported by this deterministic compiler.",
     "Bound, proxied, or native protection callbacks are not supported by this deterministic compiler.",
     "Class constructors cannot be used as protection callbacks in this deterministic compiler."
   );
