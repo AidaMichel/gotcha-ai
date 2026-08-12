@@ -3130,3 +3130,238 @@ test(
     );
   }
 );
+
+test(
+  "prototype-replaced Crypto values are rejected before cloning",
+  () => {
+    if (
+      typeof globalThis.Crypto !==
+        "function" ||
+      globalThis.crypto ===
+        undefined
+    ) {
+      return;
+    }
+
+    const cryptoValue =
+      globalThis.crypto;
+
+    const originalPrototype =
+      Object.getPrototypeOf(
+        cryptoValue
+      );
+
+    let sourceMutationCalls = 0;
+    let resultMutationCalls = 0;
+
+    try {
+      Object.setPrototypeOf(
+        cryptoValue,
+        Object.prototype
+      );
+
+      assert.throws(
+        () => {
+          compileMutationPack({
+            output:
+              cryptoValue,
+
+            pack: [
+              makeValidMutation({
+                mutate(output) {
+                  sourceMutationCalls += 1;
+
+                  return output;
+                }
+              })
+            ]
+          });
+        },
+        /plain objects/
+      );
+
+      assert.equal(
+        sourceMutationCalls,
+        0
+      );
+
+      assert.throws(
+        () => {
+          compileMutationPack({
+            output: "original",
+
+            pack: [
+              makeValidMutation({
+                mutate() {
+                  resultMutationCalls += 1;
+
+                  return cryptoValue;
+                }
+              })
+            ]
+          });
+        },
+        /plain objects/
+      );
+
+      assert.equal(
+        resultMutationCalls,
+        1
+      );
+    } finally {
+      Object.setPrototypeOf(
+        cryptoValue,
+        originalPrototype
+      );
+    }
+  }
+);
+
+test(
+  "top-level compile option accessors are rejected without invocation",
+  () => {
+    let getterReads = 0;
+
+    const options = {};
+
+    Object.defineProperties(
+      options,
+      {
+        output: {
+          configurable: true,
+
+          get() {
+            getterReads += 1;
+
+            return "original";
+          }
+        },
+
+        pack: {
+          configurable: true,
+
+          get() {
+            getterReads += 1;
+
+            return [];
+          }
+        }
+      }
+    );
+
+    assert.throws(
+      () => {
+        compileMutationPack(
+          options
+        );
+      },
+      /Mutation Pack options must use data properties only/
+    );
+
+    assert.equal(
+      getterReads,
+      0
+    );
+  }
+);
+
+test(
+  "proxied top-level compile options are rejected before traps execute",
+  () => {
+    let trapCalls = 0;
+
+    const options =
+      new Proxy(
+        {
+          output: "original",
+          pack: []
+        },
+        {
+          get() {
+            trapCalls += 1;
+
+            return undefined;
+          },
+
+          ownKeys() {
+            trapCalls += 1;
+
+            return [];
+          },
+
+          getOwnPropertyDescriptor() {
+            trapCalls += 1;
+
+            return undefined;
+          }
+        }
+      );
+
+    assert.throws(
+      () => {
+        compileMutationPack(
+          options
+        );
+      },
+      /Mutation Pack options must not be a Proxy/
+    );
+
+    assert.equal(
+      trapCalls,
+      0
+    );
+  }
+);
+
+test(
+  "frozen state is not recomputed for every property",
+  () => {
+    const originalIsFrozen =
+      Object.isFrozen;
+
+    let isFrozenCalls = 0;
+
+    Object.isFrozen =
+      function countedIsFrozen(
+        value
+      ) {
+        isFrozenCalls += 1;
+
+        return originalIsFrozen(
+          value
+        );
+      };
+
+    try {
+      const wideOutput = {};
+
+      for (
+        let index = 0;
+        index < 1000;
+        index += 1
+      ) {
+        wideOutput[
+          `key-${index}`
+        ] = index;
+      }
+
+      Object.freeze(
+        wideOutput
+      );
+
+      compileMutationPack({
+        output:
+          wideOutput,
+        pack: []
+      });
+    } finally {
+      Object.isFrozen =
+        originalIsFrozen;
+    }
+
+    assert.ok(
+      isFrozenCalls <= 4,
+      `Expected frozen-state checks to stay constant, got ${isFrozenCalls}.`
+    );
+  }
+);

@@ -718,6 +718,10 @@ function hasUnsupportedPerformanceObserverBrand(
 const HOST_BRAND_GETTER_SPECS =
   Object.freeze([
     [
+      "Crypto",
+      "subtle"
+    ],
+    [
       "AbortController",
       "signal"
     ],
@@ -1027,6 +1031,9 @@ function validateMutationValue(
       value
     );
 
+  const valueIsFrozen =
+    Object.isFrozen(value);
+
   for (
     const key of
       Reflect.ownKeys(descriptors)
@@ -1063,7 +1070,7 @@ function validateMutationValue(
 
     const isFrozenProperty =
       descriptor.enumerable &&
-      Object.isFrozen(value) &&
+      valueIsFrozen &&
       !descriptor.configurable &&
       !descriptor.writable;
 
@@ -1427,10 +1434,27 @@ function captureMutation(
   };
 }
 
-function compileMutationPack({
-  output,
-  pack
-} = {}) {
+function compileMutationPack(
+  options = {}
+) {
+  const optionDescriptors =
+    captureMetadataDescriptors(
+      options,
+      "Mutation Pack options",
+      "Mutation Pack options must be an object."
+    );
+
+  const output =
+    readMetadataValue(
+      optionDescriptors,
+      "output"
+    );
+
+  const pack =
+    readMetadataValue(
+      optionDescriptors,
+      "pack"
+    );
   if (
     utilTypes.isProxy(pack)
   ) {
