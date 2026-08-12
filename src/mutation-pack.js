@@ -722,6 +722,10 @@ const HOST_BRAND_GETTER_SPECS =
       "subtle"
     ],
     [
+      "Navigator",
+      "userAgent"
+    ],
+    [
       "AbortController",
       "signal"
     ],
@@ -961,6 +965,12 @@ function validateMutationValue(
     );
   }
 
+  if (seen.has(value)) {
+    return;
+  }
+
+  seen.add(value);
+
   if (
     utilTypes.isSharedArrayBuffer(
       value
@@ -989,12 +999,6 @@ function validateMutationValue(
       `${label} must use only primitives, ordinary arrays, and plain objects.`
     );
   }
-
-  if (seen.has(value)) {
-    return;
-  }
-
-  seen.add(value);
 
   const isArray =
     Array.isArray(value);
@@ -1038,10 +1042,39 @@ function validateMutationValue(
     const key of
       Reflect.ownKeys(descriptors)
   ) {
+    const descriptor =
+      descriptors[key];
+
     if (
       isArray &&
       key === "length"
     ) {
+      const isDataProperty =
+        !("get" in descriptor) &&
+        !("set" in descriptor);
+
+      const isOrdinaryArrayLength =
+        isDataProperty &&
+        !descriptor.enumerable &&
+        !descriptor.configurable &&
+        descriptor.writable;
+
+      const isFrozenArrayLength =
+        isDataProperty &&
+        !descriptor.enumerable &&
+        !descriptor.configurable &&
+        !descriptor.writable &&
+        valueIsFrozen;
+
+      if (
+        !isOrdinaryArrayLength &&
+        !isFrozenArrayLength
+      ) {
+        throw new Error(
+          `${label} array length must use ordinary writable semantics unless the entire array is frozen.`
+        );
+      }
+
       continue;
     }
 
@@ -1050,9 +1083,6 @@ function validateMutationValue(
         `${label} must not contain symbol-keyed properties.`
       );
     }
-
-    const descriptor =
-      descriptors[key];
 
     if (
       "get" in descriptor ||

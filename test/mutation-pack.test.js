@@ -3365,3 +3365,199 @@ test(
     );
   }
 );
+
+test(
+  "partially constrained array length is rejected while fully frozen arrays remain valid",
+  () => {
+    const constrainedArray = [
+      "value"
+    ];
+
+    Object.defineProperty(
+      constrainedArray,
+      "length",
+      {
+        writable: false
+      }
+    );
+
+    let mutationCalls = 0;
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output:
+            constrainedArray,
+
+          pack: [
+            makeValidMutation({
+              mutate() {
+                mutationCalls += 1;
+
+                return "mutated";
+              }
+            })
+          ]
+        });
+      },
+      /array length must use ordinary writable semantics/
+    );
+
+    assert.equal(
+      mutationCalls,
+      0
+    );
+
+    const frozenArray =
+      Object.freeze([
+        "value"
+      ]);
+
+    assert.doesNotThrow(
+      () => {
+        compileMutationPack({
+          output:
+            frozenArray,
+          pack: []
+        });
+      }
+    );
+  }
+);
+
+test(
+  "shared aliases short-circuit repeated intrinsic and host-brand probing",
+  () => {
+    const runtimeTypes =
+      require(
+        "node:util"
+      ).types;
+
+    const originalIsDate =
+      runtimeTypes.isDate;
+
+    let isDateCalls = 0;
+
+    runtimeTypes.isDate =
+      function countedIsDate(
+        value
+      ) {
+        isDateCalls += 1;
+
+        return originalIsDate(
+          value
+        );
+      };
+
+    try {
+      const shared = {
+        value: "shared"
+      };
+
+      const aliases =
+        Array(2000).fill(
+          shared
+        );
+
+      compileMutationPack({
+        output:
+          aliases,
+        pack: []
+      });
+    } finally {
+      runtimeTypes.isDate =
+        originalIsDate;
+    }
+
+    assert.ok(
+      isDateCalls <= 8,
+      `Expected shared aliases to reuse validation state, got ${isDateCalls} intrinsic brand checks.`
+    );
+  }
+);
+
+test(
+  "prototype-replaced Navigator values are rejected before cloning",
+  () => {
+    if (
+      typeof globalThis.Navigator !==
+        "function" ||
+      globalThis.navigator ===
+        undefined
+    ) {
+      return;
+    }
+
+    const navigatorValue =
+      globalThis.navigator;
+
+    const originalPrototype =
+      Object.getPrototypeOf(
+        navigatorValue
+      );
+
+    let sourceMutationCalls = 0;
+    let resultMutationCalls = 0;
+
+    try {
+      Object.setPrototypeOf(
+        navigatorValue,
+        Object.prototype
+      );
+
+      assert.throws(
+        () => {
+          compileMutationPack({
+            output:
+              navigatorValue,
+
+            pack: [
+              makeValidMutation({
+                mutate(output) {
+                  sourceMutationCalls += 1;
+
+                  return output;
+                }
+              })
+            ]
+          });
+        },
+        /plain objects/
+      );
+
+      assert.equal(
+        sourceMutationCalls,
+        0
+      );
+
+      assert.throws(
+        () => {
+          compileMutationPack({
+            output: "original",
+
+            pack: [
+              makeValidMutation({
+                mutate() {
+                  resultMutationCalls += 1;
+
+                  return navigatorValue;
+                }
+              })
+            ]
+          });
+        },
+        /plain objects/
+      );
+
+      assert.equal(
+        resultMutationCalls,
+        1
+      );
+    } finally {
+      Object.setPrototypeOf(
+        navigatorValue,
+        originalPrototype
+      );
+    }
+  }
+);
