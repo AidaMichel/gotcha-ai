@@ -2930,3 +2930,203 @@ test(
     );
   }
 );
+
+test(
+  "prototype-replaced PerformanceObserver values are rejected before cloning",
+  () => {
+    const {
+      PerformanceObserver
+    } = require(
+      "node:perf_hooks"
+    );
+
+    function createObserver() {
+      const observer =
+        new PerformanceObserver(
+          () => {}
+        );
+
+      Object.setPrototypeOf(
+        observer,
+        Object.prototype
+      );
+
+      return observer;
+    }
+
+    let sourceMutationCalls = 0;
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output:
+            createObserver(),
+
+          pack: [
+            makeValidMutation({
+              mutate(output) {
+                sourceMutationCalls += 1;
+
+                return output;
+              }
+            })
+          ]
+        });
+      },
+      /plain objects/
+    );
+
+    assert.equal(
+      sourceMutationCalls,
+      0
+    );
+
+    let resultMutationCalls = 0;
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: "original",
+
+          pack: [
+            makeValidMutation({
+              mutate() {
+                resultMutationCalls += 1;
+
+                return createObserver();
+              }
+            })
+          ]
+        });
+      },
+      /plain objects/
+    );
+
+    assert.equal(
+      resultMutationCalls,
+      1
+    );
+  }
+);
+
+test(
+  "ordinary callback methods named class remain valid",
+  () => {
+    const spacedMutation = ({
+      class (output) {
+        return `${output}-spaced`;
+      }
+    }).class;
+
+    const commentedProtection = ({
+      class/**/(output) {
+        return output === "good";
+      }
+    }).class;
+
+    const compiled =
+      compileMutationPack({
+        output: "original",
+
+        pack: [
+          makeValidMutation({
+            mutate:
+              spacedMutation,
+
+            protection: {
+              description:
+                "Method named class remains valid.",
+
+              check:
+                commentedProtection
+            }
+          })
+        ]
+      });
+
+    assert.equal(
+      compiled[0].output,
+      "original-spaced"
+    );
+
+    assert.equal(
+      compiled[0]
+        .protectionCheck(
+          "good"
+        ),
+      true
+    );
+
+    assert.equal(
+      compiled[0]
+        .protectionCheck(
+          "bad"
+        ),
+      false
+    );
+  }
+);
+
+test(
+  "protection results with then accessors are rejected without invoking getters",
+  () => {
+    let getterReads = 0;
+
+    const result = {};
+
+    Object.defineProperty(
+      result,
+      "then",
+      {
+        configurable: true,
+        enumerable: true,
+
+        get() {
+          getterReads += 1;
+
+          return undefined;
+        }
+      }
+    );
+
+    const compiled =
+      compileMutationPack({
+        output: "original",
+
+        pack: [
+          makeValidMutation({
+            protection: {
+              description:
+                "Protection must return boolean.",
+
+              check() {
+                return result;
+              }
+            }
+          })
+        ]
+      });
+
+    assert.throws(
+      () => {
+        runImprovementLoop({
+          evaluator() {
+            return true;
+          },
+
+          mutations:
+            compiled,
+
+          knownGoodOutput:
+            "original"
+        });
+      },
+      /Protection check must return a boolean/
+    );
+
+    assert.equal(
+      getterReads,
+      0
+    );
+  }
+);

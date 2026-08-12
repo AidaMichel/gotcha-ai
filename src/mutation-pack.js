@@ -1,6 +1,11 @@
 const {
-  types: utilTypes
+  types: utilTypes,
+  inspect
 } = require("node:util");
+
+const {
+  PerformanceObserver
+} = require("node:perf_hooks");
 
 const functionToString =
   Function.prototype.toString;
@@ -295,13 +300,140 @@ function isOrdinaryObjectPrototype(
   );
 }
 
+function skipJavaScriptSeparators(
+  source,
+  startIndex
+) {
+  let index = startIndex;
+
+  while (index < source.length) {
+    if (
+      /\s/.test(
+        source[index]
+      )
+    ) {
+      index += 1;
+      continue;
+    }
+
+    if (
+      source.startsWith(
+        "/*",
+        index
+      )
+    ) {
+      const end =
+        source.indexOf(
+          "*/",
+          index + 2
+        );
+
+      if (end === -1) {
+        return source.length;
+      }
+
+      index = end + 2;
+      continue;
+    }
+
+    if (
+      source.startsWith(
+        "//",
+        index
+      )
+    ) {
+      const end =
+        source.indexOf(
+          "\n",
+          index + 2
+        );
+
+      if (end === -1) {
+        return source.length;
+      }
+
+      index = end + 1;
+      continue;
+    }
+
+    break;
+  }
+
+  return index;
+}
+
 function isClassConstructorSource(
   source
 ) {
+  if (
+    typeof source !== "string"
+  ) {
+    return false;
+  }
+
+  const trimmed =
+    source.trimStart();
+
+  if (
+    !trimmed.startsWith(
+      "class"
+    )
+  ) {
+    return false;
+  }
+
+  const afterKeyword =
+    trimmed[5];
+
+  // Ordinary object method:
+  // class() {}
+  if (
+    afterKeyword === "("
+  ) {
+    return false;
+  }
+
+  // Anonymous class:
+  // class {}
+  if (
+    afterKeyword === "{"
+  ) {
+    return true;
+  }
+
+  // Do not confuse identifiers such as
+  // className() with the class keyword.
+  if (
+    afterKeyword !== undefined &&
+    !/\s/.test(
+      afterKeyword
+    ) &&
+    !trimmed.startsWith(
+      "/*",
+      5
+    ) &&
+    !trimmed.startsWith(
+      "//",
+      5
+    )
+  ) {
+    return false;
+  }
+
+  const nextTokenIndex =
+    skipJavaScriptSeparators(
+      trimmed,
+      5
+    );
+
+  // class /**/ Callback {}
+  //        -> class constructor
+  //
+  // class /**/ () {}
+  //        -> ordinary method named class
   return (
-    typeof source === "string" &&
-    /^class(?=$|\s|\{|\/[/*])/
-      .test(source.trimStart())
+    trimmed[nextTokenIndex] !==
+      "("
   );
 }
 
@@ -515,6 +647,74 @@ function captureHostBrandGetter(
   return descriptor.get;
 }
 
+function capturePerformanceObserverBrandProbe() {
+  if (
+    typeof PerformanceObserver !==
+      "function" ||
+    PerformanceObserver.prototype ===
+      null ||
+    typeof PerformanceObserver
+      .prototype !== "object"
+  ) {
+    return null;
+  }
+
+  const descriptor =
+    Reflect.apply(
+      getOwnPropertyDescriptor,
+      Object,
+      [
+        PerformanceObserver.prototype,
+        inspect.custom
+      ]
+    );
+
+  if (
+    descriptor === undefined ||
+    typeof descriptor.value !==
+      "function"
+  ) {
+    return null;
+  }
+
+  return descriptor.value;
+}
+
+const performanceObserverBrandProbe =
+  capturePerformanceObserverBrandProbe();
+
+const performanceObserverInspectOptions =
+  Object.freeze({
+    depth: 0
+  });
+
+function hasUnsupportedPerformanceObserverBrand(
+  value
+) {
+  if (
+    performanceObserverBrandProbe ===
+      null
+  ) {
+    return false;
+  }
+
+  try {
+    Reflect.apply(
+      performanceObserverBrandProbe,
+      value,
+      [
+        0,
+        performanceObserverInspectOptions,
+        inspect
+      ]
+    );
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const HOST_BRAND_GETTER_SPECS =
   Object.freeze([
     [
@@ -711,6 +911,9 @@ function hasUnsupportedIntrinsicBrand(
       utilTypes.isExternal(
         value
       )
+    ) ||
+    hasUnsupportedPerformanceObserverBrand(
+      value
     ) ||
     hasUnsupportedHostBrand(
       value
@@ -1382,16 +1585,28 @@ function compileMutationPack({
               "Protection input"
             );
 
-          return rejectPromiseLike(
-            Reflect.apply(
-              protectionCheck,
-              callbackReceiver,
-              [
-                protectionInput
-              ]
-            ),
-            "Async protection checks are not supported by this deterministic compiler."
-          );
+          const protectionResult =
+            rejectPromiseLike(
+              Reflect.apply(
+                protectionCheck,
+                callbackReceiver,
+                [
+                  protectionInput
+                ]
+              ),
+              "Async protection checks are not supported by this deterministic compiler."
+            );
+
+          if (
+            typeof protectionResult !==
+              "boolean"
+          ) {
+            throw new Error(
+              "Protection check must return a boolean."
+            );
+          }
+
+          return protectionResult;
         }
       };
     }
