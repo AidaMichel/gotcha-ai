@@ -3561,3 +3561,352 @@ test(
     }
   }
 );
+
+test(
+  "prototype-replaced LockManager singletons are rejected before cloning",
+  () => {
+    const candidates = [];
+
+    try {
+      const {
+        locks
+      } = require(
+        "node:worker_threads"
+      );
+
+      if (
+        locks !== undefined &&
+        locks !== null
+      ) {
+        candidates.push(
+          locks
+        );
+      }
+    } catch {
+      // Runtime does not expose worker locks.
+    }
+
+    try {
+      if (
+        globalThis.navigator !==
+          undefined &&
+        globalThis.navigator !==
+          null &&
+        globalThis.navigator.locks !==
+          undefined &&
+        globalThis.navigator.locks !==
+          null
+      ) {
+        candidates.push(
+          globalThis.navigator.locks
+        );
+      }
+    } catch {
+      // Runtime does not expose navigator locks.
+    }
+
+    const lockManagers =
+      [
+        ...new Set(
+          candidates
+        )
+      ];
+
+    if (
+      lockManagers.length === 0
+    ) {
+      return;
+    }
+
+    for (
+      const lockManager of
+        lockManagers
+    ) {
+      const originalPrototype =
+        Object.getPrototypeOf(
+          lockManager
+        );
+
+      let sourceMutationCalls = 0;
+      let resultMutationCalls = 0;
+
+      try {
+        Object.setPrototypeOf(
+          lockManager,
+          Object.prototype
+        );
+
+        assert.throws(
+          () => {
+            compileMutationPack({
+              output:
+                lockManager,
+
+              pack: [
+                makeValidMutation({
+                  mutate(output) {
+                    sourceMutationCalls += 1;
+
+                    return output;
+                  }
+                })
+              ]
+            });
+          },
+          /plain objects/
+        );
+
+        assert.equal(
+          sourceMutationCalls,
+          0
+        );
+
+        assert.throws(
+          () => {
+            compileMutationPack({
+              output: "original",
+
+              pack: [
+                makeValidMutation({
+                  mutate() {
+                    resultMutationCalls += 1;
+
+                    return lockManager;
+                  }
+                })
+              ]
+            });
+          },
+          /plain objects/
+        );
+
+        assert.equal(
+          resultMutationCalls,
+          1
+        );
+      } finally {
+        Object.setPrototypeOf(
+          lockManager,
+          originalPrototype
+        );
+      }
+    }
+  }
+);
+
+test(
+  "inherited then functions are rejected for source and mutation values",
+  () => {
+    const vm =
+      require("node:vm");
+
+    const context =
+      vm.createContext({
+        thenCalls: 0
+      });
+
+    const inheritedThenValue =
+      vm.runInContext(
+        `
+          Object.defineProperty(
+            Object.prototype,
+            "then",
+            {
+              configurable: true,
+              enumerable: false,
+              writable: true,
+              value() {
+                thenCalls += 1;
+              }
+            }
+          );
+
+          ({
+            value: "cross-realm"
+          });
+        `,
+        context
+      );
+
+    let sourceMutationCalls = 0;
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output:
+            inheritedThenValue,
+
+          pack: [
+            makeValidMutation({
+              mutate(output) {
+                sourceMutationCalls += 1;
+
+                return output;
+              }
+            })
+          ]
+        });
+      },
+      /must not inherit then properties/
+    );
+
+    assert.equal(
+      sourceMutationCalls,
+      0
+    );
+
+    assert.equal(
+      context.thenCalls,
+      0
+    );
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: "original",
+
+          pack: [
+            makeValidMutation({
+              mutate() {
+                return inheritedThenValue;
+              }
+            })
+          ]
+        });
+      },
+      /Async mutation functions are not supported/
+    );
+
+    assert.equal(
+      context.thenCalls,
+      0
+    );
+  }
+);
+
+test(
+  "inherited then accessors are rejected without invoking getters",
+  () => {
+    const vm =
+      require("node:vm");
+
+    const context =
+      vm.createContext({
+        getterReads: 0
+      });
+
+    const inheritedAccessorValue =
+      vm.runInContext(
+        `
+          Object.defineProperty(
+            Object.prototype,
+            "then",
+            {
+              configurable: true,
+              enumerable: false,
+
+              get() {
+                getterReads += 1;
+
+                return undefined;
+              }
+            }
+          );
+
+          ({
+            value: "cross-realm"
+          });
+        `,
+        context
+      );
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output:
+            inheritedAccessorValue,
+          pack: []
+        });
+      },
+      /must not inherit then properties/
+    );
+
+    assert.equal(
+      context.getterReads,
+      0
+    );
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: "original",
+
+          pack: [
+            makeValidMutation({
+              mutate() {
+                return inheritedAccessorValue;
+              }
+            })
+          ]
+        });
+      },
+      /Async mutation functions are not supported/
+    );
+
+    assert.equal(
+      context.getterReads,
+      0
+    );
+  }
+);
+
+test(
+  "arrays with inherited then behavior are rejected before cloning",
+  () => {
+    const vm =
+      require("node:vm");
+
+    const context =
+      vm.createContext({
+        thenCalls: 0
+      });
+
+    const arrayValue =
+      vm.runInContext(
+        `
+          Object.defineProperty(
+            Array.prototype,
+            "then",
+            {
+              configurable: true,
+              enumerable: false,
+              writable: true,
+
+              value() {
+                thenCalls += 1;
+              }
+            }
+          );
+
+          ["value"];
+        `,
+        context
+      );
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output:
+            arrayValue,
+          pack: []
+        });
+      },
+      /must not inherit then properties/
+    );
+
+    assert.equal(
+      context.thenCalls,
+      0
+    );
+  }
+);

@@ -7,6 +7,10 @@ const {
   PerformanceObserver
 } = require("node:perf_hooks");
 
+const {
+  locks: workerThreadLocks
+} = require("node:worker_threads");
+
 const functionToString =
   Function.prototype.toString;
 
@@ -34,6 +38,58 @@ const callbackReceiver =
   Object.freeze(
     Object.create(null)
   );
+
+function captureNavigatorLocks() {
+  try {
+    if (
+      globalThis.navigator ===
+        undefined ||
+      globalThis.navigator ===
+        null
+    ) {
+      return null;
+    }
+
+    const locks =
+      globalThis.navigator.locks;
+
+    return (
+      locks !== null &&
+      typeof locks === "object"
+    )
+      ? locks
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+const navigatorLocks =
+  captureNavigatorLocks();
+
+const unsupportedHostSingletons =
+  Object.freeze(
+    [
+      workerThreadLocks,
+      navigatorLocks
+    ].filter(
+      (value, index, values) =>
+        value !== undefined &&
+        value !== null &&
+        values.indexOf(value) ===
+          index
+    )
+  );
+
+function hasUnsupportedHostSingleton(
+  value
+) {
+  return unsupportedHostSingletons
+    .some(
+      (singleton) =>
+        singleton === value
+    );
+}
 
 const SCORE_KEYS = [
   "severity",
@@ -111,25 +167,104 @@ function isPromiseLike(
     );
 
   if (
-    thenDescriptor === undefined
+    thenDescriptor !== undefined
+  ) {
+    // Own accessor-based values belong to
+    // the unsupported deterministic-data
+    // path. Never invoke the getter here;
+    // clone validation will reject it.
+    if (
+      "get" in thenDescriptor ||
+      "set" in thenDescriptor
+    ) {
+      return false;
+    }
+
+    return (
+      typeof thenDescriptor.value ===
+      "function"
+    );
+  }
+
+  const inheritedThenDescriptor =
+    getInheritedThenDescriptor(
+      value
+    );
+
+  if (
+    inheritedThenDescriptor ===
+      undefined
   ) {
     return false;
   }
 
-  // Accessor-based values belong to the
-  // unsupported deterministic-data path.
-  // Never invoke the getter here.
+  // An inherited accessor named `then`
+  // is unsupported too. Treat it as
+  // promise-like so mutation results are
+  // rejected without invoking the getter.
   if (
-    "get" in thenDescriptor ||
-    "set" in thenDescriptor
+    "get" in inheritedThenDescriptor ||
+    "set" in inheritedThenDescriptor
   ) {
-    return false;
+    return true;
   }
 
   return (
-    typeof thenDescriptor.value ===
-    "function"
+    typeof inheritedThenDescriptor
+      .value === "function"
   );
+}
+
+function getInheritedThenDescriptor(
+  value
+) {
+  let prototype =
+    Object.getPrototypeOf(
+      value
+    );
+
+  const maxDepth =
+    Array.isArray(value)
+      ? 2
+      : 1;
+
+  for (
+    let depth = 0;
+    prototype !== null &&
+    depth < maxDepth;
+    depth += 1
+  ) {
+    if (
+      utilTypes.isProxy(
+        prototype
+      )
+    ) {
+      return undefined;
+    }
+
+    const descriptor =
+      Reflect.apply(
+        getOwnPropertyDescriptor,
+        Object,
+        [
+          prototype,
+          "then"
+        ]
+      );
+
+    if (
+      descriptor !== undefined
+    ) {
+      return descriptor;
+    }
+
+    prototype =
+      Object.getPrototypeOf(
+        prototype
+      );
+  }
+
+  return undefined;
 }
 
 function getCallbackSource(
@@ -923,6 +1058,9 @@ function hasUnsupportedIntrinsicBrand(
     hasUnsupportedPerformanceObserverBrand(
       value
     ) ||
+    hasUnsupportedHostSingleton(
+      value
+    ) ||
     hasUnsupportedHostBrand(
       value
     )
@@ -1027,6 +1165,16 @@ function validateMutationValue(
   ) {
     throw new Error(
       `${label} must use only primitives, ordinary arrays, and plain objects.`
+    );
+  }
+
+  if (
+    getInheritedThenDescriptor(
+      value
+    ) !== undefined
+  ) {
+    throw new Error(
+      `${label} must not inherit then properties.`
     );
   }
 
