@@ -466,15 +466,16 @@ function requireOrdinaryArrayPrototype(
     .add(prototype);
 }
 
-function canonicalizeData(
+function prepareCanonicalValue(
   value,
-  label =
-    "Mutation value",
-  state =
-    createCanonicalState()
+  label,
+  state
 ) {
   if (value === null) {
-    return null;
+    return {
+      value: null,
+      frame: null
+    };
   }
 
   const valueType =
@@ -487,7 +488,10 @@ function canonicalizeData(
     valueType === "undefined" ||
     valueType === "bigint"
   ) {
-    return value;
+    return {
+      value,
+      frame: null
+    };
   }
 
   if (
@@ -517,9 +521,11 @@ function canonicalizeData(
   if (
     state.seen.has(value)
   ) {
-    return state.seen.get(
-      value
-    );
+    return {
+      value:
+        state.seen.get(value),
+      frame: null
+    };
   }
 
   const isArray =
@@ -581,34 +587,97 @@ function canonicalizeData(
     target
   );
 
-  for (
-    const key of
-      ownKeys(descriptors)
+  return {
+    value: target,
+
+    frame: {
+      target,
+      descriptors,
+      keys:
+        ownKeys(
+          descriptors
+        ),
+      index: 0,
+      isArray,
+      label
+    }
+  };
+}
+
+function canonicalizeData(
+  value,
+  label =
+    "Mutation value",
+  state =
+    createCanonicalState()
+) {
+  const root =
+    prepareCanonicalValue(
+      value,
+      label,
+      state
+    );
+
+  if (
+    root.frame === null
   ) {
+    return root.value;
+  }
+
+  const stack = [
+    root.frame
+  ];
+
+  while (
+    stack.length > 0
+  ) {
+    const frame =
+      stack[
+        stack.length - 1
+      ];
+
     if (
-      isArray &&
+      frame.index >=
+        frame.keys.length
+    ) {
+      stack.pop();
+      continue;
+    }
+
+    const key =
+      frame.keys[
+        frame.index
+      ];
+
+    frame.index += 1;
+
+    if (
+      frame.isArray &&
       key === "length"
     ) {
       continue;
     }
 
     if (
-      typeof key === "symbol"
+      typeof key ===
+        "symbol"
     ) {
       throw new Error(
-        `${label} must not contain symbol-keyed properties.`
+        `${frame.label} must not contain symbol-keyed properties.`
       );
     }
 
     const descriptor =
-      descriptors[key];
+      frame.descriptors[
+        key
+      ];
 
     if (
       "get" in descriptor ||
       "set" in descriptor
     ) {
       throw new Error(
-        `${label} must not contain accessor properties.`
+        `${frame.label} must not contain accessor properties.`
       );
     }
 
@@ -616,36 +685,46 @@ function canonicalizeData(
       !descriptor.enumerable
     ) {
       throw new Error(
-        `${label} must not contain non-enumerable own data properties.`
+        `${frame.label} must not contain non-enumerable own data properties.`
       );
     }
 
-    const canonicalValue =
-      canonicalizeData(
+    const childLabel =
+      `${frame.label}.${String(key)}`;
+
+    const child =
+      prepareCanonicalValue(
         descriptor.value,
-        `${label}.${String(key)}`,
+        childLabel,
         state
       );
 
     defineProperty(
-      target,
+      frame.target,
       key,
       {
         value:
-          canonicalValue,
+          child.value,
         enumerable: true,
         configurable: true,
         writable: true
       }
     );
+
+    if (
+      child.frame !== null
+    ) {
+      stack.push(
+        child.frame
+      );
+    }
   }
 
-  return target;
+  return root.value;
 }
 
 function freezeCanonicalData(
-  value,
-  seen = new WeakSet()
+  value
 ) {
   if (
     value === null ||
@@ -654,27 +733,53 @@ function freezeCanonicalData(
     return value;
   }
 
-  if (
-    seen.has(value)
-  ) {
-    return value;
-  }
+  const seen =
+    new WeakSet();
 
-  seen.add(value);
+  const stack = [
+    value
+  ];
 
-  for (
-    const key of
-      Object.keys(value)
+  while (
+    stack.length > 0
   ) {
-    freezeCanonicalData(
-      value[key],
-      seen
+    const current =
+      stack.pop();
+
+    if (
+      current === null ||
+      typeof current !==
+        "object" ||
+      seen.has(current)
+    ) {
+      continue;
+    }
+
+    seen.add(current);
+
+    for (
+      const key of
+        Object.keys(current)
+    ) {
+      const child =
+        current[key];
+
+      if (
+        child !== null &&
+        typeof child ===
+          "object" &&
+        !seen.has(child)
+      ) {
+        stack.push(child);
+      }
+    }
+
+    Object.freeze(
+      current
     );
   }
 
-  return Object.freeze(
-    value
-  );
+  return value;
 }
 
 function captureMetadataDescriptors(

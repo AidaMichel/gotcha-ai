@@ -1457,3 +1457,70 @@ test(
     );
   }
 );
+
+test(
+  "deep canonical graphs do not depend on the JavaScript call stack",
+  () => {
+    const depth = 10000;
+
+    const source = {
+      value: 0
+    };
+
+    let cursor =
+      source;
+
+    for (
+      let index = 1;
+      index <= depth;
+      index += 1
+    ) {
+      cursor.next = {
+        value: index
+      };
+
+      cursor =
+        cursor.next;
+    }
+
+    const compiled =
+      compileMutationPack({
+        output: source,
+
+        pack: [
+          makeValidMutation()
+        ]
+      });
+
+    let result =
+      compiled[0].output;
+
+    for (
+      let index = 0;
+      index < depth;
+      index += 1
+    ) {
+      result =
+        result.next;
+    }
+
+    assert.equal(
+      result.value,
+      depth
+    );
+
+    assert.equal(
+      Object.isFrozen(
+        compiled[0].output
+      ),
+      true
+    );
+
+    assert.equal(
+      Object.isFrozen(
+        result
+      ),
+      true
+    );
+  }
+);
