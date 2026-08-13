@@ -2,6 +2,10 @@ const {
   runImprovementLoop
 } = require("../../src/engine");
 
+const {
+  compileMutationPack
+} = require("../../src/mutation-pack");
+
 const example = {
   userInput: "My card was charged twice.",
   expectedOutput:
@@ -25,27 +29,33 @@ function extractField(output, field) {
     : null;
 }
 
-function generateMutations(output) {
-  return [
-    {
-      id: "wrong-category",
-      type: "entity-substitution",
-      description:
-        "Changes the ticket category.",
+const mutationPack = [
+  {
+    id: "wrong-category",
+    type: "entity-substitution",
+    description:
+      "Changes the ticket category.",
 
-      output:
-        "Category: technical\nPriority: high",
+    mutate() {
+      return (
+        "Category: technical\n" +
+        "Priority: high"
+      );
+    },
 
+    scores: {
       severity: 1.0,
       realism: 1.0,
       subtlety: 0.95,
       novelty: 1.0,
-      fixability: 1.0,
+      fixability: 1.0
+    },
 
-      protection:
+    protection: {
+      description:
         "The ticket category must match the expected category.",
 
-      protectionCheck(candidateOutput) {
+      check(candidateOutput) {
         return (
           extractField(
             candidateOutput,
@@ -53,27 +63,35 @@ function generateMutations(output) {
           ) === example.expected.category
         );
       }
+    }
+  },
+
+  {
+    id: "wrong-priority",
+    type: "value-substitution",
+    description:
+      "Changes the ticket priority.",
+
+    mutate() {
+      return (
+        "Category: billing\n" +
+        "Priority: low"
+      );
     },
 
-    {
-      id: "wrong-priority",
-      type: "value-substitution",
-      description:
-        "Changes the ticket priority.",
-
-      output:
-        "Category: billing\nPriority: low",
-
+    scores: {
       severity: 0.95,
       realism: 0.95,
       subtlety: 0.9,
       novelty: 0.9,
-      fixability: 1.0,
+      fixability: 1.0
+    },
 
-      protection:
+    protection: {
+      description:
         "The ticket priority must match the expected priority.",
 
-      protectionCheck(candidateOutput) {
+      check(candidateOutput) {
         return (
           extractField(
             candidateOutput,
@@ -81,27 +99,32 @@ function generateMutations(output) {
           ) === example.expected.priority
         );
       }
+    }
+  },
+
+  {
+    id: "missing-category",
+    type: "missing-information",
+    description:
+      "Removes the ticket category.",
+
+    mutate() {
+      return "Priority: high";
     },
 
-    {
-      id: "missing-category",
-      type: "missing-information",
-      description:
-        "Removes the ticket category.",
-
-      output:
-        "Priority: high",
-
+    scores: {
       severity: 0.9,
       realism: 0.95,
       subtlety: 0.85,
       novelty: 0.9,
-      fixability: 0.95,
+      fixability: 0.95
+    },
 
-      protection:
+    protection: {
+      description:
         "Every classified ticket must include a category.",
 
-      protectionCheck(candidateOutput) {
+      check(candidateOutput) {
         return (
           extractField(
             candidateOutput,
@@ -109,35 +132,42 @@ function generateMutations(output) {
           ) !== null
         );
       }
+    }
+  },
+
+  {
+    id: "unsupported-refund-promise",
+    type: "unsupported-information",
+    description:
+      "Adds a refund promise that the classifier was never asked to make.",
+
+    mutate(output) {
+      return (
+        output +
+        "\nAction: Refund will be issued."
+      );
     },
 
-    {
-      id: "unsupported-refund-promise",
-      type: "unsupported-information",
-      description:
-        "Adds a refund promise that the classifier was never asked to make.",
-
-      output:
-        output +
-        "\nAction: Refund will be issued.",
-
+    scores: {
       severity: 0.7,
       realism: 0.8,
       subtlety: 0.7,
       novelty: 0.85,
-      fixability: 0.75,
+      fixability: 0.75
+    },
 
-      protection:
+    protection: {
+      description:
         "The classifier must not invent customer-service actions.",
 
-      protectionCheck(candidateOutput) {
+      check(candidateOutput) {
         return !candidateOutput.includes(
           "Refund will be issued."
         );
       }
     }
-  ];
-}
+  }
+];
 
 // Deliberately weak.
 // It checks only the priority.
@@ -151,7 +181,10 @@ function weakEvaluator(output) {
 }
 
 const mutations =
-  generateMutations(example.expectedOutput);
+  compileMutationPack({
+    output: example.expectedOutput,
+    pack: mutationPack
+  });
 
 const result = runImprovementLoop({
   evaluator: weakEvaluator,

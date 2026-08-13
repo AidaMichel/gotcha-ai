@@ -1,5 +1,9 @@
 const { runImprovementLoop } = require("../../src/engine");
 
+const {
+  compileMutationPack
+} = require("../../src/mutation-pack");
+
 const example = {
   userInput: "Schedule a meeting with Sara on Tuesday at 3 PM.",
   expectedOutput: "Meeting scheduled with Sara on Tuesday at 3 PM.",
@@ -325,50 +329,55 @@ function extractScheduledLocations(output) {
 }
 
 // ----------------------------------------
-// MUTATION ENGINE
+// MUTATION PACK
 // ----------------------------------------
 
-function generateMutations(output) {
-  const { person, day, time } = example.expected;
+const { person, day, time } = example.expected;
 
-  const wrongTime =
-    chooseDifferentTime(time);
+const wrongTime =
+  chooseDifferentTime(time);
 
-  const wrongPerson =
-    chooseDifferentPerson(person);
+const wrongPerson =
+  chooseDifferentPerson(person);
 
-  const wrongDay =
-    chooseDifferentDay(day);
+const wrongDay =
+  chooseDifferentDay(day);
 
-  return [
-    {
-      id: "wrong-time",
-      type: "value-substitution",
-      description: "Changes the requested meeting time.",
+const mutationPack = [
+  {
+    id: "wrong-time",
+    type: "value-substitution",
+    description:
+      "Changes the requested meeting time.",
 
-      // This deliberately repeats the requested time elsewhere.
-      // A naive output.includes("3 PM") check would incorrectly pass it.
-      output: mutateScheduledMeeting(
+    mutate(output) {
+      return mutateScheduledMeeting(
         output,
         {
           time:
             `${wrongTime} (requested: ${time})`
         }
-      ),
+      );
+    },
 
+    scores: {
       severity: 1.0,
       realism: 1.0,
       subtlety: 0.95,
       novelty: 1.0,
-      fixability: 1.0,
+      fixability: 1.0
+    },
 
-      protection:
+    protection: {
+      description:
         "The actual scheduled meeting time must exactly match the time requested by the user.",
 
-      protectionCheck(candidateOutput) {
+      check(candidateOutput) {
         const actualTime =
           normalizeTimeToMinutes(
-            extractScheduledTime(candidateOutput)
+            extractScheduledTime(
+              candidateOutput
+            )
           );
 
         const expectedTime =
@@ -380,119 +389,157 @@ function generateMutations(output) {
           actualTime === expectedTime
         );
       }
-    },
+    }
+  },
 
-    {
-      id: "wrong-person",
-      type: "entity-substitution",
-      description: "Changes the requested person.",
+  {
+    id: "wrong-person",
+    type: "entity-substitution",
+    description:
+      "Changes the requested person.",
 
-      output: mutateScheduledMeeting(
+    mutate(output) {
+      return mutateScheduledMeeting(
         output,
         {
           person: wrongPerson
         }
-      ),
+      );
+    },
 
+    scores: {
       severity: 1.0,
       realism: 0.9,
       subtlety: 0.8,
       novelty: 1.0,
-      fixability: 1.0,
-
-      protection:
-        "The scheduled meeting person must match the person requested by the user.",
-
-      protectionCheck(candidateOutput) {
-        return (
-          extractScheduledPerson(candidateOutput) === person
-        );
-      }
+      fixability: 1.0
     },
 
-    {
-      id: "wrong-day",
-      type: "date-substitution",
-      description: "Changes the requested day.",
+    protection: {
+      description:
+        "The scheduled meeting person must match the person requested by the user.",
 
-      output: mutateScheduledMeeting(
+      check(candidateOutput) {
+        return (
+          extractScheduledPerson(
+            candidateOutput
+          ) === person
+        );
+      }
+    }
+  },
+
+  {
+    id: "wrong-day",
+    type: "date-substitution",
+    description:
+      "Changes the requested day.",
+
+    mutate(output) {
+      return mutateScheduledMeeting(
         output,
         {
           day: wrongDay
         }
-      ),
+      );
+    },
 
+    scores: {
       severity: 1.0,
       realism: 0.95,
       subtlety: 0.85,
       novelty: 1.0,
-      fixability: 1.0,
-
-      protection:
-        "The scheduled meeting day must match the day requested by the user.",
-
-      protectionCheck(candidateOutput) {
-        return extractScheduledDay(candidateOutput) === day;
-      }
+      fixability: 1.0
     },
 
-    {
-      id: "missing-time",
-      type: "missing-information",
-      description: "Removes the explicitly requested time.",
+    protection: {
+      description:
+        "The scheduled meeting day must match the day requested by the user.",
 
-      // Remove only the time from the supplied output.
-      // Everything else in the output is preserved.
-      output: mutateScheduledMeeting(
+      check(candidateOutput) {
+        return (
+          extractScheduledDay(
+            candidateOutput
+          ) === day
+        );
+      }
+    }
+  },
+
+  {
+    id: "missing-time",
+    type: "missing-information",
+    description:
+      "Removes the explicitly requested time.",
+
+    mutate(output) {
+      return mutateScheduledMeeting(
         output,
         {
           time: null
         }
-      ),
+      );
+    },
 
+    scores: {
       severity: 0.9,
       realism: 0.95,
       subtlety: 0.85,
       novelty: 0.9,
-      fixability: 0.95,
-
-      protection:
-        "An explicitly requested meeting time must be present in the scheduled result.",
-
-      protectionCheck(candidateOutput) {
-        return extractScheduledTime(candidateOutput) !== null;
-      }
+      fixability: 0.95
     },
 
-    {
-      id: "unsupported-location",
-      type: "unsupported-information",
+    protection: {
       description:
-        "Invents a meeting location that the user never requested.",
+        "An explicitly requested meeting time must be present in the scheduled result.",
 
-      // Add the unsupported detail to the supplied output
-      // rather than rebuilding the whole response.
-      output: output.endsWith(".")
+      check(candidateOutput) {
+        return (
+          extractScheduledTime(
+            candidateOutput
+          ) !== null
+        );
+      }
+    }
+  },
+
+  {
+    id: "unsupported-location",
+    type: "unsupported-information",
+    description:
+      "Invents a meeting location that the user never requested.",
+
+    mutate(output) {
+      return output.endsWith(".")
         ? `${output.slice(0, -1)}, and will be held in Conference Room B.`
-        : `${output}, and will be held in Conference Room B.`,
+        : `${output}, and will be held in Conference Room B.`;
+    },
 
+    scores: {
       severity: 0.65,
       realism: 0.8,
       subtlety: 0.7,
       novelty: 0.85,
-      fixability: 0.75,
+      fixability: 0.75
+    },
 
-      protection:
+    protection: {
+      description:
         "The assistant must not invent a meeting location that the user did not provide.",
 
-      protectionCheck(candidateOutput) {
+      check(candidateOutput) {
         const actualLocations =
           extractScheduledLocations(
             candidateOutput
           );
 
-        if (example.expected.location === null) {
-          return actualLocations.length === 0;
+        if (
+          example.expected.location ===
+          null
+        ) {
+          return (
+            actualLocations.length === 0
+          );
         }
 
         return (
@@ -502,8 +549,8 @@ function generateMutations(output) {
         );
       }
     }
-  ];
-}
+  }
+];
 
 // ----------------------------------------
 // CURRENT EVALUATOR
@@ -534,9 +581,11 @@ function weakEvaluator(output) {
 // FIRST ATTACK
 // ----------------------------------------
 
-const mutations = generateMutations(
-  example.expectedOutput
-);
+const mutations =
+  compileMutationPack({
+    output: example.expectedOutput,
+    pack: mutationPack
+  });
 
 const {
   before,
