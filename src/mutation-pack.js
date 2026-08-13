@@ -1,96 +1,20 @@
-const {
-  types: utilTypes,
-  inspect
-} = require("node:util");
+const { types: utilTypes } = require("node:util");
 
-const {
-  PerformanceObserver
-} = require("node:perf_hooks");
+const functionToString = Function.prototype.toString;
+const promiseThen = Promise.prototype.then;
+const getOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
+const getOwnPropertyDescriptors = Object.getOwnPropertyDescriptors;
+const getPrototypeOf = Object.getPrototypeOf;
+const isExtensible = Object.isExtensible;
+const defineProperty = Object.defineProperty;
+const deleteProperty = Reflect.deleteProperty;
+const ownKeys = Reflect.ownKeys;
 
-const {
-  locks: workerThreadLocks
-} = require("node:worker_threads");
+const safePromiseSpecies = Object.freeze({
+  [Symbol.species]: Promise
+});
 
-const functionToString =
-  Function.prototype.toString;
-
-const promiseThen =
-  Promise.prototype.then;
-
-const getOwnPropertyDescriptor =
-  Object.getOwnPropertyDescriptor;
-
-const isExtensible =
-  Object.isExtensible;
-
-const defineProperty =
-  Object.defineProperty;
-
-const deleteProperty =
-  Reflect.deleteProperty;
-
-const safePromiseSpecies =
-  Object.freeze({
-    [Symbol.species]: Promise
-  });
-
-const callbackReceiver =
-  Object.freeze(
-    Object.create(null)
-  );
-
-function captureNavigatorLocks() {
-  try {
-    if (
-      globalThis.navigator ===
-        undefined ||
-      globalThis.navigator ===
-        null
-    ) {
-      return null;
-    }
-
-    const locks =
-      globalThis.navigator.locks;
-
-    return (
-      locks !== null &&
-      typeof locks === "object"
-    )
-      ? locks
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-const navigatorLocks =
-  captureNavigatorLocks();
-
-const unsupportedHostSingletons =
-  Object.freeze(
-    [
-      workerThreadLocks,
-      navigatorLocks
-    ].filter(
-      (value, index, values) =>
-        value !== undefined &&
-        value !== null &&
-        values.indexOf(value) ===
-          index
-    )
-  );
-
-function hasUnsupportedHostSingleton(
-  value
-) {
-  return unsupportedHostSingletons
-    .some(
-      (singleton) =>
-        singleton === value
-    );
-}
-
+const callbackReceiver = Object.freeze(Object.create(null));
 const SCORE_KEYS = [
   "severity",
   "realism",
@@ -98,6 +22,26 @@ const SCORE_KEYS = [
   "novelty",
   "fixability"
 ];
+
+// Mutation Pack accepts canonical data, not arbitrary JavaScript runtime state.
+//
+// Supported values:
+// - primitives
+// - ordinary arrays
+// - ordinary plain objects
+// - cycles/shared references composed from those values
+//
+// Meaning comes from OWN enumerable data properties only.
+//
+// Prototype state, extensibility/frozen state, descriptor flags,
+// hidden host slots, and custom runtime identity are intentionally
+// outside the Mutation Pack data model.
+//
+// mutate() and protection.check() are trusted local synchronous
+// callbacks. They must be deterministic and must not mutate
+// process/global/prototype state.
+//
+// Mutation Pack is not a JavaScript sandbox.
 
 function requireNonEmptyString(
   value,
@@ -129,147 +73,7 @@ function requireScore(
   }
 }
 
-function isPromiseLike(
-  value
-) {
-  if (
-    utilTypes.isPromise(value)
-  ) {
-    return true;
-  }
-
-  if (
-    value === null ||
-    (
-      typeof value !== "object" &&
-      typeof value !== "function"
-    )
-  ) {
-    return false;
-  }
-
-  // Do not perform reflection through
-  // user-controlled Proxy traps.
-  if (
-    utilTypes.isProxy(value)
-  ) {
-    return false;
-  }
-
-  const thenDescriptor =
-    Reflect.apply(
-      getOwnPropertyDescriptor,
-      Object,
-      [
-        value,
-        "then"
-      ]
-    );
-
-  if (
-    thenDescriptor !== undefined
-  ) {
-    // Own accessor-based values belong to
-    // the unsupported deterministic-data
-    // path. Never invoke the getter here;
-    // clone validation will reject it.
-    if (
-      "get" in thenDescriptor ||
-      "set" in thenDescriptor
-    ) {
-      return false;
-    }
-
-    return (
-      typeof thenDescriptor.value ===
-      "function"
-    );
-  }
-
-  const inheritedThenDescriptor =
-    getInheritedThenDescriptor(
-      value
-    );
-
-  if (
-    inheritedThenDescriptor ===
-      undefined
-  ) {
-    return false;
-  }
-
-  // An inherited accessor named `then`
-  // is unsupported too. Treat it as
-  // promise-like so mutation results are
-  // rejected without invoking the getter.
-  if (
-    "get" in inheritedThenDescriptor ||
-    "set" in inheritedThenDescriptor
-  ) {
-    return true;
-  }
-
-  return (
-    typeof inheritedThenDescriptor
-      .value === "function"
-  );
-}
-
-function getInheritedThenDescriptor(
-  value
-) {
-  let prototype =
-    Object.getPrototypeOf(
-      value
-    );
-
-  const maxDepth =
-    Array.isArray(value)
-      ? 2
-      : 1;
-
-  for (
-    let depth = 0;
-    prototype !== null &&
-    depth < maxDepth;
-    depth += 1
-  ) {
-    if (
-      utilTypes.isProxy(
-        prototype
-      )
-    ) {
-      return undefined;
-    }
-
-    const descriptor =
-      Reflect.apply(
-        getOwnPropertyDescriptor,
-        Object,
-        [
-          prototype,
-          "then"
-        ]
-      );
-
-    if (
-      descriptor !== undefined
-    ) {
-      return descriptor;
-    }
-
-    prototype =
-      Object.getPrototypeOf(
-        prototype
-      );
-  }
-
-  return undefined;
-}
-
-function getCallbackSource(
-  fn
-) {
+function getCallbackSource(fn) {
   try {
     return Reflect.apply(
       functionToString,
@@ -281,9 +85,7 @@ function getCallbackSource(
   }
 }
 
-function isNativeCallbackSource(
-  source
-) {
+function isNativeCallbackSource(source) {
   if (source === null) {
     return true;
   }
@@ -294,290 +96,11 @@ function isNativeCallbackSource(
   );
 }
 
-function isOrdinaryArrayPrototype(
-  prototype
-) {
-  if (
-    !Array.isArray(prototype) ||
-    utilTypes.isProxy(prototype)
-  ) {
-    return false;
-  }
-
-  const constructorDescriptor =
-    Reflect.apply(
-      getOwnPropertyDescriptor,
-      Object,
-      [
-        prototype,
-        "constructor"
-      ]
-    );
-
-  if (
-    constructorDescriptor ===
-      undefined ||
-    "get" in constructorDescriptor ||
-    "set" in constructorDescriptor ||
-    typeof constructorDescriptor
-      .value !== "function" ||
-    utilTypes.isProxy(
-      constructorDescriptor.value
-    )
-  ) {
-    return false;
-  }
-
-  const constructor =
-    constructorDescriptor.value;
-
-  const prototypeDescriptor =
-    Reflect.apply(
-      getOwnPropertyDescriptor,
-      Object,
-      [
-        constructor,
-        "prototype"
-      ]
-    );
-
-  if (
-    prototypeDescriptor ===
-      undefined ||
-    "get" in prototypeDescriptor ||
-    "set" in prototypeDescriptor ||
-    prototypeDescriptor.value !==
-      prototype
-  ) {
-    return false;
-  }
-
-  const source =
-    getCallbackSource(
-      constructor
-    );
-
-  return (
-    typeof source === "string" &&
-    /^function\s+Array\s*\(\s*\)\s*\{\s*\[native code\]\s*\}$/
-      .test(source.trim())
-  );
-}
-
-function isOrdinaryObjectPrototype(
-  prototype
-) {
-  if (
-    prototype === null ||
-    typeof prototype !== "object" ||
-    utilTypes.isProxy(prototype)
-  ) {
-    return false;
-  }
-
-  const constructorDescriptor =
-    Reflect.apply(
-      getOwnPropertyDescriptor,
-      Object,
-      [
-        prototype,
-        "constructor"
-      ]
-    );
-
-  if (
-    constructorDescriptor ===
-      undefined ||
-    "get" in constructorDescriptor ||
-    "set" in constructorDescriptor ||
-    typeof constructorDescriptor
-      .value !== "function" ||
-    utilTypes.isProxy(
-      constructorDescriptor.value
-    )
-  ) {
-    return false;
-  }
-
-  const constructor =
-    constructorDescriptor.value;
-
-  const prototypeDescriptor =
-    Reflect.apply(
-      getOwnPropertyDescriptor,
-      Object,
-      [
-        constructor,
-        "prototype"
-      ]
-    );
-
-  if (
-    prototypeDescriptor ===
-      undefined ||
-    "get" in prototypeDescriptor ||
-    "set" in prototypeDescriptor ||
-    prototypeDescriptor.value !==
-      prototype
-  ) {
-    return false;
-  }
-
-  const source =
-    getCallbackSource(
-      constructor
-    );
-
-  return (
-    typeof source === "string" &&
-    /^function\s+Object\s*\(\s*\)\s*\{\s*\[native code\]\s*\}$/
-      .test(source.trim())
-  );
-}
-
-function skipJavaScriptSeparators(
-  source,
-  startIndex
-) {
-  let index = startIndex;
-
-  while (index < source.length) {
-    if (
-      /\s/.test(
-        source[index]
-      )
-    ) {
-      index += 1;
-      continue;
-    }
-
-    if (
-      source.startsWith(
-        "/*",
-        index
-      )
-    ) {
-      const end =
-        source.indexOf(
-          "*/",
-          index + 2
-        );
-
-      if (end === -1) {
-        return source.length;
-      }
-
-      index = end + 2;
-      continue;
-    }
-
-    if (
-      source.startsWith(
-        "//",
-        index
-      )
-    ) {
-      const end =
-        source.indexOf(
-          "\n",
-          index + 2
-        );
-
-      if (end === -1) {
-        return source.length;
-      }
-
-      index = end + 1;
-      continue;
-    }
-
-    break;
-  }
-
-  return index;
-}
-
-function isClassConstructorSource(
-  source
-) {
-  if (
-    typeof source !== "string"
-  ) {
-    return false;
-  }
-
-  const trimmed =
-    source.trimStart();
-
-  if (
-    !trimmed.startsWith(
-      "class"
-    )
-  ) {
-    return false;
-  }
-
-  const afterKeyword =
-    trimmed[5];
-
-  // Ordinary object method:
-  // class() {}
-  if (
-    afterKeyword === "("
-  ) {
-    return false;
-  }
-
-  // Anonymous class:
-  // class {}
-  if (
-    afterKeyword === "{"
-  ) {
-    return true;
-  }
-
-  // Do not confuse identifiers such as
-  // className() with the class keyword.
-  if (
-    afterKeyword !== undefined &&
-    !/\s/.test(
-      afterKeyword
-    ) &&
-    !trimmed.startsWith(
-      "/*",
-      5
-    ) &&
-    !trimmed.startsWith(
-      "//",
-      5
-    )
-  ) {
-    return false;
-  }
-
-  const nextTokenIndex =
-    skipJavaScriptSeparators(
-      trimmed,
-      5
-    );
-
-  // class /**/ Callback {}
-  //        -> class constructor
-  //
-  // class /**/ () {}
-  //        -> ordinary method named class
-  return (
-    trimmed[nextTokenIndex] !==
-      "("
-  );
-}
-
 function requireSyncCallback(
   fn,
   asyncMessage,
   generatorMessage,
-  wrapperMessage,
-  classMessage
+  wrapperMessage
 ) {
   if (
     utilTypes.isAsyncFunction(fn)
@@ -588,34 +111,16 @@ function requireSyncCallback(
   }
 
   if (
-    utilTypes.isGeneratorFunction(
-      fn
-    )
+    utilTypes.isGeneratorFunction(fn)
   ) {
     throw new Error(
       generatorMessage
     );
   }
 
-  const source =
-    getCallbackSource(fn);
-
-  if (
-    isClassConstructorSource(
-      source
-    )
-  ) {
-    throw new Error(
-      classMessage
-    );
-  }
-
-  // Bound functions, callable proxies,
-  // and native functions have the exact
-  // native-function representation.
   if (
     isNativeCallbackSource(
-      source
+      getCallbackSource(fn)
     )
   ) {
     throw new Error(
@@ -716,364 +221,260 @@ function consumeNativePromiseRejection(
   }
 }
 
-function consumePromiseRejection(
-  value
-) {
-  if (
-    utilTypes.isPromise(value)
-  ) {
-    consumeNativePromiseRejection(
-      value
-    );
-  }
-
-  // Non-native thenables are rejected
-  // without invoking their `then`.
-}
-
-function rejectPromiseLike(
+function rejectNativePromiseResult(
   value,
   message
 ) {
-  if (!isPromiseLike(value)) {
+  if (
+    !utilTypes.isPromise(value)
+  ) {
     return value;
   }
 
-  consumePromiseRejection(
+  consumeNativePromiseRejection(
     value
   );
 
-  throw new Error(message);
-}
-
-function captureHostBrandGetter(
-  constructorName,
-  propertyName
-) {
-  const constructor =
-    globalThis[constructorName];
-
-  if (
-    typeof constructor !== "function" ||
-    constructor.prototype === null ||
-    typeof constructor.prototype !==
-      "object"
-  ) {
-    return null;
-  }
-
-  const descriptor =
-    Reflect.apply(
-      getOwnPropertyDescriptor,
-      Object,
-      [
-        constructor.prototype,
-        propertyName
-      ]
-    );
-
-  if (
-    descriptor === undefined ||
-    typeof descriptor.get !== "function"
-  ) {
-    return null;
-  }
-
-  return descriptor.get;
-}
-
-function capturePerformanceObserverBrandProbe() {
-  if (
-    typeof PerformanceObserver !==
-      "function" ||
-    PerformanceObserver.prototype ===
-      null ||
-    typeof PerformanceObserver
-      .prototype !== "object"
-  ) {
-    return null;
-  }
-
-  const descriptor =
-    Reflect.apply(
-      getOwnPropertyDescriptor,
-      Object,
-      [
-        PerformanceObserver.prototype,
-        inspect.custom
-      ]
-    );
-
-  if (
-    descriptor === undefined ||
-    typeof descriptor.value !==
-      "function"
-  ) {
-    return null;
-  }
-
-  return descriptor.value;
-}
-
-const performanceObserverBrandProbe =
-  capturePerformanceObserverBrandProbe();
-
-const performanceObserverInspectOptions =
-  Object.freeze({
-    depth: 0
-  });
-
-function hasUnsupportedPerformanceObserverBrand(
-  value
-) {
-  if (
-    performanceObserverBrandProbe ===
-      null
-  ) {
-    return false;
-  }
-
-  try {
-    Reflect.apply(
-      performanceObserverBrandProbe,
-      value,
-      [
-        0,
-        performanceObserverInspectOptions,
-        inspect
-      ]
-    );
-
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-const HOST_BRAND_GETTER_SPECS =
-  Object.freeze([
-    [
-      "Crypto",
-      "subtle"
-    ],
-    [
-      "Navigator",
-      "userAgent"
-    ],
-    [
-      "AbortController",
-      "signal"
-    ],
-    [
-      "AbortSignal",
-      "aborted"
-    ],
-    [
-      "TextEncoder",
-      "encoding"
-    ],
-    [
-      "TextDecoder",
-      "encoding"
-    ],
-    [
-      "URL",
-      "href"
-    ],
-    [
-      "URLSearchParams",
-      "size"
-    ],
-    [
-      "Blob",
-      "size"
-    ],
-    [
-      "File",
-      "name"
-    ],
-    [
-      "Request",
-      "url"
-    ],
-    [
-      "Response",
-      "status"
-    ],
-    [
-      "ReadableStream",
-      "locked"
-    ],
-    [
-      "WritableStream",
-      "locked"
-    ],
-    [
-      "TransformStream",
-      "readable"
-    ],
-    [
-      "TextEncoderStream",
-      "readable"
-    ],
-    [
-      "TextDecoderStream",
-      "readable"
-    ],
-    [
-      "CompressionStream",
-      "readable"
-    ],
-    [
-      "DecompressionStream",
-      "readable"
-    ],
-    [
-      "CountQueuingStrategy",
-      "highWaterMark"
-    ],
-    [
-      "ByteLengthQueuingStrategy",
-      "highWaterMark"
-    ]
-  ]);
-
-const unsupportedHostBrandGetters =
-  Object.freeze(
-    HOST_BRAND_GETTER_SPECS
-      .map(
-        ([
-          constructorName,
-          propertyName
-        ]) =>
-          captureHostBrandGetter(
-            constructorName,
-            propertyName
-          )
-      )
-      .filter(
-        (getter) =>
-          getter !== null
-      )
+  throw new Error(
+    message
   );
-
-function hasUnsupportedHostBrand(
-  value
-) {
-  for (
-    const getter of
-      unsupportedHostBrandGetters
-  ) {
-    try {
-      Reflect.apply(
-        getter,
-        value,
-        []
-      );
-
-      return true;
-    } catch {
-      // Native Web/host getters throw
-      // when the receiver does not carry
-      // their required internal brand.
-    }
-  }
-
-  return false;
 }
 
-function hasUnsupportedIntrinsicBrand(
-  value
+function isOrdinaryObjectPrototype(
+  prototype
 ) {
-  return (
-    utilTypes.isAnyArrayBuffer(
-      value
-    ) ||
-    utilTypes.isArrayBufferView(
-      value
-    ) ||
-    utilTypes.isArgumentsObject(
-      value
-    ) ||
-    utilTypes.isBoxedPrimitive(
-      value
-    ) ||
-    utilTypes.isDate(
-      value
-    ) ||
-    utilTypes.isGeneratorObject(
-      value
-    ) ||
-    utilTypes.isMap(
-      value
-    ) ||
-    utilTypes.isMapIterator(
-      value
-    ) ||
-    utilTypes.isModuleNamespaceObject(
-      value
-    ) ||
-    utilTypes.isNativeError(
-      value
-    ) ||
-    utilTypes.isPromise(
-      value
-    ) ||
-    utilTypes.isRegExp(
-      value
-    ) ||
-    utilTypes.isSet(
-      value
-    ) ||
-    utilTypes.isSetIterator(
-      value
-    ) ||
-    utilTypes.isWeakMap(
-      value
-    ) ||
-    utilTypes.isWeakSet(
-      value
-    ) ||
-    (
-      typeof utilTypes.isCryptoKey ===
-        "function" &&
-      utilTypes.isCryptoKey(
-        value
-      )
-    ) ||
-    (
-      typeof utilTypes.isKeyObject ===
-        "function" &&
-      utilTypes.isKeyObject(
-        value
-      )
-    ) ||
-    (
-      typeof utilTypes.isExternal ===
-        "function" &&
-      utilTypes.isExternal(
-        value
-      )
-    ) ||
-    hasUnsupportedPerformanceObserverBrand(
-      value
-    ) ||
-    hasUnsupportedHostSingleton(
-      value
-    ) ||
-    hasUnsupportedHostBrand(
-      value
+  if (
+    prototype === null ||
+    typeof prototype !== "object" ||
+    utilTypes.isProxy(prototype)
+  ) {
+    return false;
+  }
+
+  const constructorDescriptor =
+    Reflect.apply(
+      getOwnPropertyDescriptor,
+      Object,
+      [
+        prototype,
+        "constructor"
+      ]
+    );
+
+  if (
+    constructorDescriptor ===
+      undefined ||
+    "get" in
+      constructorDescriptor ||
+    "set" in
+      constructorDescriptor ||
+    typeof constructorDescriptor
+      .value !== "function" ||
+    utilTypes.isProxy(
+      constructorDescriptor.value
     )
+  ) {
+    return false;
+  }
+
+  const constructor =
+    constructorDescriptor.value;
+
+  const prototypeDescriptor =
+    Reflect.apply(
+      getOwnPropertyDescriptor,
+      Object,
+      [
+        constructor,
+        "prototype"
+      ]
+    );
+
+  if (
+    prototypeDescriptor ===
+      undefined ||
+    "get" in
+      prototypeDescriptor ||
+    "set" in
+      prototypeDescriptor ||
+    prototypeDescriptor.value !==
+      prototype
+  ) {
+    return false;
+  }
+
+  const source =
+    getCallbackSource(
+      constructor
+    );
+
+  return (
+    typeof source === "string" &&
+    /^function\s+Object\s*\(\s*\)\s*\{\s*\[native code\]\s*\}$/
+      .test(source.trim())
   );
 }
 
-function validateMutationValue(
+function isOrdinaryArrayPrototype(
+  prototype
+) {
+  if (
+    !Array.isArray(prototype) ||
+    utilTypes.isProxy(prototype)
+  ) {
+    return false;
+  }
+
+  const constructorDescriptor =
+    Reflect.apply(
+      getOwnPropertyDescriptor,
+      Object,
+      [
+        prototype,
+        "constructor"
+      ]
+    );
+
+  if (
+    constructorDescriptor ===
+      undefined ||
+    "get" in
+      constructorDescriptor ||
+    "set" in
+      constructorDescriptor ||
+    typeof constructorDescriptor
+      .value !== "function" ||
+    utilTypes.isProxy(
+      constructorDescriptor.value
+    )
+  ) {
+    return false;
+  }
+
+  const constructor =
+    constructorDescriptor.value;
+
+  const prototypeDescriptor =
+    Reflect.apply(
+      getOwnPropertyDescriptor,
+      Object,
+      [
+        constructor,
+        "prototype"
+      ]
+    );
+
+  if (
+    prototypeDescriptor ===
+      undefined ||
+    "get" in
+      prototypeDescriptor ||
+    "set" in
+      prototypeDescriptor ||
+    prototypeDescriptor.value !==
+      prototype
+  ) {
+    return false;
+  }
+
+  const source =
+    getCallbackSource(
+      constructor
+    );
+
+  return (
+    typeof source === "string" &&
+    /^function\s+Array\s*\(\s*\)\s*\{\s*\[native code\]\s*\}$/
+      .test(source.trim())
+  );
+}
+
+function createCanonicalState() {
+  return {
+    seen:
+      new WeakMap(),
+
+    approvedObjectPrototypes:
+      new WeakSet(),
+
+    approvedArrayPrototypes:
+      new WeakSet()
+  };
+}
+
+function requireOrdinaryObjectPrototype(
+  prototype,
+  state,
+  label
+) {
+  if (
+    state
+      .approvedObjectPrototypes
+      .has(prototype)
+  ) {
+    return;
+  }
+
+  if (
+    !isOrdinaryObjectPrototype(
+      prototype
+    )
+  ) {
+    throw new Error(
+      `${label} must use ordinary plain objects.`
+    );
+  }
+
+  state
+    .approvedObjectPrototypes
+    .add(prototype);
+}
+
+function requireOrdinaryArrayPrototype(
+  prototype,
+  state,
+  label
+) {
+  if (
+    state
+      .approvedArrayPrototypes
+      .has(prototype)
+  ) {
+    return;
+  }
+
+  if (
+    !isOrdinaryArrayPrototype(
+      prototype
+    )
+  ) {
+    throw new Error(
+      `${label} must use ordinary arrays.`
+    );
+  }
+
+  requireOrdinaryObjectPrototype(
+    getPrototypeOf(
+      prototype
+    ),
+    state,
+    label
+  );
+
+  state
+    .approvedArrayPrototypes
+    .add(prototype);
+}
+
+function canonicalizeData(
   value,
-  label,
-  seen = new WeakSet()
+  label =
+    "Mutation value",
+  state =
+    createCanonicalState()
 ) {
   if (value === null) {
-    return;
+    return null;
   }
 
   const valueType =
@@ -1086,12 +487,14 @@ function validateMutationValue(
     valueType === "undefined" ||
     valueType === "bigint"
   ) {
-    return;
+    return value;
   }
 
-  if (valueType !== "object") {
+  if (
+    valueType !== "object"
+  ) {
     throw new Error(
-      `${label} must use only primitives, ordinary arrays, and plain objects.`
+      `${label} must contain only canonical data values.`
     );
   }
 
@@ -1103,38 +506,19 @@ function validateMutationValue(
     );
   }
 
-  if (seen.has(value)) {
-    return;
-  }
-
-  seen.add(value);
-
   if (
-    utilTypes.isSharedArrayBuffer(
-      value
-    )
+    utilTypes.isPromise(value)
   ) {
     throw new Error(
-      `${label} must not contain SharedArrayBuffer values.`
+      `${label} must not contain Promise values.`
     );
   }
 
   if (
-    typeof Buffer !== "undefined" &&
-    Buffer.isBuffer(value)
+    state.seen.has(value)
   ) {
-    throw new Error(
-      `${label} must not contain Buffer values.`
-    );
-  }
-
-  if (
-    hasUnsupportedIntrinsicBrand(
+    return state.seen.get(
       value
-    )
-  ) {
-    throw new Error(
-      `${label} must use only primitives, ordinary arrays, and plain objects.`
     );
   }
 
@@ -1142,95 +526,82 @@ function validateMutationValue(
     Array.isArray(value);
 
   const prototype =
-    Object.getPrototypeOf(value);
+    getPrototypeOf(value);
 
   if (isArray) {
-    // Accept only a realm's genuine
-    // native Array.prototype. Arbitrary
-    // arrays used as prototypes would be
-    // normalized away by structuredClone.
-    if (
-      !isOrdinaryArrayPrototype(
-        prototype
-      )
-    ) {
-      throw new Error(
-        `${label} must use ordinary arrays, not array subclasses or custom array prototypes.`
-      );
-    }
-  } else if (
-    !isOrdinaryObjectPrototype(
-      prototype
-    )
-  ) {
-    throw new Error(
-      `${label} must use only primitives, ordinary arrays, and plain objects.`
+    requireOrdinaryArrayPrototype(
+      prototype,
+      state,
+      label
     );
-  }
-
-  if (
-    getInheritedThenDescriptor(
-      value
-    ) !== undefined
-  ) {
-    throw new Error(
-      `${label} must not inherit then properties.`
+  } else {
+    requireOrdinaryObjectPrototype(
+      prototype,
+      state,
+      label
     );
   }
 
   const descriptors =
-    Object.getOwnPropertyDescriptors(
+    getOwnPropertyDescriptors(
       value
     );
 
-  const valueIsFrozen =
-    Object.isFrozen(value);
+  let target;
+
+  if (isArray) {
+    const lengthDescriptor =
+      descriptors.length;
+
+    if (
+      lengthDescriptor ===
+        undefined ||
+      "get" in
+        lengthDescriptor ||
+      "set" in
+        lengthDescriptor ||
+      typeof lengthDescriptor
+        .value !== "number"
+    ) {
+      throw new Error(
+        `${label} must use an ordinary array length.`
+      );
+    }
+
+    target =
+      new Array(
+        lengthDescriptor.value
+      );
+  } else {
+    target = {};
+  }
+
+  state.seen.set(
+    value,
+    target
+  );
 
   for (
     const key of
-      Reflect.ownKeys(descriptors)
+      ownKeys(descriptors)
   ) {
-    const descriptor =
-      descriptors[key];
-
     if (
       isArray &&
       key === "length"
     ) {
-      const isDataProperty =
-        !("get" in descriptor) &&
-        !("set" in descriptor);
-
-      const isOrdinaryArrayLength =
-        isDataProperty &&
-        !descriptor.enumerable &&
-        !descriptor.configurable &&
-        descriptor.writable;
-
-      const isFrozenArrayLength =
-        isDataProperty &&
-        !descriptor.enumerable &&
-        !descriptor.configurable &&
-        !descriptor.writable &&
-        valueIsFrozen;
-
-      if (
-        !isOrdinaryArrayLength &&
-        !isFrozenArrayLength
-      ) {
-        throw new Error(
-          `${label} array length must use ordinary writable semantics unless the entire array is frozen.`
-        );
-      }
-
       continue;
     }
 
-    if (typeof key === "symbol") {
+    if (
+      typeof key === "symbol"
+    ) {
       throw new Error(
         `${label} must not contain symbol-keyed properties.`
       );
     }
+
+    const descriptor =
+      descriptors[key];
 
     if (
       "get" in descriptor ||
@@ -1241,94 +612,38 @@ function validateMutationValue(
       );
     }
 
-    const isOrdinaryProperty =
-      descriptor.enumerable &&
-      descriptor.configurable &&
-      descriptor.writable;
-
-    const isFrozenProperty =
-      descriptor.enumerable &&
-      valueIsFrozen &&
-      !descriptor.configurable &&
-      !descriptor.writable;
-
     if (
-      !isOrdinaryProperty &&
-      !isFrozenProperty
+      !descriptor.enumerable
     ) {
       throw new Error(
-        `${label} properties must use ordinary or frozen data-property descriptors.`
+        `${label} must not contain non-enumerable own data properties.`
       );
     }
 
-    validateMutationValue(
-      descriptor.value,
-      `${label}.${String(key)}`,
-      seen
+    const canonicalValue =
+      canonicalizeData(
+        descriptor.value,
+        `${label}.${String(key)}`,
+        state
+      );
+
+    defineProperty(
+      target,
+      key,
+      {
+        value:
+          canonicalValue,
+        enumerable: true,
+        configurable: true,
+        writable: true
+      }
     );
   }
+
+  return target;
 }
 
-function cloneMutationValue(
-  value,
-  label = "Mutation value"
-) {
-  validateMutationValue(
-    value,
-    label
-  );
-
-  if (
-    value === null ||
-    typeof value !== "object"
-  ) {
-    return value;
-  }
-
-  if (
-    typeof structuredClone !==
-    "function"
-  ) {
-    throw new Error(
-      "Mutable mutation outputs require structuredClone support."
-    );
-  }
-
-  try {
-    const cloned =
-      structuredClone(value);
-
-    validateMutationValue(
-      cloned,
-      `${label} clone`
-    );
-
-    return cloned;
-  } catch (error) {
-    if (
-      error instanceof Error &&
-      (
-        error.message.includes(
-          "must use only primitives"
-        ) ||
-        error.message.includes(
-          "must not contain"
-        ) ||
-        error.message.includes(
-          "ordinary"
-        )
-      )
-    ) {
-      throw error;
-    }
-
-    throw new Error(
-      `${label} must be safely cloneable plain structured data.`
-    );
-  }
-}
-
-function freezeMutationValue(
+function freezeCanonicalData(
   value,
   seen = new WeakSet()
 ) {
@@ -1339,40 +654,28 @@ function freezeMutationValue(
     return value;
   }
 
-  if (seen.has(value)) {
+  if (
+    seen.has(value)
+  ) {
     return value;
   }
 
   seen.add(value);
 
-  Object.keys(value).forEach(
-    (key) => {
-      freezeMutationValue(
-        value[key],
-        seen
-      );
-    }
+  for (
+    const key of
+      Object.keys(value)
+  ) {
+    freezeCanonicalData(
+      value[key],
+      seen
+    );
+  }
+
+  return Object.freeze(
+    value
   );
-
-  return Object.freeze(value);
 }
-
-// Trust boundary:
-//
-// Mutation Pack treats pack metadata and mutation
-// values as untrusted data and validates them before
-// mutation execution.
-//
-// mutate, protection.check, and evaluators are trusted
-// local synchronous JavaScript callbacks, not sandboxed
-// code. They must not mutate process/global/prototype
-// state.
-//
-// Returning a Promise or thenable violates the
-// synchronous callback contract. Rejection cleanup is
-// defensive best-effort for ordinary native Promises,
-// not a security boundary for adversarial Promise
-// prototype/species poisoning.
 
 function captureMetadataDescriptors(
   value,
@@ -1398,13 +701,13 @@ function captureMetadataDescriptors(
   }
 
   const descriptors =
-    Object.getOwnPropertyDescriptors(
+    getOwnPropertyDescriptors(
       value
     );
 
   for (
     const key of
-      Reflect.ownKeys(descriptors)
+      ownKeys(descriptors)
   ) {
     const descriptor =
       descriptors[key];
@@ -1429,11 +732,11 @@ function readMetadataValue(
   const descriptor =
     descriptors[key];
 
-  if (descriptor === undefined) {
-    return undefined;
-  }
-
-  return descriptor.value;
+  return (
+    descriptor === undefined
+      ? undefined
+      : descriptor.value
+  );
 }
 
 function captureMutation(
@@ -1451,8 +754,6 @@ function captureMutation(
       `${label} must be an object.`
     );
 
-  // Capture every public field from its
-  // data-property descriptor exactly once.
   const id =
     readMetadataValue(
       mutationDescriptors,
@@ -1513,7 +814,8 @@ function captureMutation(
   );
 
   if (
-    typeof mutate !== "function"
+    typeof mutate !==
+      "function"
   ) {
     throw new Error(
       `${label} mutate must be a function.`
@@ -1524,8 +826,7 @@ function captureMutation(
     mutate,
     "Async mutation functions are not supported by this deterministic compiler.",
     "Generator mutation functions are not supported by this deterministic compiler.",
-    "Bound, proxied, or native mutation callbacks are not supported by this deterministic compiler.",
-    "Class constructors cannot be used as mutation callbacks in this deterministic compiler."
+    "Bound, proxied, or native mutation callbacks are not supported by this deterministic compiler."
   );
 
   const scoreDescriptors =
@@ -1537,23 +838,25 @@ function captureMutation(
 
   const capturedScores = {};
 
-  SCORE_KEYS.forEach(
-    (scoreKey) => {
-      const score =
-        readMetadataValue(
-          scoreDescriptors,
-          scoreKey
-        );
-
-      requireScore(
-        score,
-        `${label} ${scoreKey}`
+  for (
+    const scoreKey of
+      SCORE_KEYS
+  ) {
+    const score =
+      readMetadataValue(
+        scoreDescriptors,
+        scoreKey
       );
 
-      capturedScores[scoreKey] =
-        score;
-    }
-  );
+    requireScore(
+      score,
+      `${label} ${scoreKey}`
+    );
+
+    capturedScores[
+      scoreKey
+    ] = score;
+  }
 
   const protectionDescriptors =
     captureMetadataDescriptors(
@@ -1581,7 +884,7 @@ function captureMutation(
 
   if (
     typeof protectionCheck !==
-    "function"
+      "function"
   ) {
     throw new Error(
       `${label} protection check must be a function.`
@@ -1592,8 +895,7 @@ function captureMutation(
     protectionCheck,
     "Async protection checks are not supported by this deterministic compiler.",
     "Generator protection checks are not supported by this deterministic compiler.",
-    "Bound, proxied, or native protection callbacks are not supported by this deterministic compiler.",
-    "Class constructors cannot be used as protection callbacks in this deterministic compiler."
+    "Bound, proxied, or native protection callbacks are not supported by this deterministic compiler."
   );
 
   return {
@@ -1602,12 +904,14 @@ function captureMutation(
     description,
     mutate,
 
-    scores: capturedScores,
+    scores:
+      capturedScores,
 
     protection: {
       description:
         protectionDescription,
-      check: protectionCheck
+      check:
+        protectionCheck
     }
   };
 }
@@ -1633,6 +937,7 @@ function compileMutationPack(
       optionDescriptors,
       "pack"
     );
+
   if (
     utilTypes.isProxy(pack)
   ) {
@@ -1641,36 +946,36 @@ function compileMutationPack(
     );
   }
 
-  if (!Array.isArray(pack)) {
+  if (
+    !Array.isArray(pack)
+  ) {
     throw new Error(
       "Mutation pack must be an array."
     );
   }
 
   const sourceOutputSnapshot =
-    cloneMutationValue(
+    canonicalizeData(
       output,
       "Source output"
     );
 
-  const packLength = pack.length;
   const packEntries = [];
 
-  // Snapshot the pack entries before
-  // reading mutation metadata.
   for (
     let index = 0;
-    index < packLength;
+    index < pack.length;
     index += 1
   ) {
     const entryDescriptor =
-      Object.getOwnPropertyDescriptor(
+      getOwnPropertyDescriptor(
         pack,
         index
       );
 
     if (
-      entryDescriptor === undefined
+      entryDescriptor ===
+        undefined
     ) {
       throw new Error(
         `Mutation at index ${index} must be present.`
@@ -1678,8 +983,10 @@ function compileMutationPack(
     }
 
     if (
-      "get" in entryDescriptor ||
-      "set" in entryDescriptor
+      "get" in
+        entryDescriptor ||
+      "set" in
+        entryDescriptor
     ) {
       throw new Error(
         `Mutation at index ${index} must be stored as a data property.`
@@ -1691,13 +998,15 @@ function compileMutationPack(
     );
   }
 
-  const ids = new Set();
+  const ids =
+    new Set();
 
-  // Capture and validate the exact
-  // values that compilation will use.
   const validatedMutations =
     packEntries.map(
-      (mutation, index) =>
+      (
+        mutation,
+        index
+      ) =>
         captureMutation(
           mutation,
           index,
@@ -1707,41 +1016,16 @@ function compileMutationPack(
 
   return validatedMutations.map(
     (mutation) => {
-      const id = mutation.id;
-      const type = mutation.type;
-      const description =
-        mutation.description;
-      const mutate =
-        mutation.mutate;
-
-      const severity =
-        mutation.scores.severity;
-      const realism =
-        mutation.scores.realism;
-      const subtlety =
-        mutation.scores.subtlety;
-      const novelty =
-        mutation.scores.novelty;
-      const fixability =
-        mutation.scores.fixability;
-
-      const protectionDescription =
-        mutation.protection
-          .description;
-
-      const protectionCheck =
-        mutation.protection.check;
-
       const mutationInput =
-        cloneMutationValue(
+        canonicalizeData(
           sourceOutputSnapshot,
           "Mutation input"
         );
 
       const mutationResult =
-        rejectPromiseLike(
+        rejectNativePromiseResult(
           Reflect.apply(
-            mutate,
+            mutation.mutate,
             callbackReceiver,
             [
               mutationInput
@@ -1750,47 +1034,66 @@ function compileMutationPack(
           "Async mutation functions are not supported by this deterministic compiler."
         );
 
-      // Isolate the returned value too.
-      // A callback may return a shared
-      // mutable object unrelated to input.
       const mutatedOutput =
-        cloneMutationValue(
+        canonicalizeData(
           mutationResult,
           `Mutation ${mutation.id} output`
         );
 
       return {
-        id,
-        type,
-        description,
+        id:
+          mutation.id,
+
+        type:
+          mutation.type,
+
+        description:
+          mutation.description,
 
         output:
-          freezeMutationValue(
+          freezeCanonicalData(
             mutatedOutput
           ),
 
-        severity,
-        realism,
-        subtlety,
-        novelty,
-        fixability,
+        severity:
+          mutation.scores
+            .severity,
+
+        realism:
+          mutation.scores
+            .realism,
+
+        subtlety:
+          mutation.scores
+            .subtlety,
+
+        novelty:
+          mutation.scores
+            .novelty,
+
+        fixability:
+          mutation.scores
+            .fixability,
 
         protection:
-          protectionDescription,
+          mutation.protection
+            .description,
 
         protectionCheck(
           candidateOutput
         ) {
           const protectionInput =
-            cloneMutationValue(
+            canonicalizeData(
               candidateOutput,
               "Protection input"
             );
 
           const protectionResult =
-            rejectPromiseLike(
+            rejectNativePromiseResult(
               Reflect.apply(
-                protectionCheck,
+                mutation
+                  .protection
+                  .check,
                 callbackReceiver,
                 [
                   protectionInput

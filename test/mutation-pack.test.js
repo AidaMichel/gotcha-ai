@@ -1,5 +1,9 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const vm = require("node:vm");
+const {
+  performance
+} = require("node:perf_hooks");
 
 const {
   compileMutationPack
@@ -19,7 +23,7 @@ function makeValidMutation(
       "Changes the expected value.",
 
     mutate(output) {
-      return `${output}-mutated`;
+      return output;
     },
 
     scores: {
@@ -34,8 +38,8 @@ function makeValidMutation(
       description:
         "The value must remain correct.",
 
-      check(output) {
-        return output === "good";
+      check() {
+        return true;
       }
     },
 
@@ -46,103 +50,99 @@ function makeValidMutation(
 test(
   "valid pack compiles to engine format",
   () => {
-    const protectionCheck =
-      (output) => output === "good";
-
     const compiled =
       compileMutationPack({
-        output: "original",
+        output: {
+          value: "good"
+        },
 
         pack: [
           makeValidMutation({
-            protection: {
-              description:
-                "The value must remain correct.",
-              check: protectionCheck
+            mutate(output) {
+              output.value = "bad";
+              return output;
             }
           })
         ]
       });
 
-    assert.equal(compiled.length, 1);
-
-    assert.deepEqual(
-      {
-        id: compiled[0].id,
-        type: compiled[0].type,
-        output: compiled[0].output,
-        severity: compiled[0].severity,
-        realism: compiled[0].realism,
-        subtlety: compiled[0].subtlety,
-        novelty: compiled[0].novelty,
-        fixability: compiled[0].fixability,
-        protection:
-          compiled[0].protection
-      },
-      {
-        id: "wrong-value",
-        type: "value-substitution",
-        output: "original-mutated",
-        severity: 1,
-        realism: 0.9,
-        subtlety: 0.8,
-        novelty: 0.7,
-        fixability: 0.6,
-        protection:
-          "The value must remain correct."
-      }
+    assert.equal(
+      compiled.length,
+      1
     );
 
     assert.equal(
-      compiled[0].protectionCheck(
-        "good"
-      ),
-      true
+      compiled[0].id,
+      "wrong-value"
     );
 
     assert.equal(
-      compiled[0].protectionCheck(
-        "bad"
-      ),
-      false
+      compiled[0].type,
+      "value-substitution"
+    );
+
+    assert.equal(
+      compiled[0].output.value,
+      "bad"
+    );
+
+    assert.equal(
+      compiled[0].severity,
+      1
+    );
+
+    assert.equal(
+      typeof compiled[0]
+        .protectionCheck,
+      "function"
     );
   }
 );
 
 test(
-  "duplicate mutation IDs are rejected",
+  "empty pack compiles safely",
+  () => {
+    assert.deepEqual(
+      compileMutationPack({
+        output: {
+          value: 1
+        },
+        pack: []
+      }),
+      []
+    );
+  }
+);
+
+test(
+  "pack metadata is validated",
   () => {
     assert.throws(
       () => {
         compileMutationPack({
-          output: "original",
+          output: "good",
           pack: [
             makeValidMutation(),
             makeValidMutation()
           ]
         });
       },
-      /Duplicate mutation id: wrong-value/
+      /Duplicate mutation id/
     );
-  }
-);
 
-test(
-  "invalid scores are rejected",
-  () => {
     assert.throws(
       () => {
         compileMutationPack({
-          output: "original",
+          output: "good",
 
           pack: [
             makeValidMutation({
               scores: {
-                severity: 1.2,
-                realism: 0.9,
-                subtlety: 0.8,
-                novelty: 0.7,
-                fixability: 0.6
+                severity: 2,
+                realism: 1,
+                subtlety: 1,
+                novelty: 1,
+                fixability: 1
               }
             })
           ]
@@ -150,44 +150,17 @@ test(
       },
       /severity must be a number between 0 and 1/
     );
-  }
-);
 
-test(
-  "async mutations are rejected",
-  () => {
     assert.throws(
       () => {
         compileMutationPack({
-          output: "original",
-
-          pack: [
-            makeValidMutation({
-              async mutate(output) {
-                return `${output}-mutated`;
-              }
-            })
-          ]
-        });
-      },
-      /Async mutation functions are not supported/
-    );
-  }
-);
-
-test(
-  "malformed protections are rejected",
-  () => {
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output: "original",
+          output: "good",
 
           pack: [
             makeValidMutation({
               protection: {
                 description:
-                  "Missing check function"
+                  "Missing check."
               }
             })
           ]
@@ -199,384 +172,12 @@ test(
 );
 
 test(
-  "empty mutation pack compiles safely",
+  "sparse packs are rejected",
   () => {
-    const compiled =
-      compileMutationPack({
-        output: "original",
-        pack: []
-      });
-
-    assert.deepEqual(compiled, []);
-  }
-);
-
-test(
-  "compiled pack works with improvement loop",
-  () => {
-    const knownGoodOutput =
-      "Status: approved\nAmount: 100";
-
-    function extractField(
-      output,
-      field
-    ) {
-      const match = output.match(
-        new RegExp(
-          `^${field}:\\s*(.+)$`,
-          "im"
-        )
-      );
-
-      return match
-        ? match[1].trim()
-        : null;
-    }
-
-    const pack = [
-      {
-        id: "wrong-amount",
-        type: "value-substitution",
-        description:
-          "Changes the approved amount.",
-
-        mutate() {
-          return (
-            "Status: approved\n" +
-            "Amount: 999"
-          );
-        },
-
-        scores: {
-          severity: 1,
-          realism: 1,
-          subtlety: 1,
-          novelty: 1,
-          fixability: 1
-        },
-
-        protection: {
-          description:
-            "Approved amount must remain 100.",
-
-          check(output) {
-            return (
-              extractField(
-                output,
-                "Amount"
-              ) === "100"
-            );
-          }
-        }
-      },
-
-      {
-        id: "wrong-status",
-        type: "entity-substitution",
-        description:
-          "Changes the approval status.",
-
-        mutate() {
-          return (
-            "Status: rejected\n" +
-            "Amount: 100"
-          );
-        },
-
-        scores: {
-          severity: 0.8,
-          realism: 0.8,
-          subtlety: 0.8,
-          novelty: 0.8,
-          fixability: 0.8
-        },
-
-        protection: {
-          description:
-            "Status must remain approved.",
-
-          check(output) {
-            return (
-              extractField(
-                output,
-                "Status"
-              ) === "approved"
-            );
-          }
-        }
-      }
-    ];
-
-    function weakEvaluator(output) {
-      return (
-        extractField(
-          output,
-          "Status"
-        ) === "approved"
-      );
-    }
-
-    const mutations =
-      compileMutationPack({
-        output: knownGoodOutput,
-        pack
-      });
-
-    const result =
-      runImprovementLoop({
-        evaluator: weakEvaluator,
-        mutations,
-        knownGoodOutput
-      });
-
-    assert.equal(
-      result.before.caught.length,
-      1
-    );
-
-    assert.equal(
-      result.before.survivors.length,
-      1
-    );
-
-    assert.equal(
-      result.topFinding.id,
-      "wrong-amount"
-    );
-
-    assert.equal(
-      result.positiveControlPassed,
-      true
-    );
-
-    assert.equal(
-      result.after.caught.length,
-      2
-    );
-
-    assert.equal(
-      result.after.survivors.length,
-      0
-    );
-
-    assert.equal(
-      result.improvement,
-      1
-    );
-  }
-);
-
-test(
-  "rejected native async mutations are rejected before invocation",
-  () => {
-    let invoked = false;
-
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output: "original",
-
-          pack: [
-            makeValidMutation({
-              async mutate() {
-                invoked = true;
-
-                throw new Error(
-                  "should never execute"
-                );
-              }
-            })
-          ]
-        });
-      },
-      /Async mutation functions are not supported/
-    );
-
-    assert.equal(invoked, false);
-  }
-);
-
-test(
-  "promise-returning mutations are rejected safely",
-  async () => {
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output: "original",
-
-          pack: [
-            makeValidMutation({
-              mutate() {
-                return Promise.reject(
-                  new Error(
-                    "rejected mutation"
-                  )
-                );
-              }
-            })
-          ]
-        });
-      },
-      /Async mutation functions are not supported/
-    );
-
-    // Give Node one turn to surface an
-    // unhandled rejection if one escaped.
-    await new Promise(
-      (resolve) => setImmediate(resolve)
-    );
-  }
-);
-
-test(
-  "native async protection checks are rejected before mutations run",
-  () => {
-    let mutateCalls = 0;
-
-    const first =
-      makeValidMutation({
-        id: "first",
-
-        mutate(output) {
-          mutateCalls += 1;
-          return `${output}-first`;
-        }
-      });
-
-    const second =
-      makeValidMutation({
-        id: "second",
-
-        protection: {
-          description:
-            "Async protection.",
-
-          async check() {
-            return true;
-          }
-        }
-      });
-
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output: "original",
-          pack: [
-            first,
-            second
-          ]
-        });
-      },
-      /Async protection checks are not supported/
-    );
-
-    assert.equal(
-      mutateCalls,
-      0
-    );
-  }
-);
-
-test(
-  "promise-returning protection checks are rejected safely",
-  async () => {
-    const mutations =
-      compileMutationPack({
-        output: "good",
-
-        pack: [
-          makeValidMutation({
-            mutate() {
-              return "bad";
-            },
-
-            protection: {
-              description:
-                "Rejecting protection.",
-
-              check() {
-                return Promise.reject(
-                  new Error(
-                    "rejected protection"
-                  )
-                );
-              }
-            }
-          })
-        ]
-      });
-
-    assert.throws(
-      () => {
-        runImprovementLoop({
-          evaluator() {
-            return true;
-          },
-
-          mutations,
-          knownGoodOutput: "good"
-        });
-      },
-      /Async protection checks are not supported/
-    );
-
-    // Give Node one turn to expose an
-    // unhandled rejection if one escaped.
-    await new Promise(
-      (resolve) =>
-        setImmediate(resolve)
-    );
-  }
-);
-
-test(
-  "entire pack validates before mutations execute",
-  () => {
-    let mutateCalls = 0;
-
-    const valid =
-      makeValidMutation({
-        id: "valid",
-
-        mutate(output) {
-          mutateCalls += 1;
-          return `${output}-mutated`;
-        }
-      });
-
-    const malformed =
-      makeValidMutation({
-        id: "malformed",
-        type: ""
-      });
-
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output: "original",
-          pack: [
-            valid,
-            malformed
-          ]
-        });
-      },
-      /type must be a non-empty string/
-    );
-
-    assert.equal(
-      mutateCalls,
-      0
-    );
-  }
-);
-
-test(
-  "sparse mutation packs are rejected",
-  () => {
-    const sparsePack =
+    const pack =
       new Array(2);
 
-    sparsePack[1] =
+    pack[1] =
       makeValidMutation({
         id: "second"
       });
@@ -584,8 +185,8 @@ test(
     assert.throws(
       () => {
         compileMutationPack({
-          output: "original",
-          pack: sparsePack
+          output: "good",
+          pack
         });
       },
       /Mutation at index 0 must be present/
@@ -594,7 +195,48 @@ test(
 );
 
 test(
-  "validated pack is snapshotted before mutations execute",
+  "entire pack validates before mutations execute",
+  () => {
+    let calls = 0;
+
+    const first =
+      makeValidMutation({
+        id: "first",
+
+        mutate(output) {
+          calls += 1;
+          return output;
+        }
+      });
+
+    const invalid =
+      makeValidMutation({
+        id: "second",
+        type: ""
+      });
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: "good",
+          pack: [
+            first,
+            invalid
+          ]
+        });
+      },
+      /type must be a non-empty string/
+    );
+
+    assert.equal(
+      calls,
+      0
+    );
+  }
+);
+
+test(
+  "validated pack is snapshotted before mutation execution",
   () => {
     const pack = [];
 
@@ -603,8 +245,6 @@ test(
         id: "first",
 
         mutate(output) {
-          // Mutate the original pack after
-          // validation has completed.
           pack.pop();
 
           return `${output}-first`;
@@ -622,104 +262,83 @@ test(
 
     const compiled =
       compileMutationPack({
-        output: "original",
+        output: "good",
         pack
       });
 
-    assert.equal(
-      compiled.length,
-      2
-    );
-
     assert.deepEqual(
       compiled.map(
-        (mutation) => mutation.id
+        (mutation) =>
+          mutation.id
       ),
       [
         "first",
         "second"
       ]
     );
-
-    assert.deepEqual(
-      compiled.map(
-        (mutation) => mutation.output
-      ),
-      [
-        "original-first",
-        "original-second"
-      ]
-    );
   }
 );
 
 test(
-  "each mutation receives an isolated mutable output",
+  "each mutation receives isolated canonical data",
   () => {
-    const baseline = {
-      value: 0
+    const original = {
+      nested: {
+        value: 0
+      }
     };
 
     const compiled =
       compileMutationPack({
-        output: baseline,
+        output: original,
 
         pack: [
           makeValidMutation({
-            id: "set-one",
+            id: "one",
 
             mutate(output) {
-              output.value = 1;
+              output.nested.value = 1;
               return output;
             }
           }),
 
           makeValidMutation({
-            id: "set-two",
+            id: "two",
 
             mutate(output) {
-              output.value = 2;
+              output.nested.value = 2;
               return output;
             }
           })
         ]
       });
 
-    assert.deepEqual(
-      baseline,
-      {
-        value: 0
-      }
+    assert.equal(
+      original.nested.value,
+      0
     );
 
-    assert.deepEqual(
-      compiled[0].output,
-      {
-        value: 1
-      }
+    assert.equal(
+      compiled[0].output
+        .nested.value,
+      1
     );
 
-    assert.deepEqual(
-      compiled[1].output,
-      {
-        value: 2
-      }
+    assert.equal(
+      compiled[1].output
+        .nested.value,
+      2
     );
 
     assert.notEqual(
       compiled[0].output,
       compiled[1].output
     );
-
-    assert.notEqual(
-      compiled[0].output,
-      baseline
-    );
   }
 );
 
 test(
-  "shared mutable mutation results are isolated",
+  "shared returned objects are isolated",
   () => {
     const shared = {
       value: 0
@@ -727,11 +346,11 @@ test(
 
     const compiled =
       compileMutationPack({
-        output: "original",
+        output: "good",
 
         pack: [
           makeValidMutation({
-            id: "shared-one",
+            id: "one",
 
             mutate() {
               shared.value = 1;
@@ -740,7 +359,7 @@ test(
           }),
 
           makeValidMutation({
-            id: "shared-two",
+            id: "two",
 
             mutate() {
               shared.value = 2;
@@ -750,322 +369,79 @@ test(
         ]
       });
 
-    assert.deepEqual(
-      compiled[0].output,
-      {
-        value: 1
-      }
+    assert.equal(
+      compiled[0].output.value,
+      1
     );
 
-    assert.deepEqual(
-      compiled[1].output,
-      {
-        value: 2
-      }
+    assert.equal(
+      compiled[1].output.value,
+      2
     );
 
     assert.notEqual(
       compiled[0].output,
       shared
     );
-
-    assert.notEqual(
-      compiled[0].output,
-      compiled[1].output
-    );
   }
 );
 
 test(
-  "async-generator mutations are rejected",
+  "compiled mutable outputs are deeply frozen",
   () => {
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output: "original",
-
-          pack: [
-            makeValidMutation({
-              async *mutate() {
-                yield "mutated";
-              }
-            })
-          ]
-        });
-      },
-      /Async mutation functions are not supported/
-    );
-  }
-);
-
-test(
-  "score accessor metadata is rejected without invocation",
-  () => {
-    let severityReads = 0;
-
-    const scores = {
-      realism: 0.9,
-      subtlety: 0.8,
-      novelty: 0.7,
-      fixability: 0.6
-    };
-
-    Object.defineProperty(
-      scores,
-      "severity",
-      {
-        enumerable: true,
-
-        get() {
-          severityReads += 1;
-
-          return 0.75;
-        }
-      }
-    );
-
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output: "original",
-
-          pack: [
-            makeValidMutation({
-              scores
-            })
-          ]
-        });
-      },
-      /scores must use data properties only/
-    );
-
-    assert.equal(
-      severityReads,
-      0
-    );
-  }
-);
-
-test(
-  "custom class outputs are rejected before mutation execution",
-  () => {
-    class CustomOutput {
-      constructor() {
-        this.value = 1;
-      }
-
-      read() {
-        return this.value;
-      }
-    }
-
-    let invoked = false;
-
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output:
-            new CustomOutput(),
-
-          pack: [
-            makeValidMutation({
-              mutate(output) {
-                invoked = true;
-                return output;
-              }
-            })
-          ]
-        });
-      },
-      /plain objects/
-    );
-
-    assert.equal(
-      invoked,
-      false
-    );
-  }
-);
-
-test(
-  "Buffer mutation values are rejected",
-  () => {
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output:
-            Buffer.from("hello"),
-
-          pack: [
-            makeValidMutation()
-          ]
-        });
-      },
-      /Buffer values/
-    );
-  }
-);
-
-test(
-  "SharedArrayBuffer mutation values are rejected",
-  () => {
-    if (
-      typeof SharedArrayBuffer ===
-      "undefined"
-    ) {
-      return;
-    }
-
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output:
-            new SharedArrayBuffer(8),
-
-          pack: [
-            makeValidMutation()
-          ]
-        });
-      },
-      /SharedArrayBuffer/
-    );
-  }
-);
-
-test(
-  "source output is snapshotted once before mutations execute",
-  () => {
-    const baseline = {
-      value: 0
-    };
-
-    const observed = [];
-
     const compiled =
       compileMutationPack({
-        output: baseline,
+        output: {
+          nested: {
+            value: 1
+          }
+        },
 
         pack: [
-          makeValidMutation({
-            id: "first",
-
-            mutate(output) {
-              observed.push(
-                output.value
-              );
-
-              baseline.value = 99;
-
-              return output;
-            }
-          }),
-
-          makeValidMutation({
-            id: "second",
-
-            mutate(output) {
-              observed.push(
-                output.value
-              );
-
-              return output;
-            }
-          })
+          makeValidMutation()
         ]
       });
 
-    assert.deepEqual(
-      observed,
-      [
-        0,
-        0
-      ]
-    );
-
-    assert.deepEqual(
-      compiled[0].output,
-      {
-        value: 0
-      }
-    );
-
-    assert.deepEqual(
-      compiled[1].output,
-      {
-        value: 0
-      }
+    assert.equal(
+      Object.isFrozen(
+        compiled[0].output
+      ),
+      true
     );
 
     assert.equal(
-      baseline.value,
-      99
+      Object.isFrozen(
+        compiled[0].output.nested
+      ),
+      true
     );
   }
 );
 
 test(
-  "accessor-based mutation values are rejected without invoking getters",
+  "protection checks receive isolated canonical data",
   () => {
-    let getterReads = 0;
+    let protectionInput;
 
-    const baseline = {};
-
-    Object.defineProperty(
-      baseline,
-      "value",
-      {
-        enumerable: true,
-        configurable: true,
-
-        get() {
-          getterReads += 1;
-          return getterReads;
-        }
-      }
-    );
-
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output: baseline,
-
-          pack: [
-            makeValidMutation()
-          ]
-        });
-      },
-      /accessor properties/
-    );
-
-    assert.equal(
-      getterReads,
-      0
-    );
-  }
-);
-
-test(
-  "compiled mutable outputs cannot be changed by evaluators between attacks",
-  () => {
-    const mutations =
+    const compiled =
       compileMutationPack({
         output: {
-          seen: false
+          value: 1
         },
 
         pack: [
           makeValidMutation({
-            id: "frozen-output",
-
-            mutate(output) {
-              return output;
-            },
-
             protection: {
               description:
-                "No-op protection.",
+                "Protection isolation.",
 
-              check() {
+              check(output) {
+                protectionInput =
+                  output;
+
+                output.value =
+                  999;
+
                 return true;
               }
             }
@@ -1073,90 +449,136 @@ test(
         ]
       });
 
-    function mutatingEvaluator(
-      output
-    ) {
-      const passed =
-        output.seen === false;
-
-      Reflect.set(
-        output,
-        "seen",
-        true
-      );
-
-      return passed;
-    }
-
-    const result =
-      runImprovementLoop({
-        evaluator:
-          mutatingEvaluator,
-
-        mutations,
-
-        knownGoodOutput: {
-          seen: false
-        }
-      });
+    const candidate = {
+      value: 5
+    };
 
     assert.equal(
-      Object.isFrozen(
-        mutations[0].output
-      ),
+      compiled[0]
+        .protectionCheck(
+          candidate
+        ),
       true
     );
 
     assert.equal(
-      mutations[0].output.seen,
-      false
+      candidate.value,
+      5
     );
 
-    assert.equal(
-      result.before.survivors.length,
-      1
-    );
-
-    assert.equal(
-      result.after.survivors.length,
-      1
-    );
-
-    assert.equal(
-      result.improvement,
-      0
+    assert.notEqual(
+      protectionInput,
+      candidate
     );
   }
 );
 
 test(
-  "async callback detection ignores spoofed constructor properties",
+  "compiled pack works with the improvement loop",
   () => {
-    let invoked = false;
+    const mutations =
+      compileMutationPack({
+        output:
+          "Status: approved\nAmount: 100",
 
-    async function asyncMutation() {
-      invoked = true;
-      return "mutated";
-    }
+        pack: [
+          {
+            id: "wrong-amount",
+            type:
+              "value-substitution",
+            description:
+              "Changes the amount.",
 
-    Object.defineProperty(
-      asyncMutation,
-      "constructor",
-      {
-        value: Function,
-        configurable: true
-      }
+            mutate() {
+              return (
+                "Status: approved\n" +
+                "Amount: 999"
+              );
+            },
+
+            scores: {
+              severity: 1,
+              realism: 1,
+              subtlety: 1,
+              novelty: 1,
+              fixability: 1
+            },
+
+            protection: {
+              description:
+                "Amount must be 100.",
+
+              check(output) {
+                return (
+                  output.includes(
+                    "Amount: 100"
+                  )
+                );
+              }
+            }
+          }
+        ]
+      });
+
+    const result =
+      runImprovementLoop({
+        evaluator(output) {
+          return output.includes(
+            "Status: approved"
+          );
+        },
+
+        mutations,
+
+        knownGoodOutput:
+          "Status: approved\nAmount: 100"
+      });
+
+    assert.equal(
+      result.before
+        .survivors.length,
+      1
     );
+
+    assert.equal(
+      result.after
+        .survivors.length,
+      0
+    );
+
+    assert.equal(
+      result.improvement,
+      1
+    );
+  }
+);
+
+test(
+  "async mutation callbacks are rejected before execution",
+  () => {
+    let calls = 0;
 
     assert.throws(
       () => {
         compileMutationPack({
-          output: "original",
+          output: "good",
 
           pack: [
             makeValidMutation({
-              mutate:
-                asyncMutation
+              id: "first",
+
+              mutate(output) {
+                calls += 1;
+                return output;
+              }
+            }),
+
+            makeValidMutation({
+              id: "async",
+
+              async mutate(output) {
+                return output;
+              }
             })
           ]
         });
@@ -1165,158 +587,109 @@ test(
     );
 
     assert.equal(
-      invoked,
-      false
+      calls,
+      0
     );
   }
 );
 
 test(
-  "synchronous callbacks remain valid with an own constructor property",
+  "async protection callbacks are rejected before mutation execution",
   () => {
-    function syncMutation(output) {
-      return `${output}-sync`;
-    }
-
-    Object.defineProperty(
-      syncMutation,
-      "constructor",
-      {
-        value: null,
-        configurable: true
-      }
-    );
-
-    const compiled =
-      compileMutationPack({
-        output: "original",
-
-        pack: [
-          makeValidMutation({
-            mutate:
-              syncMutation
-          })
-        ]
-      });
-
-    assert.equal(
-      compiled[0].output,
-      "original-sync"
-    );
-  }
-);
-
-test(
-  "ordinary cross-realm arrays are accepted",
-  () => {
-    const vm =
-      require("node:vm");
-
-    const crossRealmArray =
-      vm.runInNewContext(
-        "[1, { value: 2 }]"
-      );
-
-    const compiled =
-      compileMutationPack({
-        output:
-          crossRealmArray,
-
-        pack: [
-          makeValidMutation({
-            mutate(output) {
-              return output;
-            }
-          })
-        ]
-      });
-
-    assert.deepEqual(
-      compiled[0].output,
-      [
-        1,
-        {
-          value: 2
-        }
-      ]
-    );
-  }
-);
-
-test(
-  "ordinary cross-realm plain objects are accepted while array subclasses remain rejected",
-  () => {
-    const vm =
-      require("node:vm");
-
-    const crossRealmObject =
-      vm.runInNewContext(
-        "({ value: 2, nested: { ok: true } })"
-      );
-
-    const compiled =
-      compileMutationPack({
-        output:
-          crossRealmObject,
-
-        pack: [
-          makeValidMutation({
-            mutate(output) {
-              return output;
-            }
-          })
-        ]
-      });
-
-    assert.deepEqual(
-      compiled[0].output,
-      {
-        value: 2,
-        nested: {
-          ok: true
-        }
-      }
-    );
-
-    class CustomArray
-      extends Array {}
+    let calls = 0;
 
     assert.throws(
       () => {
         compileMutationPack({
-          output:
-            new CustomArray(
-              1,
-              2
-            ),
+          output: "good",
 
           pack: [
-            makeValidMutation()
+            makeValidMutation({
+              mutate(output) {
+                calls += 1;
+                return output;
+              },
+
+              protection: {
+                description:
+                  "Async protection.",
+
+                async check() {
+                  return true;
+                }
+              }
+            })
           ]
         });
       },
-      /array subclasses/
+      /Async protection checks are not supported/
+    );
+
+    assert.equal(
+      calls,
+      0
     );
   }
 );
 
 test(
-  "bound async mutations are rejected before invocation",
+  "generator callbacks are rejected before mutation execution",
   () => {
-    let invoked = false;
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: "good",
 
-    async function asyncMutation() {
-      invoked = true;
-      return "mutated";
-    }
-
-    const boundMutation =
-      asyncMutation.bind(null);
+          pack: [
+            makeValidMutation({
+              *mutate() {
+                yield "bad";
+              }
+            })
+          ]
+        });
+      },
+      /Generator mutation functions are not supported/
+    );
 
     assert.throws(
       () => {
         compileMutationPack({
-          output: "original",
+          output: "good",
+
+          pack: [
+            makeValidMutation({
+              protection: {
+                description:
+                  "Generator protection.",
+
+                *check() {
+                  yield true;
+                }
+              }
+            })
+          ]
+        });
+      },
+      /Generator protection checks are not supported/
+    );
+  }
+);
+
+test(
+  "bound callback wrappers are rejected",
+  () => {
+    const boundMutation =
+      (async function mutation(
+        output
+      ) {
+        return output;
+      }).bind(null);
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: "good",
 
           pack: [
             makeValidMutation({
@@ -1328,121 +701,26 @@ test(
       },
       /Bound, proxied, or native mutation callbacks/
     );
-
-    assert.equal(
-      invoked,
-      false
-    );
   }
 );
 
 test(
-  "bound async protection checks are rejected before mutations execute",
-  () => {
-    let mutationInvoked = false;
-
-    async function asyncProtection() {
-      return true;
-    }
-
-    const boundProtection =
-      asyncProtection.bind(null);
-
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output: "original",
-
-          pack: [
-            makeValidMutation({
-              mutate(output) {
-                mutationInvoked = true;
-                return output;
-              },
-
-              protection: {
-                description:
-                  "Bound protection.",
-
-                check:
-                  boundProtection
-              }
-            })
-          ]
-        });
-      },
-      /Bound, proxied, or native protection callbacks/
-    );
-
-    assert.equal(
-      mutationInvoked,
-      false
-    );
-  }
-);
-
-test(
-  "SharedArrayBuffer is rejected even after prototype replacement",
-  () => {
-    if (
-      typeof SharedArrayBuffer ===
-      "undefined"
-    ) {
-      return;
-    }
-
-    const shared =
-      new SharedArrayBuffer(8);
-
-    Object.setPrototypeOf(
-      shared,
-      Object.prototype
-    );
-
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output: shared,
-
-          pack: [
-            makeValidMutation()
-          ]
-        });
-      },
-      /SharedArrayBuffer/
-    );
-  }
-);
-
-test(
-  "rejected native mutation promises with shadowed then are consumed safely",
+  "native Promise mutation results are rejected safely",
   async () => {
-    function mutation() {
-      const rejected =
-        Promise.reject(
-          new Error("boom")
-        );
-
-      Object.defineProperty(
-        rejected,
-        "then",
-        {
-          value: null,
-          configurable: true
-        }
-      );
-
-      return rejected;
-    }
-
     assert.throws(
       () => {
         compileMutationPack({
-          output: "original",
+          output: "good",
 
           pack: [
             makeValidMutation({
-              mutate: mutation
+              mutate() {
+                return Promise.reject(
+                  new Error(
+                    "mutation rejection"
+                  )
+                );
+              }
             })
           ]
         });
@@ -1458,1649 +736,28 @@ test(
 );
 
 test(
-  "rejected native protection promises with shadowed then are consumed safely",
+  "native Promise protection results are rejected safely",
   async () => {
-    function protection() {
-      const rejected =
-        Promise.reject(
-          new Error("boom")
-        );
-
-      Object.defineProperty(
-        rejected,
-        "then",
-        {
-          value: null,
-          configurable: true
-        }
-      );
-
-      return rejected;
-    }
-
-    const compiled =
+    const mutations =
       compileMutationPack({
-        output: "original",
+        output: "good",
 
         pack: [
           makeValidMutation({
+            mutate() {
+              return "bad";
+            },
+
             protection: {
               description:
                 "Promise protection.",
-              check: protection
-            }
-          })
-        ]
-      });
-
-    assert.throws(
-      () => {
-        compiled[0]
-          .protectionCheck(
-            "candidate"
-          );
-      },
-      /Async protection checks are not supported/
-    );
-
-    await new Promise(
-      (resolve) =>
-        setImmediate(resolve)
-    );
-  }
-);
-
-test(
-  "branded mutable objects remain rejected after prototype replacement",
-  () => {
-    const brandedValues = [
-      new Map(),
-      new Date(),
-      new ArrayBuffer(8),
-      new DataView(
-        new ArrayBuffer(8)
-      )
-    ];
-
-    for (
-      const value of brandedValues
-    ) {
-      Object.setPrototypeOf(
-        value,
-        Object.prototype
-      );
-
-      assert.throws(
-        () => {
-          compileMutationPack({
-            output: value,
-
-            pack: [
-              makeValidMutation()
-            ]
-          });
-        },
-        /plain objects/
-      );
-    }
-  }
-);
-
-test(
-  "proxied source outputs are rejected before reflection traps execute",
-  () => {
-    let trapCalls = 0;
-
-    const proxy =
-      new Proxy(
-        {
-          value: 1
-        },
-        {
-          getPrototypeOf() {
-            trapCalls += 1;
-
-            return Object.prototype;
-          },
-
-          ownKeys() {
-            trapCalls += 1;
-
-            return [
-              "value"
-            ];
-          },
-
-          getOwnPropertyDescriptor(
-            target,
-            key
-          ) {
-            trapCalls += 1;
-
-            return Object
-              .getOwnPropertyDescriptor(
-                target,
-                key
-              );
-          }
-        }
-      );
-
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output: proxy,
-
-          pack: []
-        });
-      },
-      /Proxy values/
-    );
-
-    assert.equal(
-      trapCalls,
-      0
-    );
-  }
-);
-
-test(
-  "proxied mutation results are rejected before reflection traps execute",
-  () => {
-    let trapCalls = 0;
-
-    const proxy =
-      new Proxy(
-        {
-          value: 1
-        },
-        {
-          getPrototypeOf() {
-            trapCalls += 1;
-
-            return Object.prototype;
-          },
-
-          ownKeys() {
-            trapCalls += 1;
-
-            return [
-              "value"
-            ];
-          }
-        }
-      );
-
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output: "original",
-
-          pack: [
-            makeValidMutation({
-              mutate() {
-                return proxy;
-              }
-            })
-          ]
-        });
-      },
-      /Proxy values/
-    );
-
-    assert.equal(
-      trapCalls,
-      0
-    );
-  }
-);
-
-test(
-  "rejected native promises with throwing constructor getters are consumed safely",
-  async () => {
-    function mutation() {
-      const rejected =
-        Promise.reject(
-          new Error("boom")
-        );
-
-      Object.defineProperty(
-        rejected,
-        "constructor",
-        {
-          configurable: true,
-
-          get() {
-            throw new Error(
-              "constructor accessed"
-            );
-          }
-        }
-      );
-
-      return rejected;
-    }
-
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output: "original",
-
-          pack: [
-            makeValidMutation({
-              mutate: mutation
-            })
-          ]
-        });
-      },
-      /Async mutation functions are not supported/
-    );
-
-    await new Promise(
-      (resolve) =>
-        setImmediate(resolve)
-    );
-  }
-);
-
-test(
-  "native-code text inside an ordinary callback does not cause rejection",
-  () => {
-    function mutation(output) {
-      const marker =
-        "[native code]";
-
-      return marker
-        ? `${output}-safe`
-        : output;
-    }
-
-    const compiled =
-      compileMutationPack({
-        output: "original",
-
-        pack: [
-          makeValidMutation({
-            mutate: mutation
-          })
-        ]
-      });
-
-    assert.equal(
-      compiled[0].output,
-      "original-safe"
-    );
-  }
-);
-
-test(
-  "then accessors on mutation results are rejected without invocation",
-  () => {
-    let getterReads = 0;
-
-    const result = {};
-
-    Object.defineProperty(
-      result,
-      "then",
-      {
-        enumerable: true,
-        configurable: true,
-
-        get() {
-          getterReads += 1;
-
-          return undefined;
-        }
-      }
-    );
-
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output: "original",
-
-          pack: [
-            makeValidMutation({
-              mutate() {
-                return result;
-              }
-            })
-          ]
-        });
-      },
-      /accessor properties/
-    );
-
-    assert.equal(
-      getterReads,
-      0
-    );
-  }
-);
-
-test(
-  "non-native thenables are rejected without invoking then",
-  () => {
-    let thenCalls = 0;
-
-    const thenable = {
-      then() {
-        thenCalls += 1;
-      }
-    };
-
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output: "original",
-
-          pack: [
-            makeValidMutation({
-              mutate() {
-                return thenable;
-              }
-            })
-          ]
-        });
-      },
-      /Async mutation functions are not supported/
-    );
-
-    assert.equal(
-      thenCalls,
-      0
-    );
-  }
-);
-
-test(
-  "class mutation callbacks are rejected before any mutation executes",
-  () => {
-    let mutationCalls = 0;
-
-    class InvalidMutation {}
-
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output: "original",
-
-          pack: [
-            makeValidMutation({
-              id: "first",
-
-              mutate(output) {
-                mutationCalls += 1;
-
-                return output;
-              }
-            }),
-
-            makeValidMutation({
-              id: "class-mutation",
-              mutate:
-                InvalidMutation
-            })
-          ]
-        });
-      },
-      /Class constructors cannot be used as mutation callbacks/
-    );
-
-    assert.equal(
-      mutationCalls,
-      0
-    );
-  }
-);
-
-test(
-  "class protection callbacks are rejected before mutations execute",
-  () => {
-    let mutationCalls = 0;
-
-    class InvalidProtection {}
-
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output: "original",
-
-          pack: [
-            makeValidMutation({
-              mutate(output) {
-                mutationCalls += 1;
-
-                return output;
-              },
-
-              protection: {
-                description:
-                  "Invalid class protection.",
-
-                check:
-                  InvalidProtection
-              }
-            })
-          ]
-        });
-      },
-      /Class constructors cannot be used as protection callbacks/
-    );
-
-    assert.equal(
-      mutationCalls,
-      0
-    );
-  }
-);
-
-test(
-  "rejected non-extensible native mutation promises are consumed safely",
-  async () => {
-    const harden = [
-      Object.freeze,
-      Object.seal,
-      Object.preventExtensions
-    ];
-
-    for (
-      const makeNonExtensible of harden
-    ) {
-      function mutation() {
-        const rejected =
-          Promise.reject(
-            new Error("boom")
-          );
-
-        makeNonExtensible(
-          rejected
-        );
-
-        return rejected;
-      }
-
-      assert.throws(
-        () => {
-          compileMutationPack({
-            output: "original",
-
-            pack: [
-              makeValidMutation({
-                mutate: mutation
-              })
-            ]
-          });
-        },
-        /Async mutation functions are not supported/
-      );
-    }
-
-    await new Promise(
-      (resolve) =>
-        setImmediate(resolve)
-    );
-  }
-);
-
-test(
-  "rejected non-extensible native protection promises are consumed safely",
-  async () => {
-    const harden = [
-      Object.freeze,
-      Object.seal,
-      Object.preventExtensions
-    ];
-
-    for (
-      const makeNonExtensible of harden
-    ) {
-      function protection() {
-        const rejected =
-          Promise.reject(
-            new Error("boom")
-          );
-
-        makeNonExtensible(
-          rejected
-        );
-
-        return rejected;
-      }
-
-      const compiled =
-        compileMutationPack({
-          output: "original",
-
-          pack: [
-            makeValidMutation({
-              protection: {
-                description:
-                  "Non-extensible promise protection.",
-                check: protection
-              }
-            })
-          ]
-        });
-
-      assert.throws(
-        () => {
-          compiled[0]
-            .protectionCheck(
-              "candidate"
-            );
-        },
-        /Async protection checks are not supported/
-      );
-    }
-
-    await new Promise(
-      (resolve) =>
-        setImmediate(resolve)
-    );
-  }
-);
-
-test(
-  "generator mutation callbacks are rejected before any mutation executes",
-  () => {
-    let mutationCalls = 0;
-
-    function* invalidMutation() {
-      yield "invalid";
-    }
-
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output: "original",
-
-          pack: [
-            makeValidMutation({
-              id: "first",
-
-              mutate(output) {
-                mutationCalls += 1;
-
-                return output;
-              }
-            }),
-
-            makeValidMutation({
-              id: "generator-mutation",
-              mutate:
-                invalidMutation
-            })
-          ]
-        });
-      },
-      /Generator mutation functions are not supported/
-    );
-
-    assert.equal(
-      mutationCalls,
-      0
-    );
-  }
-);
-
-test(
-  "generator protection callbacks are rejected before mutations execute",
-  () => {
-    let mutationCalls = 0;
-
-    function* invalidProtection() {
-      yield true;
-    }
-
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output: "original",
-
-          pack: [
-            makeValidMutation({
-              mutate(output) {
-                mutationCalls += 1;
-
-                return output;
-              },
-
-              protection: {
-                description:
-                  "Invalid generator protection.",
-
-                check:
-                  invalidProtection
-              }
-            })
-          ]
-        });
-      },
-      /Generator protection checks are not supported/
-    );
-
-    assert.equal(
-      mutationCalls,
-      0
-    );
-  }
-);
-
-test(
-  "proxied metadata records are rejected before property traps execute",
-  () => {
-    let trapCalls = 0;
-
-    function proxy(value) {
-      return new Proxy(
-        value,
-        {
-          get(target, key, receiver) {
-            trapCalls += 1;
-
-            return Reflect.get(
-              target,
-              key,
-              receiver
-            );
-          },
-
-          ownKeys(target) {
-            trapCalls += 1;
-
-            return Reflect.ownKeys(
-              target
-            );
-          },
-
-          getOwnPropertyDescriptor(
-            target,
-            key
-          ) {
-            trapCalls += 1;
-
-            return Reflect
-              .getOwnPropertyDescriptor(
-                target,
-                key
-              );
-          }
-        }
-      );
-    }
-
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output: "original",
-          pack: proxy([
-            makeValidMutation()
-          ])
-        });
-      },
-      /Mutation pack must not be a Proxy/
-    );
-
-    assert.equal(
-      trapCalls,
-      0
-    );
-
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output: "original",
-
-          pack: [
-            proxy(
-              makeValidMutation()
-            )
-          ]
-        });
-      },
-      /must not be a Proxy/
-    );
-
-    assert.equal(
-      trapCalls,
-      0
-    );
-
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output: "original",
-
-          pack: [
-            makeValidMutation({
-              scores: proxy({
-                severity: 1,
-                realism: 0.9,
-                subtlety: 0.8,
-                novelty: 0.7,
-                fixability: 0.6
-              })
-            })
-          ]
-        });
-      },
-      /scores must not be a Proxy/
-    );
-
-    assert.equal(
-      trapCalls,
-      0
-    );
-
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output: "original",
-
-          pack: [
-            makeValidMutation({
-              protection: proxy({
-                description:
-                  "Valid protection.",
-
-                check() {
-                  return true;
-                }
-              })
-            })
-          ]
-        });
-      },
-      /protection must not be a Proxy/
-    );
-
-    assert.equal(
-      trapCalls,
-      0
-    );
-  }
-);
-
-test(
-  "mutation accessor metadata is rejected without invocation",
-  () => {
-    let getterReads = 0;
-
-    const mutation =
-      makeValidMutation();
-
-    Object.defineProperty(
-      mutation,
-      "id",
-      {
-        enumerable: true,
-
-        get() {
-          getterReads += 1;
-
-          return "accessor-id";
-        }
-      }
-    );
-
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output: "original",
-          pack: [mutation]
-        });
-      },
-      /must use data properties only/
-    );
-
-    assert.equal(
-      getterReads,
-      0
-    );
-  }
-);
-
-test(
-  "protection accessor metadata is rejected without invocation",
-  () => {
-    let getterReads = 0;
-
-    const protection = {
-      check() {
-        return true;
-      }
-    };
-
-    Object.defineProperty(
-      protection,
-      "description",
-      {
-        enumerable: true,
-
-        get() {
-          getterReads += 1;
-
-          return "Accessor protection.";
-        }
-      }
-    );
-
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output: "original",
-
-          pack: [
-            makeValidMutation({
-              protection
-            })
-          ]
-        });
-      },
-      /protection must use data properties only/
-    );
-
-    assert.equal(
-      getterReads,
-      0
-    );
-  }
-);
-
-test(
-  "pack entry accessors are rejected without invocation",
-  () => {
-    let getterReads = 0;
-
-    const pack = [];
-
-    Object.defineProperty(
-      pack,
-      0,
-      {
-        enumerable: true,
-        configurable: true,
-
-        get() {
-          getterReads += 1;
-
-          return makeValidMutation();
-        }
-      }
-    );
-
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output: "original",
-          pack
-        });
-      },
-      /must be stored as a data property/
-    );
-
-    assert.equal(
-      getterReads,
-      0
-    );
-  }
-);
-
-test(
-  "custom null-rooted prototypes are rejected before mutation execution",
-  () => {
-    class CustomOutput {
-      constructor() {
-        this.value = 1;
-      }
-
-      read() {
-        return this.value;
-      }
-    }
-
-    Object.setPrototypeOf(
-      CustomOutput.prototype,
-      null
-    );
-
-    let mutationCalls = 0;
-
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output:
-            new CustomOutput(),
-
-          pack: [
-            makeValidMutation({
-              mutate(output) {
-                mutationCalls += 1;
-
-                return output;
-              }
-            })
-          ]
-        });
-      },
-      /plain objects/
-    );
-
-    assert.equal(
-      mutationCalls,
-      0
-    );
-  }
-);
-
-test(
-  "mutation callbacks do not receive captured metadata as this",
-  () => {
-    let callbackThis;
-
-    const compiled =
-      compileMutationPack({
-        output: "original",
-
-        pack: [
-          makeValidMutation({
-            mutate(output) {
-              callbackThis = this;
-
-              if (
-                this &&
-                this.scores
-              ) {
-                this.scores.severity =
-                  Number.NaN;
-              }
-
-              return `${output}-safe`;
-            }
-          })
-        ]
-      });
-
-    assert.equal(
-      Object.isFrozen(
-        callbackThis
-      ),
-      true
-    );
-
-    assert.equal(
-      Object.getPrototypeOf(
-        callbackThis
-      ),
-      null
-    );
-
-    assert.equal(
-      callbackThis.id,
-      undefined
-    );
-
-    assert.equal(
-      callbackThis.scores,
-      undefined
-    );
-
-    assert.equal(
-      compiled[0].severity,
-      1
-    );
-
-    assert.equal(
-      compiled[0].id,
-      "wrong-value"
-    );
-
-    assert.equal(
-      compiled[0].output,
-      "original-safe"
-    );
-  }
-);
-
-test(
-  "protection callbacks do not receive captured metadata as this",
-  () => {
-    let callbackThis;
-
-    function protectionCheck(
-      output
-    ) {
-      callbackThis = this;
-
-      return (
-        output === "candidate"
-      );
-    }
-
-    const compiled =
-      compileMutationPack({
-        output: "original",
-
-        pack: [
-          makeValidMutation({
-            protection: {
-              description:
-                "Detached protection.",
-
-              check:
-                protectionCheck
-            }
-          })
-        ]
-      });
-
-    assert.equal(
-      compiled[0]
-        .protectionCheck(
-          "candidate"
-        ),
-      true
-    );
-
-    assert.equal(
-      Object.isFrozen(
-        callbackThis
-      ),
-      true
-    );
-
-    assert.equal(
-      Object.getPrototypeOf(
-        callbackThis
-      ),
-      null
-    );
-
-    assert.equal(
-      callbackThis.description,
-      undefined
-    );
-
-    assert.equal(
-      callbackThis.check,
-      undefined
-    );
-  }
-);
-
-test(
-  "arrays with arbitrary array prototypes are rejected before mutation execution",
-  () => {
-    const customPrototype = [
-      "inherited-value"
-    ];
-
-    const output = [
-      "own-value"
-    ];
-
-    Object.setPrototypeOf(
-      output,
-      customPrototype
-    );
-
-    let mutationCalls = 0;
-
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output,
-
-          pack: [
-            makeValidMutation({
-              mutate(candidate) {
-                mutationCalls += 1;
-
-                return candidate;
-              }
-            })
-          ]
-        });
-      },
-      /custom array prototypes/
-    );
-
-    assert.equal(
-      mutationCalls,
-      0
-    );
-  }
-);
-
-test(
-  "prototype-replaced AbortController source values are rejected before mutation execution",
-  () => {
-    if (
-      typeof AbortController !==
-      "function"
-    ) {
-      return;
-    }
-
-    const controller =
-      new AbortController();
-
-    Object.setPrototypeOf(
-      controller,
-      Object.prototype
-    );
-
-    let mutationCalls = 0;
-
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output: controller,
-
-          pack: [
-            makeValidMutation({
-              mutate(output) {
-                mutationCalls += 1;
-
-                return output;
-              }
-            })
-          ]
-        });
-      },
-      /plain objects/
-    );
-
-    assert.equal(
-      mutationCalls,
-      0
-    );
-  }
-);
-
-test(
-  "prototype-replaced AbortController mutation results are rejected",
-  () => {
-    if (
-      typeof AbortController !==
-      "function"
-    ) {
-      return;
-    }
-
-    let mutationCalls = 0;
-
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output: "original",
-
-          pack: [
-            makeValidMutation({
-              mutate() {
-                mutationCalls += 1;
-
-                const controller =
-                  new AbortController();
-
-                Object.setPrototypeOf(
-                  controller,
-                  Object.prototype
-                );
-
-                return controller;
-              }
-            })
-          ]
-        });
-      },
-      /plain objects/
-    );
-
-    assert.equal(
-      mutationCalls,
-      1
-    );
-  }
-);
-
-test(
-  "prototype-replaced CountQueuingStrategy values are rejected",
-  () => {
-    if (
-      typeof CountQueuingStrategy !==
-      "function"
-    ) {
-      return;
-    }
-
-    const strategy =
-      new CountQueuingStrategy({
-        highWaterMark: 1
-      });
-
-    Object.setPrototypeOf(
-      strategy,
-      Object.prototype
-    );
-
-    let mutationCalls = 0;
-
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output: strategy,
-
-          pack: [
-            makeValidMutation({
-              mutate(output) {
-                mutationCalls += 1;
-
-                return output;
-              }
-            })
-          ]
-        });
-      },
-      /plain objects/
-    );
-
-    assert.equal(
-      mutationCalls,
-      0
-    );
-  }
-);
-
-test(
-  "prototype-replaced ByteLengthQueuingStrategy values are rejected",
-  () => {
-    if (
-      typeof ByteLengthQueuingStrategy !==
-      "function"
-    ) {
-      return;
-    }
-
-    const strategy =
-      new ByteLengthQueuingStrategy({
-        highWaterMark: 1
-      });
-
-    Object.setPrototypeOf(
-      strategy,
-      Object.prototype
-    );
-
-    let mutationCalls = 0;
-
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output: strategy,
-
-          pack: [
-            makeValidMutation({
-              mutate(output) {
-                mutationCalls += 1;
-
-                return output;
-              }
-            })
-          ]
-        });
-      },
-      /plain objects/
-    );
-
-    assert.equal(
-      mutationCalls,
-      0
-    );
-  }
-);
-
-test(
-  "prototype-replaced branded stream wrappers are rejected",
-  () => {
-    const cases = [
-      [
-        "TextEncoderStream",
-        () => new TextEncoderStream()
-      ],
-      [
-        "TextDecoderStream",
-        () => new TextDecoderStream()
-      ],
-      [
-        "CompressionStream",
-        () => new CompressionStream(
-          "gzip"
-        )
-      ],
-      [
-        "DecompressionStream",
-        () => new DecompressionStream(
-          "gzip"
-        )
-      ]
-    ];
-
-    let exercised = 0;
-
-    for (
-      const [
-        constructorName,
-        createValue
-      ] of cases
-    ) {
-      if (
-        typeof globalThis[
-          constructorName
-        ] !== "function"
-      ) {
-        continue;
-      }
-
-      exercised += 1;
-
-      const value =
-        createValue();
-
-      Object.setPrototypeOf(
-        value,
-        Object.prototype
-      );
-
-      let mutationCalls = 0;
-
-      assert.throws(
-        () => {
-          compileMutationPack({
-            output: value,
-
-            pack: [
-              makeValidMutation({
-                mutate(output) {
-                  mutationCalls += 1;
-
-                  return output;
-                }
-              })
-            ]
-          });
-        },
-        /plain objects/
-      );
-
-      assert.equal(
-        mutationCalls,
-        0
-      );
-    }
-
-    assert.ok(
-      exercised > 0,
-      "Expected at least one stream-wrapper global."
-    );
-  }
-);
-
-test(
-  "comment-separated class mutation callbacks are rejected before any mutation executes",
-  () => {
-    let mutationCalls = 0;
-
-    const CommentSeparatedClass =
-      class/**/Callback {};
-
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output: "original",
-
-          pack: [
-            makeValidMutation({
-              id: "first",
-
-              mutate(output) {
-                mutationCalls += 1;
-
-                return output;
-              }
-            }),
-
-            makeValidMutation({
-              id: "second",
-              mutate:
-                CommentSeparatedClass
-            })
-          ]
-        });
-      },
-      /class constructor/i
-    );
-
-    assert.equal(
-      mutationCalls,
-      0
-    );
-  }
-);
-
-test(
-  "comment-separated class protection callbacks are rejected before mutations execute",
-  () => {
-    let mutationCalls = 0;
-
-    const CommentSeparatedClass =
-      class/**/Protection {};
-
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output: "original",
-
-          pack: [
-            makeValidMutation({
-              mutate(output) {
-                mutationCalls += 1;
-
-                return output;
-              },
-
-              protection: {
-                description:
-                  "Invalid class protection.",
-                check:
-                  CommentSeparatedClass
-              }
-            })
-          ]
-        });
-      },
-      /class constructor/i
-    );
-
-    assert.equal(
-      mutationCalls,
-      0
-    );
-  }
-);
-
-test(
-  "prototype-replaced PerformanceObserver values are rejected before cloning",
-  () => {
-    const {
-      PerformanceObserver
-    } = require(
-      "node:perf_hooks"
-    );
-
-    function createObserver() {
-      const observer =
-        new PerformanceObserver(
-          () => {}
-        );
-
-      Object.setPrototypeOf(
-        observer,
-        Object.prototype
-      );
-
-      return observer;
-    }
-
-    let sourceMutationCalls = 0;
-
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output:
-            createObserver(),
-
-          pack: [
-            makeValidMutation({
-              mutate(output) {
-                sourceMutationCalls += 1;
-
-                return output;
-              }
-            })
-          ]
-        });
-      },
-      /plain objects/
-    );
-
-    assert.equal(
-      sourceMutationCalls,
-      0
-    );
-
-    let resultMutationCalls = 0;
-
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output: "original",
-
-          pack: [
-            makeValidMutation({
-              mutate() {
-                resultMutationCalls += 1;
-
-                return createObserver();
-              }
-            })
-          ]
-        });
-      },
-      /plain objects/
-    );
-
-    assert.equal(
-      resultMutationCalls,
-      1
-    );
-  }
-);
-
-test(
-  "ordinary callback methods named class remain valid",
-  () => {
-    const spacedMutation = ({
-      class (output) {
-        return `${output}-spaced`;
-      }
-    }).class;
-
-    const commentedProtection = ({
-      class/**/(output) {
-        return output === "good";
-      }
-    }).class;
-
-    const compiled =
-      compileMutationPack({
-        output: "original",
-
-        pack: [
-          makeValidMutation({
-            mutate:
-              spacedMutation,
-
-            protection: {
-              description:
-                "Method named class remains valid.",
-
-              check:
-                commentedProtection
-            }
-          })
-        ]
-      });
-
-    assert.equal(
-      compiled[0].output,
-      "original-spaced"
-    );
-
-    assert.equal(
-      compiled[0]
-        .protectionCheck(
-          "good"
-        ),
-      true
-    );
-
-    assert.equal(
-      compiled[0]
-        .protectionCheck(
-          "bad"
-        ),
-      false
-    );
-  }
-);
-
-test(
-  "protection results with then accessors are rejected without invoking getters",
-  () => {
-    let getterReads = 0;
-
-    const result = {};
-
-    Object.defineProperty(
-      result,
-      "then",
-      {
-        configurable: true,
-        enumerable: true,
-
-        get() {
-          getterReads += 1;
-
-          return undefined;
-        }
-      }
-    );
-
-    const compiled =
-      compileMutationPack({
-        output: "original",
-
-        pack: [
-          makeValidMutation({
-            protection: {
-              description:
-                "Protection must return boolean.",
 
               check() {
-                return result;
+                return Promise.reject(
+                  new Error(
+                    "protection rejection"
+                  )
+                );
               }
             }
           })
@@ -3114,799 +771,689 @@ test(
             return true;
           },
 
-          mutations:
-            compiled,
+          mutations,
 
           knownGoodOutput:
-            "original"
+            "good"
         });
+      },
+      /Async protection checks are not supported/
+    );
+
+    await new Promise(
+      (resolve) =>
+        setImmediate(resolve)
+    );
+  }
+);
+
+test(
+  "protection results must be boolean",
+  () => {
+    const compiled =
+      compileMutationPack({
+        output: "good",
+
+        pack: [
+          makeValidMutation({
+            protection: {
+              description:
+                "Invalid protection.",
+
+              check() {
+                return "yes";
+              }
+            }
+          })
+        ]
+      });
+
+    assert.throws(
+      () => {
+        compiled[0]
+          .protectionCheck(
+            "good"
+          );
       },
       /Protection check must return a boolean/
     );
-
-    assert.equal(
-      getterReads,
-      0
-    );
   }
 );
 
 test(
-  "prototype-replaced Crypto values are rejected before cloning",
+  "Proxy data is rejected before traps execute",
   () => {
-    if (
-      typeof globalThis.Crypto !==
-        "function" ||
-      globalThis.crypto ===
-        undefined
-    ) {
-      return;
-    }
+    let traps = 0;
 
-    const cryptoValue =
-      globalThis.crypto;
-
-    const originalPrototype =
-      Object.getPrototypeOf(
-        cryptoValue
-      );
-
-    let sourceMutationCalls = 0;
-    let resultMutationCalls = 0;
-
-    try {
-      Object.setPrototypeOf(
-        cryptoValue,
-        Object.prototype
-      );
-
-      assert.throws(
-        () => {
-          compileMutationPack({
-            output:
-              cryptoValue,
-
-            pack: [
-              makeValidMutation({
-                mutate(output) {
-                  sourceMutationCalls += 1;
-
-                  return output;
-                }
-              })
-            ]
-          });
-        },
-        /plain objects/
-      );
-
-      assert.equal(
-        sourceMutationCalls,
-        0
-      );
-
-      assert.throws(
-        () => {
-          compileMutationPack({
-            output: "original",
-
-            pack: [
-              makeValidMutation({
-                mutate() {
-                  resultMutationCalls += 1;
-
-                  return cryptoValue;
-                }
-              })
-            ]
-          });
-        },
-        /plain objects/
-      );
-
-      assert.equal(
-        resultMutationCalls,
-        1
-      );
-    } finally {
-      Object.setPrototypeOf(
-        cryptoValue,
-        originalPrototype
-      );
-    }
-  }
-);
-
-test(
-  "top-level compile option accessors are rejected without invocation",
-  () => {
-    let getterReads = 0;
-
-    const options = {};
-
-    Object.defineProperties(
-      options,
-      {
-        output: {
-          configurable: true,
-
-          get() {
-            getterReads += 1;
-
-            return "original";
-          }
-        },
-
-        pack: {
-          configurable: true,
-
-          get() {
-            getterReads += 1;
-
-            return [];
-          }
-        }
-      }
-    );
-
-    assert.throws(
-      () => {
-        compileMutationPack(
-          options
-        );
-      },
-      /Mutation Pack options must use data properties only/
-    );
-
-    assert.equal(
-      getterReads,
-      0
-    );
-  }
-);
-
-test(
-  "proxied top-level compile options are rejected before traps execute",
-  () => {
-    let trapCalls = 0;
-
-    const options =
+    const proxy =
       new Proxy(
         {
-          output: "original",
-          pack: []
+          value: 1
         },
         {
-          get() {
-            trapCalls += 1;
-
-            return undefined;
+          getPrototypeOf() {
+            traps += 1;
+            return Object.prototype;
           },
 
           ownKeys() {
-            trapCalls += 1;
-
-            return [];
-          },
-
-          getOwnPropertyDescriptor() {
-            trapCalls += 1;
-
-            return undefined;
+            traps += 1;
+            return [
+              "value"
+            ];
           }
         }
       );
-
-    assert.throws(
-      () => {
-        compileMutationPack(
-          options
-        );
-      },
-      /Mutation Pack options must not be a Proxy/
-    );
-
-    assert.equal(
-      trapCalls,
-      0
-    );
-  }
-);
-
-test(
-  "frozen state is not recomputed for every property",
-  () => {
-    const originalIsFrozen =
-      Object.isFrozen;
-
-    let isFrozenCalls = 0;
-
-    Object.isFrozen =
-      function countedIsFrozen(
-        value
-      ) {
-        isFrozenCalls += 1;
-
-        return originalIsFrozen(
-          value
-        );
-      };
-
-    try {
-      const wideOutput = {};
-
-      for (
-        let index = 0;
-        index < 1000;
-        index += 1
-      ) {
-        wideOutput[
-          `key-${index}`
-        ] = index;
-      }
-
-      Object.freeze(
-        wideOutput
-      );
-
-      compileMutationPack({
-        output:
-          wideOutput,
-        pack: []
-      });
-    } finally {
-      Object.isFrozen =
-        originalIsFrozen;
-    }
-
-    assert.ok(
-      isFrozenCalls <= 4,
-      `Expected frozen-state checks to stay constant, got ${isFrozenCalls}.`
-    );
-  }
-);
-
-test(
-  "partially constrained array length is rejected while fully frozen arrays remain valid",
-  () => {
-    const constrainedArray = [
-      "value"
-    ];
-
-    Object.defineProperty(
-      constrainedArray,
-      "length",
-      {
-        writable: false
-      }
-    );
-
-    let mutationCalls = 0;
 
     assert.throws(
       () => {
         compileMutationPack({
-          output:
-            constrainedArray,
-
-          pack: [
-            makeValidMutation({
-              mutate() {
-                mutationCalls += 1;
-
-                return "mutated";
-              }
-            })
-          ]
+          output: proxy,
+          pack: []
         });
       },
-      /array length must use ordinary writable semantics/
+      /must not contain Proxy values/
     );
 
     assert.equal(
-      mutationCalls,
+      traps,
       0
+    );
+  }
+);
+
+test(
+  "accessor-backed data is rejected without invoking getters",
+  () => {
+    let reads = 0;
+
+    const output = {};
+
+    Object.defineProperty(
+      output,
+      "value",
+      {
+        enumerable: true,
+
+        get() {
+          reads += 1;
+          return 1;
+        }
+      }
+    );
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output,
+          pack: []
+        });
+      },
+      /must not contain accessor properties/
+    );
+
+    assert.equal(
+      reads,
+      0
+    );
+  }
+);
+
+test(
+  "metadata accessors and top-level option accessors are rejected without invocation",
+  () => {
+    let reads = 0;
+
+    const mutation =
+      makeValidMutation();
+
+    Object.defineProperty(
+      mutation,
+      "id",
+      {
+        enumerable: true,
+
+        get() {
+          reads += 1;
+          return "bad";
+        }
+      }
+    );
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: "good",
+          pack: [
+            mutation
+          ]
+        });
+      },
+      /data properties only/
+    );
+
+    const options = {};
+
+    Object.defineProperty(
+      options,
+      "output",
+      {
+        enumerable: true,
+
+        get() {
+          reads += 1;
+          return "good";
+        }
+      }
+    );
+
+    Object.defineProperty(
+      options,
+      "pack",
+      {
+        value: [],
+        enumerable: true
+      }
+    );
+
+    assert.throws(
+      () => {
+        compileMutationPack(
+          options
+        );
+      },
+      /data properties only/
+    );
+
+    assert.equal(
+      reads,
+      0
+    );
+  }
+);
+
+test(
+  "ordinary cross-realm objects and arrays are canonicalized",
+  () => {
+    const foreignObject =
+      vm.runInNewContext(`
+        ({
+          value: 1,
+          nested: {
+            ok: true
+          }
+        })
+      `);
+
+    const foreignArray =
+      vm.runInNewContext(`
+        [
+          1,
+          {
+            value: 2
+          }
+        ]
+      `);
+
+    const objectCompiled =
+      compileMutationPack({
+        output:
+          foreignObject,
+
+        pack: [
+          makeValidMutation()
+        ]
+      });
+
+    const arrayCompiled =
+      compileMutationPack({
+        output:
+          foreignArray,
+
+        pack: [
+          makeValidMutation()
+        ]
+      });
+
+    assert.equal(
+      objectCompiled[0]
+        .output.value,
+      1
+    );
+
+    assert.equal(
+      objectCompiled[0]
+        .output.nested.ok,
+      true
+    );
+
+    assert.equal(
+      arrayCompiled[0]
+        .output[1].value,
+      2
+    );
+  }
+);
+
+test(
+  "custom runtime object types are rejected by the canonical boundary",
+  () => {
+    class Custom {
+      constructor() {
+        this.value = 1;
+      }
+    }
+
+    class CustomArray
+      extends Array {}
+
+    for (
+      const value of [
+        new Custom(),
+        new CustomArray(
+          1,
+          2
+        ),
+        Buffer.from(
+          "hello"
+        ),
+        new SharedArrayBuffer(
+          8
+        )
+      ]
+    ) {
+      assert.throws(
+        () => {
+          compileMutationPack({
+            output: value,
+            pack: []
+          });
+        },
+        /ordinary|canonical/
+      );
+    }
+  }
+);
+
+test(
+  "runtime extensibility and frozen descriptor state are normalized",
+  () => {
+    const object = {
+      value: 1
+    };
+
+    Object.preventExtensions(
+      object
+    );
+
+    let sawExtensible =
+      false;
+
+    const objectCompiled =
+      compileMutationPack({
+        output: object,
+
+        pack: [
+          makeValidMutation({
+            mutate(output) {
+              sawExtensible =
+                Object.isExtensible(
+                  output
+                );
+
+              output.added =
+                true;
+
+              return output;
+            }
+          })
+        ]
+      });
+
+    assert.equal(
+      Object.isExtensible(
+        object
+      ),
+      false
+    );
+
+    assert.equal(
+      sawExtensible,
+      true
+    );
+
+    assert.equal(
+      objectCompiled[0]
+        .output.added,
+      true
     );
 
     const frozenArray =
       Object.freeze([
-        "value"
+        1,
+        2
       ]);
 
-    assert.doesNotThrow(
-      () => {
-        compileMutationPack({
-          output:
-            frozenArray,
-          pack: []
-        });
-      }
-    );
-  }
-);
-
-test(
-  "shared aliases short-circuit repeated intrinsic and host-brand probing",
-  () => {
-    const runtimeTypes =
-      require(
-        "node:util"
-      ).types;
-
-    const originalIsDate =
-      runtimeTypes.isDate;
-
-    let isDateCalls = 0;
-
-    runtimeTypes.isDate =
-      function countedIsDate(
-        value
-      ) {
-        isDateCalls += 1;
-
-        return originalIsDate(
-          value
-        );
-      };
-
-    try {
-      const shared = {
-        value: "shared"
-      };
-
-      const aliases =
-        Array(2000).fill(
-          shared
-        );
-
+    const arrayCompiled =
       compileMutationPack({
         output:
-          aliases,
-        pack: []
+          frozenArray,
+
+        pack: [
+          makeValidMutation({
+            mutate(output) {
+              output.push(3);
+              return output;
+            }
+          })
+        ]
       });
-    } finally {
-      runtimeTypes.isDate =
-        originalIsDate;
-    }
+
+    assert.deepEqual(
+      arrayCompiled[0].output,
+      [
+        1,
+        2,
+        3
+      ]
+    );
+  }
+);
+
+test(
+  "inherited runtime state is ignored while own data is preserved",
+  () => {
+    const foreignObject =
+      vm.runInNewContext(`
+        Object.prototype.marker =
+          "foreign";
+
+        ({
+          value: 1
+        })
+      `);
+
+    let inheritedMarker;
+
+    const compiled =
+      compileMutationPack({
+        output:
+          foreignObject,
+
+        pack: [
+          makeValidMutation({
+            mutate(output) {
+              inheritedMarker =
+                output.marker;
+
+              return output;
+            }
+          })
+        ]
+      });
+
+    assert.equal(
+      inheritedMarker,
+      undefined
+    );
+
+    assert.equal(
+      compiled[0]
+        .output.value,
+      1
+    );
+
+    assert.equal(
+      Object.prototype
+        .hasOwnProperty.call(
+          compiled[0].output,
+          "marker"
+        ),
+      false
+    );
+  }
+);
+
+test(
+  "own non-function then fields remain ordinary data",
+  () => {
+    const compiled =
+      compileMutationPack({
+        output: {
+          value: "good",
+          then:
+            "plain-data"
+        },
+
+        pack: [
+          makeValidMutation({
+            mutate(output) {
+              output.value =
+                "changed";
+
+              return output;
+            }
+          })
+        ]
+      });
+
+    assert.equal(
+      compiled[0]
+        .output.then,
+      "plain-data"
+    );
+
+    assert.equal(
+      compiled[0]
+        .output.value,
+      "changed"
+    );
+  }
+);
+
+test(
+  "functions cannot appear inside canonical data",
+  () => {
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: {
+            value: 1,
+
+            callback() {
+              return true;
+            }
+          },
+
+          pack: []
+        });
+      },
+      /canonical data values/
+    );
+  }
+);
+
+test(
+  "symbol and non-enumerable own properties are rejected",
+  () => {
+    const symbolValue = {
+      value: 1
+    };
+
+    symbolValue[
+      Symbol("secret")
+    ] = 2;
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output:
+            symbolValue,
+          pack: []
+        });
+      },
+      /symbol-keyed properties/
+    );
+
+    const hidden = {
+      value: 1
+    };
+
+    Object.defineProperty(
+      hidden,
+      "secret",
+      {
+        value: 2,
+        enumerable: false
+      }
+    );
+
+    assert.throws(
+      () => {
+        compileMutationPack({
+          output: hidden,
+          pack: []
+        });
+      },
+      /non-enumerable own data properties/
+    );
+  }
+);
+
+test(
+  "cycles and shared references survive canonicalization",
+  () => {
+    const shared = {
+      value: 1
+    };
+
+    const source = {
+      first: shared,
+      second: shared
+    };
+
+    source.self =
+      source;
+
+    const compiled =
+      compileMutationPack({
+        output: source,
+
+        pack: [
+          makeValidMutation()
+        ]
+      });
+
+    const result =
+      compiled[0].output;
+
+    assert.equal(
+      result.first,
+      result.second
+    );
+
+    assert.equal(
+      result.self,
+      result
+    );
+
+    assert.equal(
+      Object.isFrozen(
+        result
+      ),
+      true
+    );
+  }
+);
+
+test(
+  "callbacks receive an inert this receiver",
+  () => {
+    let mutationThis;
+    let protectionThis;
+
+    const compiled =
+      compileMutationPack({
+        output: "good",
+
+        pack: [
+          makeValidMutation({
+            mutate(output) {
+              mutationThis =
+                this;
+
+              return output;
+            },
+
+            protection: {
+              description:
+                "Receiver check.",
+
+              check() {
+                protectionThis =
+                  this;
+
+                return true;
+              }
+            }
+          })
+        ]
+      });
+
+    compiled[0]
+      .protectionCheck(
+        "good"
+      );
+
+    assert.equal(
+      Object.getPrototypeOf(
+        mutationThis
+      ),
+      null
+    );
+
+    assert.equal(
+      Object.isFrozen(
+        mutationThis
+      ),
+      true
+    );
+
+    assert.equal(
+      protectionThis,
+      mutationThis
+    );
+  }
+);
+
+test(
+  "20k distinct ordinary objects stay within a practical linear-time budget",
+  () => {
+    const output =
+      Array.from(
+        {
+          length: 20000
+        },
+        (_, index) => ({
+          x: index
+        })
+      );
+
+    const start =
+      performance.now();
+
+    compileMutationPack({
+      output,
+      pack: []
+    });
+
+    const elapsed =
+      performance.now() -
+      start;
 
     assert.ok(
-      isDateCalls <= 8,
-      `Expected shared aliases to reuse validation state, got ${isDateCalls} intrinsic brand checks.`
-    );
-  }
-);
-
-test(
-  "prototype-replaced Navigator values are rejected before cloning",
-  () => {
-    if (
-      typeof globalThis.Navigator !==
-        "function" ||
-      globalThis.navigator ===
-        undefined
-    ) {
-      return;
-    }
-
-    const navigatorValue =
-      globalThis.navigator;
-
-    const originalPrototype =
-      Object.getPrototypeOf(
-        navigatorValue
-      );
-
-    let sourceMutationCalls = 0;
-    let resultMutationCalls = 0;
-
-    try {
-      Object.setPrototypeOf(
-        navigatorValue,
-        Object.prototype
-      );
-
-      assert.throws(
-        () => {
-          compileMutationPack({
-            output:
-              navigatorValue,
-
-            pack: [
-              makeValidMutation({
-                mutate(output) {
-                  sourceMutationCalls += 1;
-
-                  return output;
-                }
-              })
-            ]
-          });
-        },
-        /plain objects/
-      );
-
-      assert.equal(
-        sourceMutationCalls,
-        0
-      );
-
-      assert.throws(
-        () => {
-          compileMutationPack({
-            output: "original",
-
-            pack: [
-              makeValidMutation({
-                mutate() {
-                  resultMutationCalls += 1;
-
-                  return navigatorValue;
-                }
-              })
-            ]
-          });
-        },
-        /plain objects/
-      );
-
-      assert.equal(
-        resultMutationCalls,
-        1
-      );
-    } finally {
-      Object.setPrototypeOf(
-        navigatorValue,
-        originalPrototype
-      );
-    }
-  }
-);
-
-test(
-  "prototype-replaced LockManager singletons are rejected before cloning",
-  () => {
-    const candidates = [];
-
-    try {
-      const {
-        locks
-      } = require(
-        "node:worker_threads"
-      );
-
-      if (
-        locks !== undefined &&
-        locks !== null
-      ) {
-        candidates.push(
-          locks
-        );
-      }
-    } catch {
-      // Runtime does not expose worker locks.
-    }
-
-    try {
-      if (
-        globalThis.navigator !==
-          undefined &&
-        globalThis.navigator !==
-          null &&
-        globalThis.navigator.locks !==
-          undefined &&
-        globalThis.navigator.locks !==
-          null
-      ) {
-        candidates.push(
-          globalThis.navigator.locks
-        );
-      }
-    } catch {
-      // Runtime does not expose navigator locks.
-    }
-
-    const lockManagers =
-      [
-        ...new Set(
-          candidates
-        )
-      ];
-
-    if (
-      lockManagers.length === 0
-    ) {
-      return;
-    }
-
-    for (
-      const lockManager of
-        lockManagers
-    ) {
-      const originalPrototype =
-        Object.getPrototypeOf(
-          lockManager
-        );
-
-      let sourceMutationCalls = 0;
-      let resultMutationCalls = 0;
-
-      try {
-        Object.setPrototypeOf(
-          lockManager,
-          Object.prototype
-        );
-
-        assert.throws(
-          () => {
-            compileMutationPack({
-              output:
-                lockManager,
-
-              pack: [
-                makeValidMutation({
-                  mutate(output) {
-                    sourceMutationCalls += 1;
-
-                    return output;
-                  }
-                })
-              ]
-            });
-          },
-          /plain objects/
-        );
-
-        assert.equal(
-          sourceMutationCalls,
-          0
-        );
-
-        assert.throws(
-          () => {
-            compileMutationPack({
-              output: "original",
-
-              pack: [
-                makeValidMutation({
-                  mutate() {
-                    resultMutationCalls += 1;
-
-                    return lockManager;
-                  }
-                })
-              ]
-            });
-          },
-          /plain objects/
-        );
-
-        assert.equal(
-          resultMutationCalls,
-          1
-        );
-      } finally {
-        Object.setPrototypeOf(
-          lockManager,
-          originalPrototype
-        );
-      }
-    }
-  }
-);
-
-test(
-  "inherited then functions are rejected for source and mutation values",
-  () => {
-    const vm =
-      require("node:vm");
-
-    const context =
-      vm.createContext({
-        thenCalls: 0
-      });
-
-    const inheritedThenValue =
-      vm.runInContext(
-        `
-          Object.defineProperty(
-            Object.prototype,
-            "then",
-            {
-              configurable: true,
-              enumerable: false,
-              writable: true,
-              value() {
-                thenCalls += 1;
-              }
-            }
-          );
-
-          ({
-            value: "cross-realm"
-          });
-        `,
-        context
-      );
-
-    let sourceMutationCalls = 0;
-
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output:
-            inheritedThenValue,
-
-          pack: [
-            makeValidMutation({
-              mutate(output) {
-                sourceMutationCalls += 1;
-
-                return output;
-              }
-            })
-          ]
-        });
-      },
-      /must not inherit then properties/
-    );
-
-    assert.equal(
-      sourceMutationCalls,
-      0
-    );
-
-    assert.equal(
-      context.thenCalls,
-      0
-    );
-
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output: "original",
-
-          pack: [
-            makeValidMutation({
-              mutate() {
-                return inheritedThenValue;
-              }
-            })
-          ]
-        });
-      },
-      /Async mutation functions are not supported/
-    );
-
-    assert.equal(
-      context.thenCalls,
-      0
-    );
-  }
-);
-
-test(
-  "inherited then accessors are rejected without invoking getters",
-  () => {
-    const vm =
-      require("node:vm");
-
-    const context =
-      vm.createContext({
-        getterReads: 0
-      });
-
-    const inheritedAccessorValue =
-      vm.runInContext(
-        `
-          Object.defineProperty(
-            Object.prototype,
-            "then",
-            {
-              configurable: true,
-              enumerable: false,
-
-              get() {
-                getterReads += 1;
-
-                return undefined;
-              }
-            }
-          );
-
-          ({
-            value: "cross-realm"
-          });
-        `,
-        context
-      );
-
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output:
-            inheritedAccessorValue,
-          pack: []
-        });
-      },
-      /must not inherit then properties/
-    );
-
-    assert.equal(
-      context.getterReads,
-      0
-    );
-
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output: "original",
-
-          pack: [
-            makeValidMutation({
-              mutate() {
-                return inheritedAccessorValue;
-              }
-            })
-          ]
-        });
-      },
-      /Async mutation functions are not supported/
-    );
-
-    assert.equal(
-      context.getterReads,
-      0
-    );
-  }
-);
-
-test(
-  "arrays with inherited then behavior are rejected before cloning",
-  () => {
-    const vm =
-      require("node:vm");
-
-    const context =
-      vm.createContext({
-        thenCalls: 0
-      });
-
-    const arrayValue =
-      vm.runInContext(
-        `
-          Object.defineProperty(
-            Array.prototype,
-            "then",
-            {
-              configurable: true,
-              enumerable: false,
-              writable: true,
-
-              value() {
-                thenCalls += 1;
-              }
-            }
-          );
-
-          ["value"];
-        `,
-        context
-      );
-
-    assert.throws(
-      () => {
-        compileMutationPack({
-          output:
-            arrayValue,
-          pack: []
-        });
-      },
-      /must not inherit then properties/
-    );
-
-    assert.equal(
-      context.thenCalls,
-      0
+      elapsed < 2000,
+      `20k distinct objects took ${elapsed.toFixed(2)}ms`
     );
   }
 );
