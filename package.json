@@ -9,7 +9,7 @@
     "node": ">=14.18.0"
   },
   "bin": {
-    "gotcha-ai": "./bin/gotcha.js"
+    "gotcha-ai": "bin/gotcha.js"
   },
   "files": [
     "src",
