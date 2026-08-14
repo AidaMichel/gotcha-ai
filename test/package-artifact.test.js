@@ -17,23 +17,99 @@ function run(
   args,
   options = {}
 ) {
-  const needsWindowsShell =
-    process.platform === "win32" &&
-    (
-      command === "npm" ||
-      command.endsWith(".cmd") ||
-      command.endsWith(".bat")
-    );
-
   return spawnSync(
     command,
     args,
     {
       encoding: "utf8",
-      shell: needsWindowsShell,
       ...options
     }
   );
+}
+
+function runNpm(
+  args,
+  options = {}
+) {
+  if (process.env.npm_execpath) {
+    return run(
+      process.execPath,
+      [
+        process.env.npm_execpath,
+        ...args
+      ],
+      options
+    );
+  }
+
+  if (process.platform === "win32") {
+    const bundledNpmCli =
+      path.join(
+        path.dirname(process.execPath),
+        "node_modules",
+        "npm",
+        "bin",
+        "npm-cli.js"
+      );
+
+    assert.ok(
+      fs.existsSync(bundledNpmCli),
+      "Could not locate npm CLI on Windows"
+    );
+
+    return run(
+      process.execPath,
+      [
+        bundledNpmCli,
+        ...args
+      ],
+      options
+    );
+  }
+
+  return run(
+    "npm",
+    args,
+    options
+  );
+}
+
+function createIsolatedNpmEnv({
+  userConfig,
+  globalConfig,
+  cacheDir
+}) {
+  const env = {};
+
+  for (
+    const [key, value]
+      of Object.entries(process.env)
+  ) {
+    if (
+      !key
+        .toLowerCase()
+        .startsWith("npm_config_")
+    ) {
+      env[key] = value;
+    }
+  }
+
+  env.npm_config_userconfig =
+    userConfig;
+
+  env.npm_config_globalconfig =
+    globalConfig;
+
+  env.npm_config_cache =
+    cacheDir;
+
+  env.npm_config_bin_links = "true";
+  env.npm_config_audit = "false";
+  env.npm_config_fund = "false";
+  env.npm_config_update_notifier =
+    "false";
+
+  return env;
 }
 
 test(
@@ -43,36 +119,74 @@ test(
       fs.mkdtempSync(
         path.join(
           os.tmpdir(),
-          "gotcha-package-test-"
+          "gotcha package test "
         )
       );
 
     const packDir =
       path.join(
         tempRoot,
-        "pack"
+        "pack output"
       );
 
     const consumerDir =
       path.join(
         tempRoot,
-        "consumer"
+        "consumer project"
+      );
+
+    const npmUserConfig =
+      path.join(
+        tempRoot,
+        "user.npmrc"
+      );
+
+    const npmGlobalConfig =
+      path.join(
+        tempRoot,
+        "global.npmrc"
+      );
+
+    const npmCacheDir =
+      path.join(
+        tempRoot,
+        "npm cache"
       );
 
     fs.mkdirSync(packDir);
     fs.mkdirSync(consumerDir);
 
+    fs.writeFileSync(
+      npmUserConfig,
+      ""
+    );
+
+    fs.writeFileSync(
+      npmGlobalConfig,
+      ""
+    );
+
+    const npmEnv =
+      createIsolatedNpmEnv({
+        userConfig:
+          npmUserConfig,
+        globalConfig:
+          npmGlobalConfig,
+        cacheDir:
+          npmCacheDir
+      });
+
     try {
       const packResult =
-        run(
-          "npm",
+        runNpm(
           [
             "pack",
             "--pack-destination",
             packDir
           ],
           {
-            cwd: repoRoot
+            cwd: repoRoot,
+            env: npmEnv
           }
         );
 
@@ -112,17 +226,18 @@ test(
       );
 
       const installResult =
-        run(
-          "npm",
+        runNpm(
           [
             "install",
+            "--bin-links=true",
             path.join(
               packDir,
               tarball
             )
           ],
           {
-            cwd: consumerDir
+            cwd: consumerDir,
+            env: npmEnv
           }
         );
 
@@ -145,10 +260,27 @@ test(
           cliName
         );
 
+      assert.ok(
+        fs.existsSync(cliPath),
+        "npm install did not create the Gotcha CLI shim"
+      );
+
+      const installedCliTarget =
+        path.join(
+          consumerDir,
+          "node_modules",
+          "gotcha-ai",
+          "bin",
+          "gotcha.js"
+        );
+
       const cliResult =
         run(
-          cliPath,
-          ["demo"],
+          process.execPath,
+          [
+            installedCliTarget,
+            "demo"
+          ],
           {
             cwd: consumerDir
           }
