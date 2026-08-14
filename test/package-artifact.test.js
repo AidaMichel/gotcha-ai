@@ -17,11 +17,20 @@ function run(
   args,
   options = {}
 ) {
+  const needsWindowsShell =
+    process.platform === "win32" &&
+    (
+      command === "npm" ||
+      command.endsWith(".cmd") ||
+      command.endsWith(".bat")
+    );
+
   return spawnSync(
     command,
     args,
     {
       encoding: "utf8",
+      shell: needsWindowsShell,
       ...options
     }
   );
@@ -164,7 +173,9 @@ test(
       );
 
       const consumerCode = `
-        const { runGotcha } = require("gotcha-ai");
+        const {
+          runGotcha
+        } = require("gotcha-ai");
 
         const result = runGotcha({
           expectedOutput: {
@@ -207,10 +218,15 @@ test(
           ]
         });
 
-        console.log(result.topFinding.id);
         console.log(
-  String(result.after.survivors.length)
-);;
+          result.topFinding.id
+        );
+
+        console.log(
+          String(
+            result.after.survivors.length
+          )
+        );
       `;
 
       const apiResult =

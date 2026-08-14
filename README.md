@@ -280,3 +280,5 @@ RE-ATTACK
 The next product layer will move toward teaching Gotcha what quality means instead of requiring users to define every protection manually.
 
 ## License
+
+MIT
