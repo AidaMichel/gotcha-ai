@@ -265,27 +265,27 @@ test(
         "npm install did not create the Gotcha CLI shim"
       );
 
-      const installedCliTarget =
-        path.join(
-          consumerDir,
-          "node_modules",
-          "gotcha-ai",
-          "bin",
-          "gotcha.js"
-        );
-
       const cliResult =
-        run(
-          process.execPath,
-          [
-            installedCliTarget,
-            "demo"
-          ],
-          {
-            cwd: consumerDir
-          }
-        );
-
+        process.platform === "win32"
+          ? run(
+              process.env.ComSpec ||
+                "cmd.exe",
+              [
+                "/d",
+                "/c",
+                `"${cliPath}" demo`
+              ],
+              {
+                cwd: consumerDir
+              }
+            )
+          : run(
+              cliPath,
+              ["demo"],
+              {
+                cwd: consumerDir
+              }
+            );
       assert.equal(
         cliResult.status,
         0,
