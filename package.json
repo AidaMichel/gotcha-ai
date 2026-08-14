@@ -1,15 +1,34 @@
 {
   "name": "gotcha-ai",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
   "description": "Catch what your AI evals miss.",
   "main": "src/index.js",
+  "exports": "./src/index.js",
   "type": "commonjs",
+  "engines": {
+    "node": ">=14.18.0"
+  },
+  "bin": {
+    "gotcha-ai": "bin/gotcha.js"
+  },
+  "files": [
+    "src",
+    "bin",
+    "examples/quickstart.js"
+  ],
   "scripts": {
     "test": "node --test",
     "demo": "node examples/quickstart.js",
     "quickstart": "node examples/quickstart.js",
     "starter": "node examples/starter-template.js"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AidaMichel/gotcha-ai.git"
+  },
+  "bugs": {
+    "url": "https://github.com/AidaMichel/gotcha-ai/issues"
+  },
+  "homepage": "https://github.com/AidaMichel/gotcha-ai#readme",
   "license": "MIT"
 }
