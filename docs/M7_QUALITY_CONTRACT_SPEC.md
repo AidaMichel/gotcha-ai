@@ -628,15 +628,11 @@ This protects the high-precision product principle.
 
 The AI should not generate filler simply to reach the limit.
 
-A valid result may contain:
+A valid draft may contain between 0 and 7 rules.
 
-```text
-1 rule
-2 rules
-3 rules
-...
-7 rules
-```
+Zero rules is valid when the supplied teaching evidence does not support any meaningful quality rule.
+
+Gotcha must prefer an empty draft over inventing unsupported rules.
 
 ---
 
@@ -660,6 +656,7 @@ Validation must verify:
 - evidence exists
 - evidence types are valid
 - referenced example IDs exist
+- returned task exactly matches the validated task supplied by the user
 - number of rules is within the allowed maximum
 - no unsupported fields are relied upon for execution
 
@@ -1292,6 +1289,18 @@ If the human rejects every proposed rule:
 ```text
 the result must not pretend a useful contract exists
 ```
+
+A draft with zero rules is valid.
+
+If confirmation results in zero active rules, the result must use:
+
+```text
+status: "no-active-rules"
+```
+
+instead of pretending that a usable Quality Contract was confirmed.
+
+A contract with `status: "no-active-rules"` is not authoritative and must not be used as a confirmed Quality Contract.
 
 The API should clearly indicate that no active rules were confirmed.
 
