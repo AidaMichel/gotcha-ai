@@ -4,7 +4,9 @@
   "description": "Catch what your AI evals miss.",
   "main": "src/index.js",
   "exports": "./src/index.js",
-  "type": "commonjs",
+  "type": "commonjs","engines": {
+  "node": ">=14.18.0"
+},
   "bin": {
     "gotcha-ai": "./bin/gotcha.js"
   },
