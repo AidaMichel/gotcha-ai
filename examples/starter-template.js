@@ -83,13 +83,21 @@ if (result.topFinding) {
     `Protection: ${result.proposedProtection}`
   );
 
-  console.log(
-    `Survivors after: ${JSON.stringify(
-      result.after.survivors.map(
-        (finding) => finding.id
-      )
-    )}`
-  );
+  if (
+    result.positiveControlPassed === false
+  ) {
+    console.log(
+      "Protection rejected: it also rejects the known-good output."
+    );
+  } else {
+    console.log(
+      `Survivors after: ${JSON.stringify(
+        result.after.survivors.map(
+          (finding) => finding.id
+        )
+      )}`
+    );
+  }
 } else {
   console.log(
     "No mutation survived the current evaluator."
