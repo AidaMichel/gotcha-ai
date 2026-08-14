@@ -17,9 +17,10 @@ It mutates a known-good output, attacks your evaluator, ranks the survivors, pro
 ## See it in 5 seconds
 
 ```bash
-npm install
-npm run demo
+npx gotcha-ai demo
 ```
+
+No clone. No config. No API key.
 
 You should see:
 
@@ -63,10 +64,18 @@ Gotcha does not define what “good” means for your business.
 
 ## Public API
 
+Install Gotcha:
+
+```bash
+npm install gotcha-ai
+```
+
+Then use the public API:
+
 ```js
 const {
   runGotcha
-} = require("./src");
+} = require("gotcha-ai");
 
 const result = runGotcha({
   evaluator,
@@ -114,7 +123,9 @@ Evaluator
 → Re-attack
 ```
 
-Existing eval harnesses can call `runGotcha()` repeatedly across their own eval sets. Gotcha does not need to own your dataset.
+Existing eval harnesses can call `runGotcha()` repeatedly across their own eval sets.
+
+Gotcha does not need to own your dataset.
 
 ## Mutation Packs
 
@@ -165,11 +176,13 @@ Current ranking weights:
 | Novelty | 15% |
 | Fixability | 10% |
 
-The goal is not to flood you with failures. It is to surface the most meaningful blind spots first.
+The goal is not to flood you with failures.
+
+It is to surface the most meaningful blind spots first.
 
 ## Try your own idea
 
-Run:
+If you cloned the repository and want to experiment with a starter template, run:
 
 ```bash
 npm run starter
@@ -189,7 +202,9 @@ Replace:
 
 You should not need to modify Gotcha internals.
 
-## Useful commands
+## Repository commands
+
+For contributors and people exploring the source repository:
 
 ```bash
 npm test
@@ -231,8 +246,37 @@ Gotcha is built to find the important checks you forgot.
 
 Gotcha is under active development.
 
-Current focus: make the first meaningful blind spot discoverable within minutes across different AI products and eval sets.
+The current public interface supports:
+
+- deterministic attacks
+- survivor ranking
+- concrete protections
+- re-attack verification
+- reusable Mutation Packs
+- domain-independent evaluators
+- npm installation
+- a zero-config CLI demo
+
+The larger product direction remains:
+
+```text
+TEACH
+  ↓
+CONTRACT
+  ↓
+CONFIRM
+  ↓
+ATTACK
+  ↓
+RANK
+  ↓
+GOTCHA
+  ↓
+CATCH THIS
+  ↓
+RE-ATTACK
+```
+
+The next product layer will move toward teaching Gotcha what quality means instead of requiring users to define every protection manually.
 
 ## License
-
-MIT
