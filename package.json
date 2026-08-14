@@ -1,6 +1,6 @@
 {
   "name": "gotcha-ai",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Catch what your AI evals miss.",
   "main": "src/index.js",
   "exports": "./src/index.js",
