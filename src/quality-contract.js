@@ -283,6 +283,15 @@ function validateTeachingExample(
       "note"
     );
 
+  if (
+    note !== undefined
+  ) {
+    requireNonEmptyString(
+      note,
+      `${label}.note`
+    );
+  }
+
   requireNonEmptyString(
     id,
     `${label}.id`

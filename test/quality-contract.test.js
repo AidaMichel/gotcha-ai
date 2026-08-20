@@ -1395,3 +1395,46 @@ test(
     );
   }
 );
+test(
+  "draftQualityContract rejects non-string teaching notes before generator execution",
+  async () => {
+    let generatorCalls = 0;
+
+    const invalidExamples = [
+      {
+        id: "example-note",
+        type: "judgment",
+        input:
+          "Schedule Sara on Tuesday at 3 PM.",
+        output:
+          "Meeting scheduled with Sara on Tuesday at 3 PM.",
+        judgment: "good",
+        note: 123
+      }
+    ];
+
+    await assert.rejects(
+      draftQualityContract({
+        task,
+        examples:
+          invalidExamples,
+        generator:
+          async () => {
+            generatorCalls += 1;
+
+            return {
+              version: 1,
+              task,
+              rules: []
+            };
+          }
+      }),
+      /note.*non-empty string|note.*string/i
+    );
+
+    assert.equal(
+      generatorCalls,
+      0
+    );
+  }
+);
