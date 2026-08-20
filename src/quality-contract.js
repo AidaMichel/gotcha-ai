@@ -35,6 +35,13 @@ const CONFIDENCES = new Set([
   "low"
 ]);
 
+const CONFIRMATION_DECISIONS =
+  new Set([
+    "accept",
+    "edit",
+    "reject"
+  ]);
+
 function requireNonEmptyString(
   value,
   label
@@ -97,7 +104,8 @@ function validateTeachingExample(
   );
 
   if (
-    example.type === "judgment"
+    example.type ===
+    "judgment"
   ) {
     requireNonEmptyString(
       example.output,
@@ -116,7 +124,8 @@ function validateTeachingExample(
   }
 
   if (
-    example.type === "preference"
+    example.type ===
+    "preference"
   ) {
     requireNonEmptyString(
       example.a,
@@ -158,7 +167,8 @@ function validateTeachingInput({
     );
   }
 
-  const ids = new Set();
+  const ids =
+    new Set();
 
   examples.forEach(
     (example, index) => {
@@ -184,30 +194,50 @@ function validateTeachingInput({
     examples: examples.map(
       (example) => {
         if (
-          example.type === "judgment"
+          example.type ===
+          "judgment"
         ) {
           return {
-            id: example.id,
-            type: example.type,
-            input: example.input,
-            output: example.output,
-            judgment: example.judgment,
-            ...(example.note === undefined
+            id:
+              example.id,
+            type:
+              example.type,
+            input:
+              example.input,
+            output:
+              example.output,
+            judgment:
+              example.judgment,
+            ...(example.note ===
+            undefined
               ? {}
-              : { note: example.note })
+              : {
+                  note:
+                    example.note
+                })
           };
         }
 
         return {
-          id: example.id,
-          type: example.type,
-          input: example.input,
-          a: example.a,
-          b: example.b,
-          preferred: example.preferred,
-          ...(example.note === undefined
+          id:
+            example.id,
+          type:
+            example.type,
+          input:
+            example.input,
+          a:
+            example.a,
+          b:
+            example.b,
+          preferred:
+            example.preferred,
+          ...(example.note ===
+          undefined
             ? {}
-            : { note: example.note })
+            : {
+                note:
+                  example.note
+              })
         };
       }
     )
@@ -253,6 +283,7 @@ function validateEvidence(
         );
 
         if (
+          exampleIds !== null &&
           !exampleIds.has(
             item.exampleId
           )
@@ -369,7 +400,9 @@ function validateDraft(
   }
 
   if (
-    !Array.isArray(draft.rules)
+    !Array.isArray(
+      draft.rules
+    )
   ) {
     throw new Error(
       "draft.rules must be an array."
@@ -388,7 +421,8 @@ function validateDraft(
   const exampleIds =
     new Set(
       examples.map(
-        (example) => example.id
+        (example) =>
+          example.id
       )
     );
 
@@ -404,14 +438,88 @@ function validateDraft(
       );
 
       if (
-        ruleIds.has(rule.id)
+        ruleIds.has(
+          rule.id
+        )
       ) {
         throw new Error(
           `Duplicate rule id: ${rule.id}.`
         );
       }
 
-      ruleIds.add(rule.id);
+      ruleIds.add(
+        rule.id
+      );
+    }
+  );
+
+  return draft;
+}
+
+function validateDraftForConfirmation(
+  draft
+) {
+  requireObject(
+    draft,
+    "draft"
+  );
+
+  if (
+    draft.version !== 1
+  ) {
+    throw new Error(
+      "draft.version must be 1."
+    );
+  }
+
+  requireNonEmptyString(
+    draft.task,
+    "draft.task"
+  );
+
+  if (
+    !Array.isArray(
+      draft.rules
+    )
+  ) {
+    throw new Error(
+      "draft.rules must be an array."
+    );
+  }
+
+  if (
+    draft.rules.length >
+    MAX_RULES
+  ) {
+    throw new Error(
+      `draft.rules cannot contain more than ${MAX_RULES} rules.`
+    );
+  }
+
+  const ruleIds =
+    new Set();
+
+  draft.rules.forEach(
+    (rule, index) => {
+      validateRule(
+        rule,
+        index,
+        null
+      );
+
+      if (
+        ruleIds.has(
+          rule.id
+        )
+      ) {
+        throw new Error(
+          `Duplicate rule id: ${rule.id}.`
+        );
+      }
+
+      ruleIds.add(
+        rule.id
+      );
     }
   );
 
@@ -438,7 +546,8 @@ async function draftQualityContract({
   generator
 }) {
   if (
-    typeof generator !== "function"
+    typeof generator !==
+    "function"
   ) {
     throw new Error(
       "generator must be a function."
@@ -453,8 +562,10 @@ async function draftQualityContract({
 
   const draft =
     await generator({
-      task: validated.task,
-      examples: validated.examples,
+      task:
+        validated.task,
+      examples:
+        validated.examples,
       instructions:
         buildGenerationInstructions()
     });
@@ -466,6 +577,196 @@ async function draftQualityContract({
   );
 }
 
+function validateConfirmationDecision(
+  decision,
+  index
+) {
+  const label =
+    `decisions[${index}]`;
+
+  requireObject(
+    decision,
+    label
+  );
+
+  requireNonEmptyString(
+    decision.ruleId,
+    `${label}.ruleId`
+  );
+
+  if (
+    !CONFIRMATION_DECISIONS.has(
+      decision.decision
+    )
+  ) {
+    throw new Error(
+      `${label}.decision must be accept, edit, or reject.`
+    );
+  }
+
+  if (
+    decision.decision ===
+    "edit"
+  ) {
+    requireNonEmptyString(
+      decision.statement,
+      `${label}.statement`
+    );
+  }
+}
+
+function confirmQualityContract({
+  draft,
+  decisions
+}) {
+  const validatedDraft =
+    validateDraftForConfirmation(
+      draft
+    );
+
+  if (
+    !Array.isArray(
+      decisions
+    )
+  ) {
+    throw new Error(
+      "decisions must be an array."
+    );
+  }
+
+  const rulesById =
+    new Map(
+      validatedDraft.rules.map(
+        (rule) => [
+          rule.id,
+          rule
+        ]
+      )
+    );
+
+  const decisionsByRuleId =
+    new Map();
+
+  decisions.forEach(
+    (decision, index) => {
+      validateConfirmationDecision(
+        decision,
+        index
+      );
+
+      if (
+        !rulesById.has(
+          decision.ruleId
+        )
+      ) {
+        throw new Error(
+          `Unknown rule id: ${decision.ruleId}.`
+        );
+      }
+
+      if (
+        decisionsByRuleId.has(
+          decision.ruleId
+        )
+      ) {
+        throw new Error(
+          `Duplicate decision for rule id: ${decision.ruleId}.`
+        );
+      }
+
+      decisionsByRuleId.set(
+        decision.ruleId,
+        decision
+      );
+    }
+  );
+
+  validatedDraft.rules.forEach(
+    (rule) => {
+      if (
+        !decisionsByRuleId.has(
+          rule.id
+        )
+      ) {
+        throw new Error(
+          `Missing decision for rule id: ${rule.id}.`
+        );
+      }
+    }
+  );
+
+  const activeRules = [];
+
+  validatedDraft.rules.forEach(
+    (rule) => {
+      const decision =
+        decisionsByRuleId.get(
+          rule.id
+        );
+
+      if (
+        decision.decision ===
+        "reject"
+      ) {
+        return;
+      }
+
+      if (
+        decision.decision ===
+        "edit"
+      ) {
+        activeRules.push({
+          id:
+            rule.id,
+          statement:
+            decision.statement,
+          kind:
+            rule.kind,
+          severity:
+            rule.severity
+        });
+
+        return;
+      }
+
+      activeRules.push({
+        id:
+          rule.id,
+        statement:
+          rule.statement,
+        kind:
+          rule.kind,
+        severity:
+          rule.severity
+      });
+    }
+  );
+
+  if (
+    activeRules.length === 0
+  ) {
+    return {
+      version: 1,
+      status:
+        "no-active-rules",
+      task:
+        validatedDraft.task,
+      rules: []
+    };
+  }
+
+  return {
+    version: 1,
+    status:
+      "confirmed",
+    task:
+      validatedDraft.task,
+    rules:
+      activeRules
+  };
+}
+
 module.exports = {
-  draftQualityContract
+  draftQualityContract,
+  confirmQualityContract
 };

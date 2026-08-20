@@ -7,7 +7,8 @@ const {
 } = require("./mutation-pack");
 
 const {
-  draftQualityContract
+  draftQualityContract,
+  confirmQualityContract
 } = require("./quality-contract");
 
 function runGotcha({
@@ -31,5 +32,6 @@ function runGotcha({
 
 module.exports = {
   runGotcha,
-  draftQualityContract
+  draftQualityContract,
+  confirmQualityContract
 };

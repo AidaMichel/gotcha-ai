@@ -4,7 +4,8 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const {
-  draftQualityContract
+  draftQualityContract,
+  confirmQualityContract
 } = require("../src");
 
 const task =
@@ -110,6 +111,7 @@ test(
     );
   }
 );
+
 test(
   "draftQualityContract allows an honest zero-rule draft",
   async () => {
@@ -148,12 +150,14 @@ test(
     await assert.rejects(
       draftQualityContract({
         task,
-        examples: duplicateExamples,
-        generator: async () => ({
-          version: 1,
-          task,
-          rules: []
-        })
+        examples:
+          duplicateExamples,
+        generator:
+          async () => ({
+            version: 1,
+            task,
+            rules: []
+          })
       }),
       /Duplicate example id/
     );
@@ -198,6 +202,7 @@ test(
     );
   }
 );
+
 test(
   "generator receives an isolated copy of teaching examples",
   async () => {
@@ -213,7 +218,8 @@ test(
 
     const generator =
       async ({
-        examples: generatedExamples
+        examples:
+          generatedExamples
       }) => {
         generatedExamples[0].input =
           "MUTATED";
@@ -227,13 +233,359 @@ test(
 
     await draftQualityContract({
       task,
-      examples: sourceExamples,
+      examples:
+        sourceExamples,
       generator
     });
 
     assert.equal(
       sourceExamples[0].input,
       originalInput
+    );
+  }
+);
+
+test(
+  "confirmQualityContract accepts a rule",
+  () => {
+    const draft = {
+      version: 1,
+      task,
+      rules: [
+        {
+          id: "rule-1",
+          statement:
+            "The scheduled time must match the requested time.",
+          kind: "required",
+          severity: "critical",
+          confidence: "high",
+          rationale:
+            "Changing the requested time changes the intended action.",
+          evidence: [
+            {
+              type: "example",
+              exampleId:
+                "example-2"
+            }
+          ]
+        }
+      ]
+    };
+
+    const confirmed =
+      confirmQualityContract({
+        draft,
+        decisions: [
+          {
+            ruleId:
+              "rule-1",
+            decision:
+              "accept"
+          }
+        ]
+      });
+
+    assert.equal(
+      confirmed.status,
+      "confirmed"
+    );
+
+    assert.equal(
+      confirmed.rules.length,
+      1
+    );
+
+    assert.equal(
+      confirmed.rules[0]
+        .statement,
+      draft.rules[0]
+        .statement
+    );
+  }
+);
+
+test(
+  "confirmQualityContract lets the human edit a rule",
+  () => {
+    const draft = {
+      version: 1,
+      task,
+      rules: [
+        {
+          id: "rule-1",
+          statement:
+            "The system should preserve time.",
+          kind: "required",
+          severity: "critical",
+          confidence: "medium",
+          rationale:
+            "Time matters.",
+          evidence: [
+            {
+              type: "task"
+            }
+          ]
+        }
+      ]
+    };
+
+    const confirmed =
+      confirmQualityContract({
+        draft,
+        decisions: [
+          {
+            ruleId:
+              "rule-1",
+            decision:
+              "edit",
+            statement:
+              "The scheduled time must exactly match the requested time."
+          }
+        ]
+      });
+
+    assert.equal(
+      confirmed.rules[0]
+        .statement,
+      "The scheduled time must exactly match the requested time."
+    );
+  }
+);
+
+test(
+  "confirmQualityContract returns no-active-rules when every rule is rejected",
+  () => {
+    const draft = {
+      version: 1,
+      task,
+      rules: [
+        {
+          id: "rule-1",
+          statement:
+            "The scheduled time must match the requested time.",
+          kind: "required",
+          severity: "critical",
+          confidence: "high",
+          rationale:
+            "Time matters.",
+          evidence: [
+            {
+              type: "task"
+            }
+          ]
+        }
+      ]
+    };
+
+    const result =
+      confirmQualityContract({
+        draft,
+        decisions: [
+          {
+            ruleId:
+              "rule-1",
+            decision:
+              "reject"
+          }
+        ]
+      });
+
+    assert.equal(
+      result.status,
+      "no-active-rules"
+    );
+
+    assert.deepEqual(
+      result.rules,
+      []
+    );
+  }
+);
+
+test(
+  "confirmQualityContract requires a decision for every proposed rule",
+  () => {
+    const draft = {
+      version: 1,
+      task,
+      rules: [
+        {
+          id: "rule-1",
+          statement:
+            "The scheduled time must match the requested time.",
+          kind: "required",
+          severity: "critical",
+          confidence: "high",
+          rationale:
+            "Time matters.",
+          evidence: [
+            {
+              type: "task"
+            }
+          ]
+        }
+      ]
+    };
+
+    assert.throws(
+      () =>
+        confirmQualityContract({
+          draft,
+          decisions: []
+        }),
+      /Missing decision/
+    );
+  }
+);
+test(
+  "confirmQualityContract rejects an unknown rule id",
+  () => {
+    const draft = {
+      version: 1,
+      task,
+      rules: [
+        {
+          id: "rule-1",
+          statement:
+            "The scheduled time must match the requested time.",
+          kind: "required",
+          severity: "critical",
+          confidence: "high",
+          rationale:
+            "Time matters.",
+          evidence: [
+            {
+              type: "task"
+            }
+          ]
+        }
+      ]
+    };
+
+    assert.throws(
+      () =>
+        confirmQualityContract({
+          draft,
+          decisions: [
+            {
+              ruleId: "rule-does-not-exist",
+              decision: "accept"
+            }
+          ]
+        }),
+      /Unknown rule id/
+    );
+  }
+);
+
+test(
+  "confirmQualityContract rejects duplicate decisions",
+  () => {
+    const draft = {
+      version: 1,
+      task,
+      rules: [
+        {
+          id: "rule-1",
+          statement:
+            "The scheduled time must match the requested time.",
+          kind: "required",
+          severity: "critical",
+          confidence: "high",
+          rationale:
+            "Time matters.",
+          evidence: [
+            {
+              type: "task"
+            }
+          ]
+        }
+      ]
+    };
+
+    assert.throws(
+      () =>
+        confirmQualityContract({
+          draft,
+          decisions: [
+            {
+              ruleId: "rule-1",
+              decision: "accept"
+            },
+            {
+              ruleId: "rule-1",
+              decision: "reject"
+            }
+          ]
+        }),
+      /Duplicate decision/
+    );
+  }
+);
+
+test(
+  "confirmQualityContract rejects an empty human edit",
+  () => {
+    const draft = {
+      version: 1,
+      task,
+      rules: [
+        {
+          id: "rule-1",
+          statement:
+            "The scheduled time must match the requested time.",
+          kind: "required",
+          severity: "critical",
+          confidence: "high",
+          rationale:
+            "Time matters.",
+          evidence: [
+            {
+              type: "task"
+            }
+          ]
+        }
+      ]
+    };
+
+    assert.throws(
+      () =>
+        confirmQualityContract({
+          draft,
+          decisions: [
+            {
+              ruleId: "rule-1",
+              decision: "edit",
+              statement: "   "
+            }
+          ]
+        }),
+      /must be a non-empty string/
+    );
+  }
+);
+
+test(
+  "confirmQualityContract handles a zero-rule draft without pretending it is confirmed",
+  () => {
+    const result =
+      confirmQualityContract({
+        draft: {
+          version: 1,
+          task,
+          rules: []
+        },
+        decisions: []
+      });
+
+    assert.equal(
+      result.status,
+      "no-active-rules"
+    );
+
+    assert.deepEqual(
+      result.rules,
+      []
     );
   }
 );
