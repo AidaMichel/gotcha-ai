@@ -558,7 +558,7 @@ Meaningful quality failure that may mislead the user but does not completely inv
 
 Lower-impact quality issue.
 
-Severity is proposed by AI and remains reviewable by the user.
+Severity is proposed by AI and remains visible for human review. In M7, an `edit` decision changes the rule statement only; it does not change severity.
 
 ---
 

@@ -67,21 +67,6 @@ function requireNonEmptyString(
   }
 }
 
-function requireObject(
-  value,
-  label
-) {
-  if (
-    value === null ||
-    typeof value !== "object" ||
-    Array.isArray(value)
-  ) {
-    throw new Error(
-      `${label} must be an object.`
-    );
-  }
-}
-
 function captureDataProperties(
   value,
   label
