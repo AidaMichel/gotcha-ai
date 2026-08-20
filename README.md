@@ -2,7 +2,7 @@
 
 > **Your evals said “pass.” Gotcha disagrees.**
 
-Gotcha attacks your AI quality checks to find convincing bad outputs they still allow through.
+Gotcha helps you discover important AI failures your current quality checks still allow through.
 
 Most evals ask:
 
@@ -12,9 +12,38 @@ Gotcha asks:
 
 > **“What important failure can still pass those checks?”**
 
-It mutates a known-good output, attacks your evaluator, ranks the survivors, proposes a protection, and re-attacks to see whether quality improved.
+The larger Gotcha loop is:
 
-## See it in 5 seconds
+```text
+TEACH
+  ↓
+CONTRACT
+  ↓
+CONFIRM
+  ↓
+ATTACK
+  ↓
+RANK
+  ↓
+GOTCHA
+  ↓
+CATCH THIS
+  ↓
+RE-ATTACK
+```
+
+Today, Gotcha supports both sides of that flow:
+
+- teach Gotcha what quality means using examples and judgments
+- generate a structured Quality Contract for human confirmation
+- attack an evaluator with meaningful mutations
+- rank the failures that survive
+- propose a protection
+- re-attack to see whether quality improved
+
+**Quality should be teachable, testable, attackable, and improvable.**
+
+## See the Gotcha moment in 5 seconds
 
 ```bash
 npx gotcha-ai demo
@@ -36,7 +65,252 @@ The evaluator passed a bad output because it was not checking an important value
 
 **Gotcha.**
 
-## How it works
+## The problem
+
+AI teams usually define quality by writing checks for failures they already know about.
+
+That creates a blind spot:
+
+```text
+Known failure
+→ write evaluator
+→ evaluator passes
+→ assume quality is protected
+```
+
+But an evaluator can only reject what it knows how to recognize.
+
+A convincing bad output may still pass every check.
+
+Gotcha is designed to find those survivors.
+
+## Teach Gotcha what quality means
+
+Before Gotcha can attack quality, it needs a definition of what quality means for your task.
+
+Instead of requiring users to start by writing a large evaluation framework, Gotcha can learn from small pieces of teaching evidence:
+
+- a plain-English task description
+- examples marked good or bad
+- A/B preferences
+- optional notes explaining why something matters
+
+Example:
+
+```js
+const task =
+  "Schedule meetings using the requested person, day, and time.";
+
+const examples = [
+  {
+    id: "example-1",
+    type: "judgment",
+    input:
+      "Schedule Sara on Tuesday at 3 PM.",
+    output:
+      "Meeting scheduled with Sara on Tuesday at 3 PM.",
+    judgment: "good"
+  },
+
+  {
+    id: "example-2",
+    type: "judgment",
+    input:
+      "Schedule Sara on Tuesday at 3 PM.",
+    output:
+      "Meeting scheduled with Sara on Tuesday at 4 PM.",
+    judgment: "bad",
+    note:
+      "The scheduled time does not match the requested time."
+  }
+];
+```
+
+Examples are **evidence**, not automatic truth.
+
+Gotcha does not silently turn every example into a permanent rule.
+
+## Quality Contracts
+
+Gotcha can use an injected AI generator to propose a structured **Quality Contract** from teaching evidence.
+
+```js
+const {
+  draftQualityContract
+} = require("gotcha-ai");
+
+const draft =
+  await draftQualityContract({
+    task,
+    examples,
+    generator
+  });
+```
+
+A proposed rule contains structured information such as:
+
+```js
+{
+  id: "rule-1",
+
+  statement:
+    "The scheduled time must match the time requested by the user.",
+
+  kind:
+    "required",
+
+  severity:
+    "critical",
+
+  confidence:
+    "high",
+
+  rationale:
+    "A bad example changes the requested meeting time.",
+
+  evidence: [
+    {
+      type: "example",
+      exampleId:
+        "example-2"
+    }
+  ]
+}
+```
+
+Gotcha validates the generated contract before returning it.
+
+The generator cannot silently:
+
+- change the task
+- reference unknown examples
+- exceed the rule limit
+- invent unsupported schema fields that Gotcha depends on
+- turn a draft into a confirmed contract
+
+A draft is still only a proposal.
+
+## Humans confirm the contract
+
+The human remains authoritative.
+
+Every proposed rule must receive an explicit decision:
+
+- `accept`
+- `edit`
+- `reject`
+
+Example:
+
+```js
+const {
+  confirmQualityContract
+} = require("gotcha-ai");
+
+const confirmed =
+  confirmQualityContract({
+    draft,
+
+    decisions: [
+      {
+        ruleId: "rule-1",
+        decision: "accept"
+      },
+
+      {
+        ruleId: "rule-2",
+        decision: "edit",
+        statement:
+          "Never invent a meeting time when the user has not provided one."
+      },
+
+      {
+        ruleId: "rule-3",
+        decision: "reject"
+      }
+    ]
+  });
+```
+
+Accepted and edited rules become active.
+
+Rejected rules disappear from the confirmed contract.
+
+If every proposed rule is rejected, Gotcha returns:
+
+```text
+no-active-rules
+```
+
+It does not pretend an empty contract was meaningfully confirmed.
+
+## AI-assisted, provider-independent
+
+Gotcha does not require a specific model provider.
+
+You inject the generator:
+
+```js
+async function generator({
+  task,
+  examples,
+  instructions
+}) {
+  // Call the model/provider you choose.
+
+  return {
+    version: 1,
+    task,
+    rules: []
+  };
+}
+```
+
+Gotcha owns:
+
+- teaching-input validation
+- generation instructions
+- contract schema
+- evidence validation
+- provenance
+- human confirmation
+
+The caller owns:
+
+- model provider
+- API credentials
+- model selection
+- provider-specific infrastructure
+
+Gotcha does not ship API keys or require a hosted model account for its deterministic tests and demos.
+
+## Try the Quality Contract example
+
+If you cloned the repository:
+
+```bash
+node examples/quality-contract.js
+```
+
+You should see:
+
+```text
+TEACH: examples accepted
+CONTRACT: 3 rules proposed
+- rule-1: The scheduled person must match the person requested by the user.
+- rule-2: The scheduled time must match the time requested by the user.
+- rule-3: If a required meeting time is missing, ask the user for clarification instead of inventing one.
+CONFIRM: confirmed
+Active rules: 3
+```
+
+The example uses a deterministic fake generator so it does not require an external model or API key.
+
+## Attack your evaluator
+
+Once quality is defined, Gotcha’s attack engine looks for bad outputs your evaluator still accepts.
+
+The deterministic attack flow is:
 
 ```text
 Known-good output
@@ -58,30 +332,49 @@ PROTECTION
 RE-ATTACK
 ```
 
-Gotcha does not define what “good” means for your business.
+A survivor is the interesting part.
 
-**You do.**
+It means:
 
-## Public API
+> The output is meaningfully wrong, but the evaluator still said pass.
 
-Install Gotcha:
+That is the blind spot Gotcha is trying to surface.
+
+## Install
 
 ```bash
 npm install gotcha-ai
 ```
 
-Then use the public API:
+The public package currently exposes:
+
+```js
+const {
+  runGotcha,
+  draftQualityContract,
+  confirmQualityContract
+} = require("gotcha-ai");
+```
+
+## Attack API
+
+Use `runGotcha()` when you already have:
+
+- a known-good output
+- an evaluator
+- a Mutation Pack
 
 ```js
 const {
   runGotcha
 } = require("gotcha-ai");
 
-const result = runGotcha({
-  evaluator,
-  expectedOutput,
-  mutationPack
-});
+const result =
+  runGotcha({
+    evaluator,
+    expectedOutput,
+    mutationPack
+  });
 ```
 
 A new use case should normally change only:
@@ -96,23 +389,38 @@ Not the Gotcha core.
 
 Gotcha is domain-agnostic.
 
-It can be used with unrelated AI products and workflows because business meaning stays outside the engine.
+Business meaning stays outside the core engine.
 
-The repository currently proves this across:
+The repository proves the attack architecture across unrelated domains including:
 
 - Meeting Scheduler
 - Support Ticket Classifier
 - Order Fulfillment with structured object output
 
-Adding another domain should not require changes to `src/engine.js` or `src/mutation-pack.js`.
+Adding another domain should not require changes to:
+
+```text
+src/engine.js
+src/mutation-pack.js
+```
+
+The Quality Contract layer follows the same principle.
+
+Your domain evidence goes in.
+
+Gotcha provides the structure and safety boundary.
 
 ## Bring your own evaluator or eval set
 
 Your evaluator defines what currently counts as a pass.
 
-Change the evaluator. Change the eval case. Change the business rules.
+Change the evaluator.
 
-The Gotcha flow stays the same:
+Change the eval case.
+
+Change the business rules.
+
+The Gotcha attack flow stays the same:
 
 ```text
 Evaluator
@@ -135,12 +443,16 @@ A Mutation Pack describes meaningful ways a known-good output could become wrong
 const mutationPack = [
   {
     id: "wrong-price",
-    type: "value-substitution",
+
+    type:
+      "value-substitution",
+
     description:
       "Changes the price while keeping the product correct.",
 
     mutate(output) {
       output.price = 200;
+
       return output;
     },
 
@@ -157,7 +469,9 @@ const mutationPack = [
         "Product price must remain correct.",
 
       check(output) {
-        return output.price === 20;
+        return (
+          output.price === 20
+        );
       }
     }
   }
@@ -180,9 +494,37 @@ The goal is not to flood you with failures.
 
 It is to surface the most meaningful blind spots first.
 
-## Try your own idea
+## Catch This
 
-If you cloned the repository and want to experiment with a starter template, run:
+Finding a failure is useful.
+
+Turning it into better quality protection is more useful.
+
+The current deterministic improvement loop:
+
+```text
+ATTACK
+  ↓
+survivor found
+  ↓
+CATCH THIS
+  ↓
+protection applied
+  ↓
+positive control
+  ↓
+RE-ATTACK
+```
+
+Gotcha then compares the number of escaping failures before and after the protection.
+
+The goal is not to claim perfection.
+
+The goal is measurable improvement.
+
+## Try your own attack
+
+If you cloned the repository and want to experiment with a starter template:
 
 ```bash
 npm run starter
@@ -213,41 +555,62 @@ npm run quickstart
 npm run starter
 ```
 
-For the structured-data portability example:
+Quality Contract example:
+
+```bash
+node examples/quality-contract.js
+```
+
+Structured-data portability example:
 
 ```bash
 node examples/order-fulfillment/demo.js
 ```
 
+## Current architecture
+
+Gotcha currently has two complementary layers.
+
+### Quality definition
+
+```text
+TEACH
+  ↓
+CONTRACT
+  ↓
+CONFIRM
+```
+
+This layer turns human teaching evidence into an explicitly confirmed Quality Contract.
+
+### Quality attack
+
+```text
+ATTACK
+  ↓
+RANK
+  ↓
+GOTCHA
+  ↓
+CATCH THIS
+  ↓
+RE-ATTACK
+```
+
+This layer attacks the current definition of quality and looks for meaningful failures that still escape.
+
+The long-term product connects those two halves into one continuous quality-improvement loop.
+
 ## Current scope
 
-Gotcha currently focuses on deterministic, synchronous evaluation and mutation workflows.
+Gotcha currently supports:
 
-It does not yet try to be:
-
-- an LLM-generated mutation system
-- a dataset-management platform
-- a production observability platform
-- a dashboard
-- a multi-agent framework
-- a JavaScript sandbox
-
-Those are separate product decisions, not requirements for the core attack loop.
-
-## Why Gotcha?
-
-Passing your eval only proves that the output satisfied the checks you remembered to write.
-
-Gotcha is built to find the important checks you forgot.
-
-**Quality should be teachable, testable, attackable, and improvable.**
-
-## Status
-
-Gotcha is under active development.
-
-The current public interface supports:
-
+- plain-English task descriptions
+- good/bad teaching examples
+- A/B preference evidence
+- evidence-backed Quality Contract drafts
+- injected AI generators
+- explicit human confirmation
 - deterministic attacks
 - survivor ranking
 - concrete protections
@@ -257,7 +620,33 @@ The current public interface supports:
 - npm installation
 - a zero-config CLI demo
 
-The larger product direction remains:
+Gotcha intentionally does **not** yet try to be:
+
+- an AI-generated mutation system
+- a production observability platform
+- a dataset-management platform
+- a dashboard
+- a collaboration suite
+- a multi-agent framework
+- a JavaScript sandbox
+- an enterprise auth or billing system
+- a GitHub Actions integration
+
+Those are separate product layers.
+
+## What comes next
+
+The Quality Contract layer answers:
+
+> **What does this user mean by good?**
+
+The deterministic attack engine answers:
+
+> **What bad output can still pass the current checks?**
+
+The next major bridge is to let confirmed Quality Contracts help generate and prioritize attacks.
+
+That moves Gotcha closer to the full loop:
 
 ```text
 TEACH
@@ -277,7 +666,38 @@ CATCH THIS
 RE-ATTACK
 ```
 
-The next product layer will move toward teaching Gotcha what quality means instead of requiring users to define every protection manually.
+The aim is not another dashboard full of evaluation scores.
+
+The aim is a system that keeps asking:
+
+> **“What important failure are we still allowing through?”**
+
+## Why Gotcha?
+
+Passing your eval only proves that the output satisfied the checks you remembered to write.
+
+Gotcha is built to help find the important checks you forgot — and increasingly, to help define those checks before the attack even begins.
+
+**Quality should be teachable, testable, attackable, and improvable.**
+
+## Status
+
+Gotcha is under active development.
+
+Current implemented milestones include:
+
+- deterministic Gotcha moment
+- mutation engine
+- survivor ranking
+- generic public engine
+- Mutation Packs
+- dynamic public API
+- npm package
+- `npx gotcha-ai demo`
+- AI-assisted Quality Contract drafting
+- human Quality Contract confirmation
+
+The next product layer connects confirmed contracts to AI-assisted attack generation.
 
 ## License
 
