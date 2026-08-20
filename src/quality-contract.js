@@ -200,14 +200,19 @@ function validateTeachingInput({
           return {
             id:
               example.id,
+
             type:
               example.type,
+
             input:
               example.input,
+
             output:
               example.output,
+
             judgment:
               example.judgment,
+
             ...(example.note ===
             undefined
               ? {}
@@ -221,16 +226,22 @@ function validateTeachingInput({
         return {
           id:
             example.id,
+
           type:
             example.type,
+
           input:
             example.input,
+
           a:
             example.a,
+
           b:
             example.b,
+
           preferred:
             example.preferred,
+
           ...(example.note ===
           undefined
             ? {}
@@ -477,6 +488,48 @@ function validateDraftForConfirmation(
     "draft.task"
   );
 
+  requireObject(
+    draft.source,
+    "draft.source"
+  );
+
+  if (
+    !Array.isArray(
+      draft.source.exampleIds
+    ) ||
+    draft.source.exampleIds.length === 0
+  ) {
+    throw new Error(
+      "draft.source.exampleIds must be a non-empty array."
+    );
+  }
+
+  const exampleIds =
+    new Set();
+
+  draft.source.exampleIds.forEach(
+    (exampleId, index) => {
+      requireNonEmptyString(
+        exampleId,
+        `draft.source.exampleIds[${index}]`
+      );
+
+      if (
+        exampleIds.has(
+          exampleId
+        )
+      ) {
+        throw new Error(
+          `Duplicate source example id: ${exampleId}.`
+        );
+      }
+
+      exampleIds.add(
+        exampleId
+      );
+    }
+  );
+
   if (
     !Array.isArray(
       draft.rules
@@ -504,7 +557,7 @@ function validateDraftForConfirmation(
       validateRule(
         rule,
         index,
-        null
+        exampleIds
       );
 
       if (
@@ -560,21 +613,91 @@ async function draftQualityContract({
       examples
     });
 
+  const sourceExampleIds =
+    validated.examples.map(
+      (example) =>
+        example.id
+    );
+
+  const generatorExamples =
+    validated.examples.map(
+      (example) => ({
+        ...example
+      })
+    );
+
   const draft =
     await generator({
       task:
         validated.task,
+
       examples:
-        validated.examples,
+        generatorExamples,
+
       instructions:
         buildGenerationInstructions()
     });
 
-  return validateDraft(
-    draft,
-    validated.task,
-    validated.examples
-  );
+  const validatedDraft =
+    validateDraft(
+      draft,
+      validated.task,
+      validated.examples
+    );
+
+  return {
+    version:
+      validatedDraft.version,
+
+    task:
+      validatedDraft.task,
+
+    source: {
+      exampleIds:
+        sourceExampleIds
+    },
+
+    rules:
+      validatedDraft.rules.map(
+        (rule) => ({
+          id:
+            rule.id,
+
+          statement:
+            rule.statement,
+
+          kind:
+            rule.kind,
+
+          severity:
+            rule.severity,
+
+          confidence:
+            rule.confidence,
+
+          rationale:
+            rule.rationale,
+
+          evidence:
+            rule.evidence.map(
+              (item) =>
+                item.type ===
+                "task"
+                  ? {
+                      type:
+                        "task"
+                    }
+                  : {
+                      type:
+                        "example",
+
+                      exampleId:
+                        item.exampleId
+                    }
+            )
+        })
+      )
+  };
 }
 
 function validateConfirmationDecision(
@@ -718,10 +841,13 @@ function confirmQualityContract({
         activeRules.push({
           id:
             rule.id,
+
           statement:
             decision.statement,
+
           kind:
             rule.kind,
+
           severity:
             rule.severity
         });
@@ -732,10 +858,13 @@ function confirmQualityContract({
       activeRules.push({
         id:
           rule.id,
+
         statement:
           rule.statement,
+
         kind:
           rule.kind,
+
         severity:
           rule.severity
       });
@@ -747,20 +876,26 @@ function confirmQualityContract({
   ) {
     return {
       version: 1,
+
       status:
         "no-active-rules",
+
       task:
         validatedDraft.task,
+
       rules: []
     };
   }
 
   return {
     version: 1,
+
     status:
       "confirmed",
+
     task:
       validatedDraft.task,
+
     rules:
       activeRules
   };

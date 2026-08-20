@@ -251,6 +251,12 @@ test(
     const draft = {
       version: 1,
       task,
+      source: {
+        exampleIds: [
+          "example-1",
+          "example-2"
+        ]
+      },
       rules: [
         {
           id: "rule-1",
@@ -310,6 +316,12 @@ test(
     const draft = {
       version: 1,
       task,
+      source: {
+        exampleIds: [
+          "example-1",
+          "example-2"
+        ]
+      },
       rules: [
         {
           id: "rule-1",
@@ -358,6 +370,12 @@ test(
     const draft = {
       version: 1,
       task,
+      source: {
+        exampleIds: [
+          "example-1",
+          "example-2"
+        ]
+      },
       rules: [
         {
           id: "rule-1",
@@ -408,6 +426,12 @@ test(
     const draft = {
       version: 1,
       task,
+      source: {
+        exampleIds: [
+          "example-1",
+          "example-2"
+        ]
+      },
       rules: [
         {
           id: "rule-1",
@@ -443,6 +467,12 @@ test(
     const draft = {
       version: 1,
       task,
+      source: {
+        exampleIds: [
+          "example-1",
+          "example-2"
+        ]
+      },
       rules: [
         {
           id: "rule-1",
@@ -484,6 +514,12 @@ test(
     const draft = {
       version: 1,
       task,
+      source: {
+        exampleIds: [
+          "example-1",
+          "example-2"
+        ]
+      },
       rules: [
         {
           id: "rule-1",
@@ -529,6 +565,12 @@ test(
     const draft = {
       version: 1,
       task,
+      source: {
+        exampleIds: [
+          "example-1",
+          "example-2"
+        ]
+      },
       rules: [
         {
           id: "rule-1",
@@ -573,6 +615,12 @@ test(
         draft: {
           version: 1,
           task,
+          source: {
+            exampleIds: [
+              "example-1",
+              "example-2"
+            ]
+          },
           rules: []
         },
         decisions: []
@@ -586,6 +634,202 @@ test(
     assert.deepEqual(
       result.rules,
       []
+    );
+  }
+);
+test(
+  "confirmQualityContract rejects a draft with unknown evidence references",
+  () => {
+    const draft = {
+      version: 1,
+      task,
+      source: {
+        exampleIds: [
+          "example-1",
+          "example-2"
+        ]
+      },
+      rules: [
+        {
+          id: "rule-1",
+          statement:
+            "The scheduled time must match the requested time.",
+          kind: "required",
+          severity: "critical",
+          confidence: "high",
+          rationale:
+            "The example supports this rule.",
+          evidence: [
+            {
+              type: "example",
+              exampleId:
+                "example-does-not-exist"
+            }
+          ]
+        }
+      ]
+    };
+
+    assert.throws(
+      () =>
+        confirmQualityContract({
+          draft,
+          decisions: [
+            {
+              ruleId: "rule-1",
+              decision: "accept"
+            }
+          ]
+        }),
+      /unknown example/
+    );
+  }
+);
+test(
+  "draftQualityContract records validated source example ids",
+  async () => {
+    const draft =
+      await draftQualityContract({
+        task,
+        examples,
+        generator:
+          async () => ({
+            version: 1,
+            task,
+            rules: []
+          })
+      });
+
+    assert.deepEqual(
+      draft.source,
+      {
+        exampleIds: [
+          "example-1",
+          "example-2"
+        ]
+      }
+    );
+  }
+);
+
+test(
+  "generator cannot control draft source metadata",
+  async () => {
+    const draft =
+      await draftQualityContract({
+        task,
+        examples,
+        generator:
+          async () => ({
+            version: 1,
+            task,
+            source: {
+              exampleIds: [
+                "fake-example"
+              ]
+            },
+            rules: []
+          })
+      });
+
+    assert.deepEqual(
+      draft.source,
+      {
+        exampleIds: [
+          "example-1",
+          "example-2"
+        ]
+      }
+    );
+  }
+);
+
+test(
+  "serialized drafts retain evidence provenance for confirmation",
+  async () => {
+    const draft =
+      await draftQualityContract({
+        task,
+        examples,
+        generator:
+          async () => ({
+            version: 1,
+            task,
+            rules: [
+              {
+                id: "rule-1",
+                statement:
+                  "The scheduled time must match the requested time.",
+                kind: "required",
+                severity: "critical",
+                confidence: "high",
+                rationale:
+                  "The bad example changed the requested time.",
+                evidence: [
+                  {
+                    type: "example",
+                    exampleId:
+                      "example-2"
+                  }
+                ]
+              }
+            ]
+          })
+      });
+
+    const serializedDraft =
+      JSON.parse(
+        JSON.stringify(draft)
+      );
+
+    const confirmed =
+      confirmQualityContract({
+        draft:
+          serializedDraft,
+        decisions: [
+          {
+            ruleId:
+              "rule-1",
+            decision:
+              "accept"
+          }
+        ]
+      });
+
+    assert.equal(
+      confirmed.status,
+      "confirmed"
+    );
+
+    assert.equal(
+      confirmed.rules.length,
+      1
+    );
+  }
+);
+
+test(
+  "confirmQualityContract rejects duplicate source example ids",
+  () => {
+    const draft = {
+      version: 1,
+      task,
+      source: {
+        exampleIds: [
+          "example-1",
+          "example-1"
+        ]
+      },
+      rules: []
+    };
+
+    assert.throws(
+      () =>
+        confirmQualityContract({
+          draft,
+          decisions: []
+        }),
+      /Duplicate source example id/
     );
   }
 );

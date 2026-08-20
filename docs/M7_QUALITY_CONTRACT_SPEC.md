@@ -251,7 +251,11 @@ Teaching evidence may include:
 
 ### Quality Contract Draft
 
-An AI-generated proposal describing the important quality rules inferred from the teaching evidence.
+An AI-assisted proposal describing the important quality rules inferred from the teaching evidence.
+
+The rule proposal originates from the AI generator.
+
+Gotcha validates the proposal and attaches deterministic source metadata before returning the public draft.
 
 A draft is not authoritative.
 
@@ -387,9 +391,11 @@ Invalid evidence must fail before invoking the AI generator.
 
 ## 9. CONTRACT — Output Model
 
-The AI proposes a structured Quality Contract Draft.
+The AI proposes the rule content for a structured Quality Contract Draft.
 
-Canonical shape:
+After validating the AI output, Gotcha constructs the public draft and attaches deterministic source metadata.
+
+Canonical public draft shape:
 
 ```js
 {
@@ -397,6 +403,13 @@ Canonical shape:
 
   task:
     "Schedule meetings from natural-language requests.",
+
+  source: {
+    exampleIds: [
+      "example-1",
+      "example-2"
+    ]
+  },
 
   rules: [
     {
@@ -424,6 +437,14 @@ Canonical shape:
   ]
 }
 ```
+
+`source` is owned by Gotcha.
+
+The AI generator must not author or control `source`.
+
+`source.exampleIds` contains the IDs of the validated teaching examples used to construct the draft.
+
+This allows a serialized draft to retain enough provenance for later confirmation-time evidence validation.
 
 ---
 
@@ -593,6 +614,14 @@ The deterministic validator must verify that referenced example IDs actually exi
 
 A generated rule must contain at least one evidence reference.
 
+The public draft preserves the validated teaching example IDs in:
+
+```text
+source.exampleIds
+```
+
+This provenance allows confirmation to revalidate example evidence references even if the draft has been serialized and confirmed later.
+
 ---
 
 ## 14. Evidence-Bound Generation
@@ -640,7 +669,7 @@ Gotcha must prefer an empty draft over inventing unsupported rules.
 
 AI output must never be trusted directly.
 
-Gotcha validates the returned draft before showing it to the user.
+Gotcha validates the returned generator output before showing a public draft to the user.
 
 Validation must verify:
 
@@ -663,6 +692,18 @@ Validation must verify:
 Malformed AI output must fail clearly.
 
 Do not silently repair structurally invalid AI output.
+
+After successful validation, Gotcha must construct:
+
+```js
+source: {
+  exampleIds: [...]
+}
+```
+
+from the already validated teaching evidence.
+
+The AI generator must not be trusted to provide this metadata.
 
 ---
 
@@ -690,9 +731,11 @@ async function generator({
 
 Gotcha calls the generator.
 
-The generator returns structured data.
+The generator returns structured rule data.
 
 Gotcha validates that data.
+
+Gotcha then attaches deterministic `source` metadata to the public draft.
 
 The core package does not need to know which model generated it.
 
@@ -730,9 +773,23 @@ Result:
 {
   version: 1,
   task: "...",
+  source: {
+    exampleIds: [
+      "example-1",
+      "example-2"
+    ]
+  },
   rules: [...]
 }
 ```
+
+`source` is constructed by Gotcha after validating the teaching evidence.
+
+The AI generator must not author or control `source`.
+
+`source.exampleIds` records the validated teaching example IDs so that a serialized draft can later be safely passed to `confirmQualityContract()` without requiring the original teaching examples again.
+
+Confirmation must validate every example evidence reference against `source.exampleIds`.
 
 This API is asynchronous because real AI generation is asynchronous.
 
@@ -875,6 +932,10 @@ Only accepted or edited rules appear in the confirmed `rules`.
 
 Rejected rules do not become active requirements.
 
+The Gotcha-owned draft `source` metadata is used to validate provenance during confirmation.
+
+The confirmed contract does not need to expose that draft-only metadata as an active quality rule.
+
 ---
 
 ## 23. Confirmation Validation
@@ -887,10 +948,17 @@ Confirmation must reject:
 - edit decisions without replacement text
 - empty edited statements
 - malformed draft objects
+- missing or malformed draft source metadata
+- duplicate or invalid `source.exampleIds`
+- example evidence references that do not exist in `source.exampleIds`
 
 Every proposed rule must receive an explicit decision before the contract becomes fully confirmed.
 
 This prevents accidental silent acceptance.
+
+Confirmation must not rely on the AI generator to reconstruct evidence provenance.
+
+It must use the Gotcha-owned `source.exampleIds` stored in the draft.
 
 ---
 
@@ -994,6 +1062,8 @@ The exact wording is not required to be deterministic.
 
 The structure and safety guarantees are.
 
+The public draft returned by Gotcha additionally records the validated teaching example IDs in `source.exampleIds`.
+
 ---
 
 ## 26. Testing Strategy
@@ -1035,6 +1105,10 @@ const generator =
   });
 ```
 
+The fake generator does not create `source`.
+
+Gotcha constructs `source` deterministically from validated teaching evidence.
+
 This allows deterministic testing of Gotcha's behavior around AI.
 
 ---
@@ -1063,6 +1137,7 @@ Test:
 - generator errors propagate clearly
 - malformed generator output is rejected
 - generator cannot bypass contract validation
+- generator does not control Gotcha-owned source metadata
 
 ### Contract validation
 
@@ -1077,6 +1152,7 @@ Test:
 - missing evidence
 - unknown example references
 - too many proposed rules
+- source metadata reflects validated teaching example IDs
 
 ### Confirmation
 
@@ -1092,6 +1168,9 @@ Test:
 - invalid edit
 - rejected rules absent from active contract
 - edited text overrides AI text
+- malformed source metadata is rejected
+- unknown example evidence references are rejected against `source.exampleIds`
+- serialized drafts retain enough evidence provenance for confirmation
 
 ### Regression
 
@@ -1143,6 +1222,8 @@ Human Confirmation
       ▼
 Confirmed Contract
 ```
+
+The Quality Contract Builder owns validation and deterministic source metadata.
 
 The existing engine remains:
 
@@ -1304,6 +1385,10 @@ A contract with `status: "no-active-rules"` is not authoritative and must not be
 
 The API should clearly indicate that no active rules were confirmed.
 
+If draft provenance is malformed or an example evidence reference is not present in the Gotcha-owned `source.exampleIds`, confirmation must fail clearly.
+
+Do not silently trust or repair the reference.
+
 ---
 
 ## 34. User Trust Requirement
@@ -1321,6 +1406,8 @@ rationale
 evidence
 confidence
 ```
+
+The public draft also preserves the validated teaching example IDs required to verify those evidence references later.
 
 The contract must not feel like unexplained AI magic.
 
@@ -1344,15 +1431,21 @@ without writing eval code.
 
 ### CONTRACT
 
-An injected AI generator can produce a structured Quality Contract Draft.
+An injected AI generator can produce a structured Quality Contract Draft proposal.
+
+Gotcha validates that proposal and adds deterministic source metadata.
 
 ### EVIDENCE
 
 Every proposed rule is traceable to supplied evidence.
 
+Example evidence references remain verifiable after the public draft is created.
+
 ### VALIDATION
 
 Malformed or unsupported AI output cannot become a valid contract.
+
+Malformed draft provenance cannot bypass confirmation validation.
 
 ### CONFIRM
 
@@ -1459,15 +1552,18 @@ M7 is complete only when:
 - `draftQualityContract()` exists
 - provider-independent generator injection works
 - AI output validation exists
+- Gotcha-owned draft source metadata is implemented
 - `confirmQualityContract()` exists
 - accept / edit / reject work
 - unconfirmed rules cannot become authoritative
-- evidence references are validated
+- evidence references are validated during drafting
+- evidence references remain verifiable during confirmation
 - deterministic fake-generator tests cover the AI boundary
 - canonical Meeting Scheduler example works
 - existing test suite remains green
 - documentation clearly explains TEACH → CONTRACT → CONFIRM
 - Codex review finds no major issues
 - PR is reviewed before merge
+
 
 M7 should make Gotcha meaningfully smarter without making Gotcha less trustworthy.
