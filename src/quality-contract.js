@@ -1,4 +1,15 @@
+
 "use strict";
+
+const {
+  types: utilTypes
+} = require("node:util");
+
+const getOwnPropertyDescriptors =
+  Object.getOwnPropertyDescriptors;
+
+const ownKeys =
+  Reflect.ownKeys;
 
 const MAX_RULES = 7;
 
@@ -71,6 +82,67 @@ function requireObject(
   }
 }
 
+function captureDataProperties(
+  value,
+  label
+) {
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    throw new Error(
+      `${label} must be an object.`
+    );
+  }
+
+  if (
+    utilTypes.isProxy(value)
+  ) {
+    throw new Error(
+      `${label} must not be a Proxy.`
+    );
+  }
+
+  const descriptors =
+    getOwnPropertyDescriptors(
+      value
+    );
+
+  for (
+    const key of
+      ownKeys(descriptors)
+  ) {
+    const descriptor =
+      descriptors[key];
+
+    if (
+      "get" in descriptor ||
+      "set" in descriptor
+    ) {
+      throw new Error(
+        `${label} must use data properties only.`
+      );
+    }
+  }
+
+  return descriptors;
+}
+
+function readDataProperty(
+  descriptors,
+  key
+) {
+  const descriptor =
+    descriptors[key];
+
+  return (
+    descriptor === undefined
+      ? undefined
+      : descriptor.value
+  );
+}
+
 function validateTeachingExample(
   example,
   index
@@ -78,19 +150,74 @@ function validateTeachingExample(
   const label =
     `examples[${index}]`;
 
-  requireObject(
-    example,
-    label
-  );
+  const descriptors =
+    captureDataProperties(
+      example,
+      label
+    );
+
+  const id =
+    readDataProperty(
+      descriptors,
+      "id"
+    );
+
+  const type =
+    readDataProperty(
+      descriptors,
+      "type"
+    );
+
+  const input =
+    readDataProperty(
+      descriptors,
+      "input"
+    );
+
+  const output =
+    readDataProperty(
+      descriptors,
+      "output"
+    );
+
+  const judgment =
+    readDataProperty(
+      descriptors,
+      "judgment"
+    );
+
+  const a =
+    readDataProperty(
+      descriptors,
+      "a"
+    );
+
+  const b =
+    readDataProperty(
+      descriptors,
+      "b"
+    );
+
+  const preferred =
+    readDataProperty(
+      descriptors,
+      "preferred"
+    );
+
+  const note =
+    readDataProperty(
+      descriptors,
+      "note"
+    );
 
   requireNonEmptyString(
-    example.id,
+    id,
     `${label}.id`
   );
 
   if (
     !EXAMPLE_TYPES.has(
-      example.type
+      type
     )
   ) {
     throw new Error(
@@ -99,54 +226,71 @@ function validateTeachingExample(
   }
 
   requireNonEmptyString(
-    example.input,
+    input,
     `${label}.input`
   );
 
   if (
-    example.type ===
-    "judgment"
+    type === "judgment"
   ) {
     requireNonEmptyString(
-      example.output,
+      output,
       `${label}.output`
     );
 
     if (
       !JUDGMENTS.has(
-        example.judgment
+        judgment
       )
     ) {
       throw new Error(
         `${label}.judgment must be good or bad.`
       );
     }
+
+    return {
+      id,
+      type,
+      input,
+      output,
+      judgment,
+      ...(note === undefined
+        ? {}
+        : { note })
+    };
   }
+
+  requireNonEmptyString(
+    a,
+    `${label}.a`
+  );
+
+  requireNonEmptyString(
+    b,
+    `${label}.b`
+  );
 
   if (
-    example.type ===
-    "preference"
+    !PREFERENCES.has(
+      preferred
+    )
   ) {
-    requireNonEmptyString(
-      example.a,
-      `${label}.a`
+    throw new Error(
+      `${label}.preferred must be a or b.`
     );
-
-    requireNonEmptyString(
-      example.b,
-      `${label}.b`
-    );
-
-    if (
-      !PREFERENCES.has(
-        example.preferred
-      )
-    ) {
-      throw new Error(
-        `${label}.preferred must be a or b.`
-      );
-    }
   }
+
+  return {
+    id,
+    type,
+    input,
+    a,
+    b,
+    preferred,
+    ...(note === undefined
+      ? {}
+      : { note })
+  };
 }
 
 function validateTeachingInput({
@@ -170,88 +314,40 @@ function validateTeachingInput({
   const ids =
     new Set();
 
+  const normalizedExamples = [];
+
   examples.forEach(
     (example, index) => {
-      validateTeachingExample(
-        example,
-        index
-      );
+      const normalized =
+        validateTeachingExample(
+          example,
+          index
+        );
 
       if (
-        ids.has(example.id)
+        ids.has(
+          normalized.id
+        )
       ) {
         throw new Error(
-          `Duplicate example id: ${example.id}.`
+          `Duplicate example id: ${normalized.id}.`
         );
       }
 
-      ids.add(example.id);
+      ids.add(
+        normalized.id
+      );
+
+      normalizedExamples.push(
+        normalized
+      );
     }
   );
 
   return {
     task,
-    examples: examples.map(
-      (example) => {
-        if (
-          example.type ===
-          "judgment"
-        ) {
-          return {
-            id:
-              example.id,
-
-            type:
-              example.type,
-
-            input:
-              example.input,
-
-            output:
-              example.output,
-
-            judgment:
-              example.judgment,
-
-            ...(example.note ===
-            undefined
-              ? {}
-              : {
-                  note:
-                    example.note
-                })
-          };
-        }
-
-        return {
-          id:
-            example.id,
-
-          type:
-            example.type,
-
-          input:
-            example.input,
-
-          a:
-            example.a,
-
-          b:
-            example.b,
-
-          preferred:
-            example.preferred,
-
-          ...(example.note ===
-          undefined
-            ? {}
-            : {
-                note:
-                  example.note
-              })
-        };
-      }
-    )
+    examples:
+      normalizedExamples
   };
 }
 
@@ -269,34 +365,49 @@ function validateEvidence(
     );
   }
 
-  evidence.forEach(
+  return evidence.map(
     (item, index) => {
       const itemLabel =
         `${label}[${index}]`;
 
-      requireObject(
-        item,
-        itemLabel
-      );
+      const descriptors =
+        captureDataProperties(
+          item,
+          itemLabel
+        );
+
+      const type =
+        readDataProperty(
+          descriptors,
+          "type"
+        );
+
+      const exampleId =
+        readDataProperty(
+          descriptors,
+          "exampleId"
+        );
 
       if (
-        item.type === "task"
+        type === "task"
       ) {
-        return;
+        return {
+          type: "task"
+        };
       }
 
       if (
-        item.type === "example"
+        type === "example"
       ) {
         requireNonEmptyString(
-          item.exampleId,
+          exampleId,
           `${itemLabel}.exampleId`
         );
 
         if (
           exampleIds !== null &&
           !exampleIds.has(
-            item.exampleId
+            exampleId
           )
         ) {
           throw new Error(
@@ -304,7 +415,10 @@ function validateEvidence(
           );
         }
 
-        return;
+        return {
+          type: "example",
+          exampleId
+        };
       }
 
       throw new Error(
@@ -322,24 +436,67 @@ function validateRule(
   const label =
     `rules[${index}]`;
 
-  requireObject(
-    rule,
-    label
-  );
+  const descriptors =
+    captureDataProperties(
+      rule,
+      label
+    );
+
+  const id =
+    readDataProperty(
+      descriptors,
+      "id"
+    );
+
+  const statement =
+    readDataProperty(
+      descriptors,
+      "statement"
+    );
+
+  const kind =
+    readDataProperty(
+      descriptors,
+      "kind"
+    );
+
+  const severity =
+    readDataProperty(
+      descriptors,
+      "severity"
+    );
+
+  const confidence =
+    readDataProperty(
+      descriptors,
+      "confidence"
+    );
+
+  const rationale =
+    readDataProperty(
+      descriptors,
+      "rationale"
+    );
+
+  const evidence =
+    readDataProperty(
+      descriptors,
+      "evidence"
+    );
 
   requireNonEmptyString(
-    rule.id,
+    id,
     `${label}.id`
   );
 
   requireNonEmptyString(
-    rule.statement,
+    statement,
     `${label}.statement`
   );
 
   if (
     !RULE_KINDS.has(
-      rule.kind
+      kind
     )
   ) {
     throw new Error(
@@ -349,7 +506,7 @@ function validateRule(
 
   if (
     !SEVERITIES.has(
-      rule.severity
+      severity
     )
   ) {
     throw new Error(
@@ -359,7 +516,7 @@ function validateRule(
 
   if (
     !CONFIDENCES.has(
-      rule.confidence
+      confidence
     )
   ) {
     throw new Error(
@@ -368,15 +525,27 @@ function validateRule(
   }
 
   requireNonEmptyString(
-    rule.rationale,
+    rationale,
     `${label}.rationale`
   );
 
-  validateEvidence(
-    rule.evidence,
-    exampleIds,
-    `${label}.evidence`
-  );
+  const normalizedEvidence =
+    validateEvidence(
+      evidence,
+      exampleIds,
+      `${label}.evidence`
+    );
+
+  return {
+    id,
+    statement,
+    kind,
+    severity,
+    confidence,
+    rationale,
+    evidence:
+      normalizedEvidence
+  };
 }
 
 function validateDraft(
@@ -384,13 +553,32 @@ function validateDraft(
   task,
   examples
 ) {
-  requireObject(
-    draft,
-    "draft"
-  );
+  const descriptors =
+    captureDataProperties(
+      draft,
+      "draft"
+    );
+
+  const version =
+    readDataProperty(
+      descriptors,
+      "version"
+    );
+
+  const draftTask =
+    readDataProperty(
+      descriptors,
+      "task"
+    );
+
+  const rules =
+    readDataProperty(
+      descriptors,
+      "rules"
+    );
 
   if (
-    draft.version !== 1
+    version !== 1
   ) {
     throw new Error(
       "draft.version must be 1."
@@ -398,12 +586,12 @@ function validateDraft(
   }
 
   requireNonEmptyString(
-    draft.task,
+    draftTask,
     "draft.task"
   );
 
   if (
-    draft.task !== task
+    draftTask !== task
   ) {
     throw new Error(
       "draft.task must exactly match the validated task."
@@ -412,7 +600,7 @@ function validateDraft(
 
   if (
     !Array.isArray(
-      draft.rules
+      rules
     )
   ) {
     throw new Error(
@@ -421,7 +609,7 @@ function validateDraft(
   }
 
   if (
-    draft.rules.length >
+    rules.length >
     MAX_RULES
   ) {
     throw new Error(
@@ -440,43 +628,78 @@ function validateDraft(
   const ruleIds =
     new Set();
 
-  draft.rules.forEach(
-    (rule, index) => {
-      validateRule(
-        rule,
-        index,
-        exampleIds
-      );
+  const normalizedRules =
+    rules.map(
+      (rule, index) => {
+        const normalizedRule =
+          validateRule(
+            rule,
+            index,
+            exampleIds
+          );
 
-      if (
-        ruleIds.has(
-          rule.id
-        )
-      ) {
-        throw new Error(
-          `Duplicate rule id: ${rule.id}.`
+        if (
+          ruleIds.has(
+            normalizedRule.id
+          )
+        ) {
+          throw new Error(
+            `Duplicate rule id: ${normalizedRule.id}.`
+          );
+        }
+
+        ruleIds.add(
+          normalizedRule.id
         );
+
+        return normalizedRule;
       }
+    );
 
-      ruleIds.add(
-        rule.id
-      );
-    }
-  );
-
-  return draft;
+  return {
+    version,
+    task:
+      draftTask,
+    rules:
+      normalizedRules
+  };
 }
 
 function validateDraftForConfirmation(
   draft
 ) {
-  requireObject(
-    draft,
-    "draft"
-  );
+  const descriptors =
+    captureDataProperties(
+      draft,
+      "draft"
+    );
+
+  const version =
+    readDataProperty(
+      descriptors,
+      "version"
+    );
+
+  const draftTask =
+    readDataProperty(
+      descriptors,
+      "task"
+    );
+
+  const source =
+    readDataProperty(
+      descriptors,
+      "source"
+    );
+
+  const rules =
+    readDataProperty(
+      descriptors,
+      "rules"
+    );
 
   if (
-    draft.version !== 1
+    version !== 1
   ) {
     throw new Error(
       "draft.version must be 1."
@@ -484,20 +707,27 @@ function validateDraftForConfirmation(
   }
 
   requireNonEmptyString(
-    draft.task,
+    draftTask,
     "draft.task"
   );
 
-  requireObject(
-    draft.source,
-    "draft.source"
-  );
+  const sourceDescriptors =
+    captureDataProperties(
+      source,
+      "draft.source"
+    );
+
+  const sourceExampleIds =
+    readDataProperty(
+      sourceDescriptors,
+      "exampleIds"
+    );
 
   if (
     !Array.isArray(
-      draft.source.exampleIds
+      sourceExampleIds
     ) ||
-    draft.source.exampleIds.length === 0
+    sourceExampleIds.length === 0
   ) {
     throw new Error(
       "draft.source.exampleIds must be a non-empty array."
@@ -507,7 +737,7 @@ function validateDraftForConfirmation(
   const exampleIds =
     new Set();
 
-  draft.source.exampleIds.forEach(
+  sourceExampleIds.forEach(
     (exampleId, index) => {
       requireNonEmptyString(
         exampleId,
@@ -532,7 +762,7 @@ function validateDraftForConfirmation(
 
   if (
     !Array.isArray(
-      draft.rules
+      rules
     )
   ) {
     throw new Error(
@@ -541,7 +771,7 @@ function validateDraftForConfirmation(
   }
 
   if (
-    draft.rules.length >
+    rules.length >
     MAX_RULES
   ) {
     throw new Error(
@@ -552,31 +782,45 @@ function validateDraftForConfirmation(
   const ruleIds =
     new Set();
 
-  draft.rules.forEach(
-    (rule, index) => {
-      validateRule(
-        rule,
-        index,
-        exampleIds
-      );
+  const normalizedRules =
+    rules.map(
+      (rule, index) => {
+        const normalizedRule =
+          validateRule(
+            rule,
+            index,
+            exampleIds
+          );
 
-      if (
-        ruleIds.has(
-          rule.id
-        )
-      ) {
-        throw new Error(
-          `Duplicate rule id: ${rule.id}.`
+        if (
+          ruleIds.has(
+            normalizedRule.id
+          )
+        ) {
+          throw new Error(
+            `Duplicate rule id: ${normalizedRule.id}.`
+          );
+        }
+
+        ruleIds.add(
+          normalizedRule.id
         );
+
+        return normalizedRule;
       }
+    );
 
-      ruleIds.add(
-        rule.id
-      );
-    }
-  );
-
-  return draft;
+  return {
+    version,
+    task:
+      draftTask,
+    source: {
+      exampleIds:
+        [...sourceExampleIds]
+    },
+    rules:
+      normalizedRules
+  };
 }
 
 function buildGenerationInstructions() {
@@ -593,11 +837,33 @@ function buildGenerationInstructions() {
   ].join("\n");
 }
 
-async function draftQualityContract({
-  task,
-  examples,
-  generator
-}) {
+async function draftQualityContract(
+  options = {}
+) {
+  const optionDescriptors =
+    captureDataProperties(
+      options,
+      "draftQualityContract options"
+    );
+
+  const task =
+    readDataProperty(
+      optionDescriptors,
+      "task"
+    );
+
+  const examples =
+    readDataProperty(
+      optionDescriptors,
+      "examples"
+    );
+
+  const generator =
+    readDataProperty(
+      optionDescriptors,
+      "generator"
+    );
+
   if (
     typeof generator !==
     "function"
@@ -707,19 +973,38 @@ function validateConfirmationDecision(
   const label =
     `decisions[${index}]`;
 
-  requireObject(
-    decision,
-    label
-  );
+  const descriptors =
+    captureDataProperties(
+      decision,
+      label
+    );
+
+  const ruleId =
+    readDataProperty(
+      descriptors,
+      "ruleId"
+    );
+
+  const decisionType =
+    readDataProperty(
+      descriptors,
+      "decision"
+    );
+
+  const statement =
+    readDataProperty(
+      descriptors,
+      "statement"
+    );
 
   requireNonEmptyString(
-    decision.ruleId,
+    ruleId,
     `${label}.ruleId`
   );
 
   if (
     !CONFIRMATION_DECISIONS.has(
-      decision.decision
+      decisionType
     )
   ) {
     throw new Error(
@@ -728,20 +1013,48 @@ function validateConfirmationDecision(
   }
 
   if (
-    decision.decision ===
+    decisionType ===
     "edit"
   ) {
     requireNonEmptyString(
-      decision.statement,
+      statement,
       `${label}.statement`
     );
   }
+
+  return {
+    ruleId,
+    decision:
+      decisionType,
+    ...(decisionType === "edit"
+      ? {
+          statement
+        }
+      : {})
+  };
 }
 
-function confirmQualityContract({
-  draft,
-  decisions
-}) {
+function confirmQualityContract(
+  options = {}
+) {
+  const optionDescriptors =
+    captureDataProperties(
+      options,
+      "confirmQualityContract options"
+    );
+
+  const draft =
+    readDataProperty(
+      optionDescriptors,
+      "draft"
+    );
+
+  const decisions =
+    readDataProperty(
+      optionDescriptors,
+      "decisions"
+    );
+
   const validatedDraft =
     validateDraftForConfirmation(
       draft
@@ -772,34 +1085,35 @@ function confirmQualityContract({
 
   decisions.forEach(
     (decision, index) => {
-      validateConfirmationDecision(
-        decision,
-        index
-      );
+      const normalizedDecision =
+        validateConfirmationDecision(
+          decision,
+          index
+        );
 
       if (
         !rulesById.has(
-          decision.ruleId
+          normalizedDecision.ruleId
         )
       ) {
         throw new Error(
-          `Unknown rule id: ${decision.ruleId}.`
+          `Unknown rule id: ${normalizedDecision.ruleId}.`
         );
       }
 
       if (
         decisionsByRuleId.has(
-          decision.ruleId
+          normalizedDecision.ruleId
         )
       ) {
         throw new Error(
-          `Duplicate decision for rule id: ${decision.ruleId}.`
+          `Duplicate decision for rule id: ${normalizedDecision.ruleId}.`
         );
       }
 
       decisionsByRuleId.set(
-        decision.ruleId,
-        decision
+        normalizedDecision.ruleId,
+        normalizedDecision
       );
     }
   );

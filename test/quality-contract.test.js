@@ -833,3 +833,351 @@ test(
     );
   }
 );
+test(
+  "draftQualityContract rejects accessor-backed options without invoking getters",
+  async () => {
+    let getterCalls = 0;
+
+    const options = {};
+
+    Object.defineProperties(
+      options,
+      {
+        task: {
+          enumerable: true,
+          get() {
+            getterCalls += 1;
+            return task;
+          }
+        },
+
+        examples: {
+          enumerable: true,
+          value: examples
+        },
+
+        generator: {
+          enumerable: true,
+          value:
+            async () => ({
+              version: 1,
+              task,
+              rules: []
+            })
+        }
+      }
+    );
+
+    await assert.rejects(
+      draftQualityContract(
+        options
+      ),
+      /accessor|data propert/i
+    );
+
+    assert.equal(
+      getterCalls,
+      0
+    );
+  }
+);
+test(
+  "draftQualityContract rejects accessor-backed teaching examples without invoking getters",
+  async () => {
+    let getterCalls = 0;
+
+    const example = {
+      type: "judgment",
+      input:
+        "Schedule Sara on Tuesday at 3 PM.",
+      output:
+        "Meeting scheduled with Sara on Tuesday at 3 PM.",
+      judgment: "good"
+    };
+
+    Object.defineProperty(
+      example,
+      "id",
+      {
+        enumerable: true,
+        get() {
+          getterCalls += 1;
+          return "example-1";
+        }
+      }
+    );
+
+    await assert.rejects(
+      draftQualityContract({
+        task,
+        examples: [
+          example
+        ],
+        generator:
+          async () => ({
+            version: 1,
+            task,
+            rules: []
+          })
+      }),
+      /accessor|data propert/i
+    );
+
+    assert.equal(
+      getterCalls,
+      0
+    );
+  }
+);
+test(
+  "draftQualityContract rejects accessor-backed AI drafts without invoking getters",
+  async () => {
+    let getterCalls = 0;
+
+    const aiDraft = {
+      task,
+      rules: []
+    };
+
+    Object.defineProperty(
+      aiDraft,
+      "version",
+      {
+        enumerable: true,
+        get() {
+          getterCalls += 1;
+          return 1;
+        }
+      }
+    );
+
+    await assert.rejects(
+      draftQualityContract({
+        task,
+        examples,
+        generator:
+          async () =>
+            aiDraft
+      }),
+      /accessor|data propert/i
+    );
+
+    assert.equal(
+      getterCalls,
+      0
+    );
+  }
+);
+test(
+  "confirmQualityContract rejects accessor-backed drafts without invoking getters",
+  () => {
+    let getterCalls = 0;
+
+    const draft = {
+      task,
+      source: {
+        exampleIds: [
+          "example-1",
+          "example-2"
+        ]
+      },
+      rules: []
+    };
+
+    Object.defineProperty(
+      draft,
+      "version",
+      {
+        enumerable: true,
+        get() {
+          getterCalls += 1;
+          return 1;
+        }
+      }
+    );
+
+    assert.throws(
+      () =>
+        confirmQualityContract({
+          draft,
+          decisions: []
+        }),
+      /accessor|data propert/i
+    );
+
+    assert.equal(
+      getterCalls,
+      0
+    );
+  }
+)
+test(
+  "confirmQualityContract rejects accessor-backed source metadata without invoking getters",
+  () => {
+    let getterCalls = 0;
+
+    const source = {};
+
+    Object.defineProperty(
+      source,
+      "exampleIds",
+      {
+        enumerable: true,
+        get() {
+          getterCalls += 1;
+
+          return [
+            "example-1",
+            "example-2"
+          ];
+        }
+      }
+    );
+
+    const draft = {
+      version: 1,
+      task,
+      source,
+      rules: []
+    };
+
+    assert.throws(
+      () =>
+        confirmQualityContract({
+          draft,
+          decisions: []
+        }),
+      /accessor|data propert/i
+    );
+
+    assert.equal(
+      getterCalls,
+      0
+    );
+  }
+);
+
+test(
+  "draftQualityContract rejects accessor-backed rules without invoking getters",
+  async () => {
+    let getterCalls = 0;
+
+    const rule = {
+      statement:
+        "The scheduled time must match the requested time.",
+      kind: "required",
+      severity: "critical",
+      confidence: "high",
+      rationale:
+        "The example supports this rule.",
+      evidence: [
+        {
+          type: "example",
+          exampleId: "example-2"
+        }
+      ]
+    };
+
+    Object.defineProperty(
+      rule,
+      "id",
+      {
+        enumerable: true,
+        get() {
+          getterCalls += 1;
+          return "rule-1";
+        }
+      }
+    );
+
+    await assert.rejects(
+      draftQualityContract({
+        task,
+        examples,
+        generator:
+          async () => ({
+            version: 1,
+            task,
+            rules: [
+              rule
+            ]
+          })
+      }),
+      /accessor|data propert/i
+    );
+
+    assert.equal(
+      getterCalls,
+      0
+    );
+  }
+);
+
+test(
+  "confirmQualityContract rejects accessor-backed decisions without invoking getters",
+  () => {
+    let getterCalls = 0;
+
+    const decision = {
+      decision: "accept"
+    };
+
+    Object.defineProperty(
+      decision,
+      "ruleId",
+      {
+        enumerable: true,
+        get() {
+          getterCalls += 1;
+          return "rule-1";
+        }
+      }
+    );
+
+    const draft = {
+      version: 1,
+      task,
+      source: {
+        exampleIds: [
+          "example-1",
+          "example-2"
+        ]
+      },
+      rules: [
+        {
+          id: "rule-1",
+          statement:
+            "The scheduled time must match the requested time.",
+          kind: "required",
+          severity: "critical",
+          confidence: "high",
+          rationale:
+            "The example supports this rule.",
+          evidence: [
+            {
+              type: "example",
+              exampleId:
+                "example-2"
+            }
+          ]
+        }
+      ]
+    };
+
+    assert.throws(
+      () =>
+        confirmQualityContract({
+          draft,
+          decisions: [
+            decision
+          ]
+        }),
+      /accessor|data propert/i
+    );
+
+    assert.equal(
+      getterCalls,
+      0
+    );
+  }
+);
