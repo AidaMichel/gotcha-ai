@@ -303,7 +303,53 @@ test(
           ""
         ].join("\n")
       );
+      const qualityContractExample =
+        path.join(
+          consumerDir,
+          "node_modules",
+          "gotcha-ai",
+          "examples",
+          "quality-contract.js"
+        );
 
+      assert.ok(
+        fs.existsSync(
+          qualityContractExample
+        ),
+        "packed package did not include the M7 quality contract example"
+      );
+
+      const qualityContractExampleResult =
+        run(
+          process.execPath,
+          [
+            qualityContractExample
+          ],
+          {
+            cwd:
+              consumerDir
+          }
+        );
+
+      assert.equal(
+        qualityContractExampleResult.status,
+        0,
+        qualityContractExampleResult.stderr
+      );
+
+      assert.equal(
+        qualityContractExampleResult.stdout,
+        [
+          "TEACH: examples accepted",
+          "CONTRACT: 3 rules proposed",
+          "- rule-1: The scheduled person must match the person requested by the user.",
+          "- rule-2: The scheduled time must match the time requested by the user.",
+          "- rule-3: If a required meeting time is missing, ask the user for clarification instead of inventing one.",
+          "CONFIRM: confirmed",
+          "Active rules: 3",
+          ""
+        ].join("\n")
+      );
       const consumerCode = `
         const {
           runGotcha
@@ -384,6 +430,133 @@ test(
         [
           "wrong-value",
           "0",
+          ""
+        ].join("\n")
+      );
+
+      const m7ConsumerCode = `
+        const {
+          draftQualityContract,
+          confirmQualityContract
+        } = require("gotcha-ai");
+
+        async function main() {
+          const task =
+            "Schedule a meeting at the requested time.";
+
+          const examples = [
+            {
+              id: "example-1",
+              type: "judgment",
+              input: "Schedule Sara at 3 PM.",
+              output:
+                "Meeting scheduled with Sara at 3 PM.",
+              judgment: "good"
+            }
+          ];
+
+          const draft =
+            await draftQualityContract({
+              task,
+              examples,
+
+              generator:
+                async ({
+                  task: validatedTask
+                }) => ({
+                  version: 1,
+                  task: validatedTask,
+
+                  rules: [
+                    {
+                      id: "rule-1",
+
+                      statement:
+                        "The scheduled time must match the requested time.",
+
+                      kind: "required",
+                      severity: "critical",
+                      confidence: "high",
+
+                      rationale:
+                        "The example establishes the requested time as required.",
+
+                      evidence: [
+                        {
+                          type: "example",
+                          exampleId:
+                            "example-1"
+                        }
+                      ]
+                    }
+                  ]
+                })
+            });
+
+          const confirmed =
+            confirmQualityContract({
+              draft,
+
+              decisions: [
+                {
+                  ruleId: "rule-1",
+                  decision: "accept"
+                }
+              ]
+            });
+
+          console.log(
+            String(
+              draft.rules.length
+            )
+          );
+
+          console.log(
+            confirmed.status
+          );
+
+          console.log(
+            String(
+              confirmed.rules.length
+            )
+          );
+        }
+
+        main().catch(
+          (error) => {
+            console.error(
+              error.message
+            );
+
+            process.exitCode = 1;
+          }
+        );
+      `;
+
+      const m7ApiResult =
+        run(
+          process.execPath,
+          [
+            "-e",
+            m7ConsumerCode
+          ],
+          {
+            cwd: consumerDir
+          }
+        );
+
+      assert.equal(
+        m7ApiResult.status,
+        0,
+        m7ApiResult.stderr
+      );
+
+      assert.equal(
+        m7ApiResult.stdout,
+        [
+          "1",
+          "confirmed",
+          "1",
           ""
         ].join("\n")
       );

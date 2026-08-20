@@ -6,6 +6,11 @@ const {
   compileMutationPack
 } = require("./mutation-pack");
 
+const {
+  draftQualityContract,
+  confirmQualityContract
+} = require("./quality-contract");
+
 function runGotcha({
   evaluator,
   expectedOutput,
@@ -26,5 +31,7 @@ function runGotcha({
 }
 
 module.exports = {
-  runGotcha
+  runGotcha,
+  draftQualityContract,
+  confirmQualityContract
 };
