@@ -143,6 +143,79 @@ function readDataProperty(
   );
 }
 
+function captureArrayValues(
+  value,
+  label
+) {
+  if (
+    utilTypes.isProxy(value)
+  ) {
+    throw new Error(
+      `${label} must not be a Proxy.`
+    );
+  }
+
+  if (
+    !Array.isArray(value)
+  ) {
+    throw new Error(
+      `${label} must be an array.`
+    );
+  }
+
+  const descriptors =
+    getOwnPropertyDescriptors(
+      value
+    );
+
+  for (
+    const key of
+      ownKeys(descriptors)
+  ) {
+    const descriptor =
+      descriptors[key];
+
+    if (
+      "get" in descriptor ||
+      "set" in descriptor
+    ) {
+      throw new Error(
+        `${label} must use data properties only.`
+      );
+    }
+  }
+
+  const length =
+    descriptors.length.value;
+
+  const values = [];
+
+  for (
+    let index = 0;
+    index < length;
+    index += 1
+  ) {
+    const descriptor =
+      descriptors[
+        String(index)
+      ];
+
+    if (
+      descriptor === undefined
+    ) {
+      throw new Error(
+        `${label} must not be sparse.`
+      );
+    }
+
+    values.push(
+      descriptor.value
+    );
+  }
+
+  return values;
+}
+
 function validateTeachingExample(
   example,
   index
@@ -302,9 +375,14 @@ function validateTeachingInput({
     "task"
   );
 
+  const exampleValues =
+    captureArrayValues(
+      examples,
+      "examples"
+    );
+
   if (
-    !Array.isArray(examples) ||
-    examples.length === 0
+    exampleValues.length === 0
   ) {
     throw new Error(
       "examples must be a non-empty array."
@@ -316,7 +394,7 @@ function validateTeachingInput({
 
   const normalizedExamples = [];
 
-  examples.forEach(
+  exampleValues.forEach(
     (example, index) => {
       const normalized =
         validateTeachingExample(
@@ -356,16 +434,21 @@ function validateEvidence(
   exampleIds,
   label
 ) {
+  const evidenceValues =
+    captureArrayValues(
+      evidence,
+      label
+    );
+
   if (
-    !Array.isArray(evidence) ||
-    evidence.length === 0
+    evidenceValues.length === 0
   ) {
     throw new Error(
       `${label} must be a non-empty array.`
     );
   }
 
-  return evidence.map(
+  return evidenceValues.map(
     (item, index) => {
       const itemLabel =
         `${label}[${index}]`;
@@ -598,18 +681,14 @@ function validateDraft(
     );
   }
 
-  if (
-    !Array.isArray(
-      rules
-    )
-  ) {
-    throw new Error(
-      "draft.rules must be an array."
+  const ruleValues =
+    captureArrayValues(
+      rules,
+      "draft.rules"
     );
-  }
 
   if (
-    rules.length >
+    ruleValues.length >
     MAX_RULES
   ) {
     throw new Error(
@@ -629,7 +708,7 @@ function validateDraft(
     new Set();
 
   const normalizedRules =
-    rules.map(
+    ruleValues.map(
       (rule, index) => {
         const normalizedRule =
           validateRule(
@@ -723,11 +802,14 @@ function validateDraftForConfirmation(
       "exampleIds"
     );
 
+  const sourceExampleIdValues =
+    captureArrayValues(
+      sourceExampleIds,
+      "draft.source.exampleIds"
+    );
+
   if (
-    !Array.isArray(
-      sourceExampleIds
-    ) ||
-    sourceExampleIds.length === 0
+    sourceExampleIdValues.length === 0
   ) {
     throw new Error(
       "draft.source.exampleIds must be a non-empty array."
@@ -737,7 +819,7 @@ function validateDraftForConfirmation(
   const exampleIds =
     new Set();
 
-  sourceExampleIds.forEach(
+  sourceExampleIdValues.forEach(
     (exampleId, index) => {
       requireNonEmptyString(
         exampleId,
@@ -760,18 +842,14 @@ function validateDraftForConfirmation(
     }
   );
 
-  if (
-    !Array.isArray(
-      rules
-    )
-  ) {
-    throw new Error(
-      "draft.rules must be an array."
+  const ruleValues =
+    captureArrayValues(
+      rules,
+      "draft.rules"
     );
-  }
 
   if (
-    rules.length >
+    ruleValues.length >
     MAX_RULES
   ) {
     throw new Error(
@@ -783,7 +861,7 @@ function validateDraftForConfirmation(
     new Set();
 
   const normalizedRules =
-    rules.map(
+    ruleValues.map(
       (rule, index) => {
         const normalizedRule =
           validateRule(
@@ -816,7 +894,7 @@ function validateDraftForConfirmation(
       draftTask,
     source: {
       exampleIds:
-        [...sourceExampleIds]
+        [...sourceExampleIdValues]
     },
     rules:
       normalizedRules
@@ -1060,15 +1138,11 @@ function confirmQualityContract(
       draft
     );
 
-  if (
-    !Array.isArray(
-      decisions
-    )
-  ) {
-    throw new Error(
-      "decisions must be an array."
+  const decisionValues =
+    captureArrayValues(
+      decisions,
+      "decisions"
     );
-  }
 
   const rulesById =
     new Map(
@@ -1083,7 +1157,7 @@ function confirmQualityContract(
   const decisionsByRuleId =
     new Map();
 
-  decisions.forEach(
+  decisionValues.forEach(
     (decision, index) => {
       const normalizedDecision =
         validateConfirmationDecision(

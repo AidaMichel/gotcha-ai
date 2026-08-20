@@ -1181,3 +1181,217 @@ test(
     );
   }
 );
+test(
+  "draftQualityContract rejects Proxy teaching example arrays before traps execute",
+  async () => {
+    let trapCalls = 0;
+
+    const proxyExamples =
+      new Proxy(
+        examples,
+        {
+          get(
+            target,
+            property,
+            receiver
+          ) {
+            trapCalls += 1;
+
+            return Reflect.get(
+              target,
+              property,
+              receiver
+            );
+          }
+        }
+      );
+
+    await assert.rejects(
+      draftQualityContract({
+        task,
+        examples:
+          proxyExamples,
+        generator:
+          async () => ({
+            version: 1,
+            task,
+            rules: []
+          })
+      }),
+      /Proxy/i
+    );
+
+    assert.equal(
+      trapCalls,
+      0
+    );
+  }
+);
+test(
+  "draftQualityContract rejects Proxy rule arrays before traps execute",
+  async () => {
+    let trapCalls = 0;
+
+    const proxyRules =
+      new Proxy(
+        [],
+        {
+          get(
+            target,
+            property,
+            receiver
+          ) {
+            trapCalls += 1;
+
+            return Reflect.get(
+              target,
+              property,
+              receiver
+            );
+          }
+        }
+      );
+
+    await assert.rejects(
+      draftQualityContract({
+        task,
+        examples,
+        generator:
+          async () => ({
+            version: 1,
+            task,
+            rules:
+              proxyRules
+          })
+      }),
+      /Proxy/i
+    );
+
+    assert.equal(
+      trapCalls,
+      0
+    );
+  }
+);
+
+test(
+  "draftQualityContract rejects Proxy evidence arrays before traps execute",
+  async () => {
+    let trapCalls = 0;
+
+    const proxyEvidence =
+      new Proxy(
+        [
+          {
+            type: "example",
+            exampleId:
+              "example-2"
+          }
+        ],
+        {
+          get(
+            target,
+            property,
+            receiver
+          ) {
+            trapCalls += 1;
+
+            return Reflect.get(
+              target,
+              property,
+              receiver
+            );
+          }
+        }
+      );
+
+    await assert.rejects(
+      draftQualityContract({
+        task,
+        examples,
+        generator:
+          async () => ({
+            version: 1,
+            task,
+            rules: [
+              {
+                id: "rule-1",
+                statement:
+                  "The scheduled time must match the requested time.",
+                kind:
+                  "required",
+                severity:
+                  "critical",
+                confidence:
+                  "high",
+                rationale:
+                  "The example supports this rule.",
+                evidence:
+                  proxyEvidence
+              }
+            ]
+          })
+      }),
+      /Proxy/i
+    );
+
+    assert.equal(
+      trapCalls,
+      0
+    );
+  }
+);
+
+test(
+  "confirmQualityContract rejects Proxy decision arrays before traps execute",
+  () => {
+    let trapCalls = 0;
+
+    const proxyDecisions =
+      new Proxy(
+        [],
+        {
+          get(
+            target,
+            property,
+            receiver
+          ) {
+            trapCalls += 1;
+
+            return Reflect.get(
+              target,
+              property,
+              receiver
+            );
+          }
+        }
+      );
+
+    const draft = {
+      version: 1,
+      task,
+      source: {
+        exampleIds: [
+          "example-1",
+          "example-2"
+        ]
+      },
+      rules: []
+    };
+
+    assert.throws(
+      () =>
+        confirmQualityContract({
+          draft,
+          decisions:
+            proxyDecisions
+        }),
+      /Proxy/i
+    );
+
+    assert.equal(
+      trapCalls,
+      0
+    );
+  }
+);
