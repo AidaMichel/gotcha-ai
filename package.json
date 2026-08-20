@@ -14,7 +14,8 @@
   "files": [
     "src",
     "bin",
-    "examples/quickstart.js"
+    "examples/quickstart.js",
+    "examples/quality-contract.js"
   ],
   "scripts": {
     "test": "node --test",

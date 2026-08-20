@@ -303,7 +303,53 @@ test(
           ""
         ].join("\n")
       );
+      const qualityContractExample =
+        path.join(
+          consumerDir,
+          "node_modules",
+          "gotcha-ai",
+          "examples",
+          "quality-contract.js"
+        );
 
+      assert.ok(
+        fs.existsSync(
+          qualityContractExample
+        ),
+        "packed package did not include the M7 quality contract example"
+      );
+
+      const qualityContractExampleResult =
+        run(
+          process.execPath,
+          [
+            qualityContractExample
+          ],
+          {
+            cwd:
+              consumerDir
+          }
+        );
+
+      assert.equal(
+        qualityContractExampleResult.status,
+        0,
+        qualityContractExampleResult.stderr
+      );
+
+      assert.equal(
+        qualityContractExampleResult.stdout,
+        [
+          "TEACH: examples accepted",
+          "CONTRACT: 3 rules proposed",
+          "- rule-1: The scheduled person must match the person requested by the user.",
+          "- rule-2: The scheduled time must match the time requested by the user.",
+          "- rule-3: If a required meeting time is missing, ask the user for clarification instead of inventing one.",
+          "CONFIRM: confirmed",
+          "Active rules: 3",
+          ""
+        ].join("\n")
+      );
       const consumerCode = `
         const {
           runGotcha
