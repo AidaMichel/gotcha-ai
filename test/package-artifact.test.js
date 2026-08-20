@@ -433,6 +433,133 @@ test(
           ""
         ].join("\n")
       );
+
+      const m7ConsumerCode = `
+        const {
+          draftQualityContract,
+          confirmQualityContract
+        } = require("gotcha-ai");
+
+        async function main() {
+          const task =
+            "Schedule a meeting at the requested time.";
+
+          const examples = [
+            {
+              id: "example-1",
+              type: "judgment",
+              input: "Schedule Sara at 3 PM.",
+              output:
+                "Meeting scheduled with Sara at 3 PM.",
+              judgment: "good"
+            }
+          ];
+
+          const draft =
+            await draftQualityContract({
+              task,
+              examples,
+
+              generator:
+                async ({
+                  task: validatedTask
+                }) => ({
+                  version: 1,
+                  task: validatedTask,
+
+                  rules: [
+                    {
+                      id: "rule-1",
+
+                      statement:
+                        "The scheduled time must match the requested time.",
+
+                      kind: "required",
+                      severity: "critical",
+                      confidence: "high",
+
+                      rationale:
+                        "The example establishes the requested time as required.",
+
+                      evidence: [
+                        {
+                          type: "example",
+                          exampleId:
+                            "example-1"
+                        }
+                      ]
+                    }
+                  ]
+                })
+            });
+
+          const confirmed =
+            confirmQualityContract({
+              draft,
+
+              decisions: [
+                {
+                  ruleId: "rule-1",
+                  decision: "accept"
+                }
+              ]
+            });
+
+          console.log(
+            String(
+              draft.rules.length
+            )
+          );
+
+          console.log(
+            confirmed.status
+          );
+
+          console.log(
+            String(
+              confirmed.rules.length
+            )
+          );
+        }
+
+        main().catch(
+          (error) => {
+            console.error(
+              error.message
+            );
+
+            process.exitCode = 1;
+          }
+        );
+      `;
+
+      const m7ApiResult =
+        run(
+          process.execPath,
+          [
+            "-e",
+            m7ConsumerCode
+          ],
+          {
+            cwd: consumerDir
+          }
+        );
+
+      assert.equal(
+        m7ApiResult.status,
+        0,
+        m7ApiResult.stderr
+      );
+
+      assert.equal(
+        m7ApiResult.stdout,
+        [
+          "1",
+          "confirmed",
+          "1",
+          ""
+        ].join("\n")
+      );
     } finally {
       fs.rmSync(
         tempRoot,
