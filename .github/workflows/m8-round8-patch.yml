@@ -27,6 +27,34 @@ jobs:
       - name: Apply Round 8 patch
         run: python3 .github/scripts/m8_round8_patch.py
 
+      - name: Fix generated foreign Promise regression quoting
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          path = Path("test/m8-codex-round8.test.js")
+          text = path.read_text()
+          old = '''    const makePromise = vm.runInContext(
+              \\`() => {
+                const promise = Promise.reject(new Error("foreign constructor rejection"));
+                Object.defineProperty(promise, "constructor", {
+                  value: Promise,
+                  writable: false,
+                  enumerable: false,
+                  configurable: false
+                });
+                return promise;
+              }\\`,
+              context
+            );'''
+          new = '''    const makePromise = vm.runInContext(
+              '() => { const promise = Promise.reject(new Error("foreign constructor rejection")); Object.defineProperty(promise, "constructor", { value: Promise, writable: false, enumerable: false, configurable: false }); return promise; }',
+              context
+            );'''
+          if old not in text:
+              raise SystemExit("Could not find generated foreign Promise regression block")
+          path.write_text(text.replace(old, new, 1))
+          PY
+
       - name: Syntax checks
         run: |
           node --check src/ai-data.js
