@@ -1,0 +1,174 @@
+name: M8 round 7 consolidation
+
+on:
+  push:
+    branches:
+      - milestone-8-ai-attacks
+
+permissions:
+  contents: write
+
+jobs:
+  patch-validate-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: milestone-8-ai-attacks
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.0
+
+      - name: Apply Round 7 patch
+        run: python3 .github/scripts/m8_round7_patch.py
+
+      - name: Detect source changes
+        id: changes
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Syntax checks
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          node --check src/ai-data.js
+          node --check src/contract-attacks.js
+          node --check test/m8-codex-round7.test.js
+
+      - name: Diff hygiene
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          git diff --check
+          test -z "$(git diff origin/main -- src/engine.js)"
+
+      - name: Round 7 regressions
+        if: steps.changes.outputs.changed == 'true'
+        run: node --test test/m8-codex-round7.test.js
+
+      - name: All M8 focused suites
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          node --test \
+            test/ai-data.test.js \
+            test/contract-attacks.test.js \
+            test/m8-codex-remediation.test.js \
+            test/m8-codex-round3.test.js \
+            test/m8-codex-round4.test.js \
+            test/m8-codex-round5.test.js \
+            test/m8-codex-round6.test.js \
+            test/m8-codex-round7.test.js
+
+      - name: Full repository
+        if: steps.changes.outputs.changed == 'true'
+        run: npm test
+
+      - name: Node 14.18.0 minimum-runtime smoke
+        if: steps.changes.outputs.changed == 'true'
+        shell: bash
+        run: |
+          docker run --rm \
+            -v "$PWD:/work" \
+            -w /work \
+            node:14.18.0 \
+            node --unhandled-rejections=strict - <<'NODE'
+          "use strict";
+          const vm = require("vm");
+          const { runContractAttacks } = require("./src");
+
+          const contract = {
+            version: 1,
+            status: "confirmed",
+            task: "Return the approved value.",
+            rules: [{
+              id: "value-rule",
+              statement: "Return the approved value.",
+              kind: "required",
+              severity: "critical"
+            }]
+          };
+
+          function emptyBatch() {
+            return {
+              version: 1,
+              task: contract.task,
+              attacks: []
+            };
+          }
+
+          (async () => {
+            const originalFilter = Array.prototype.filter;
+            await runContractAttacks({
+              contract,
+              input: ["approved"],
+              expectedOutput: { value: "approved" },
+              evaluator: () => true,
+              async generator({ contract, input }) {
+                if (contract.rules.map((rule) => rule.id)[0] !== "value-rule") {
+                  throw new Error("generator array map compatibility failed");
+                }
+                if (input.map((value) => value)[0] !== "approved") {
+                  throw new Error("generator input map compatibility failed");
+                }
+                await Promise.resolve();
+                Array.prototype.filter = () => [];
+                return emptyBatch();
+              }
+            });
+            if (Array.prototype.filter !== originalFilter) {
+              throw new Error("async generator intrinsic restoration failed");
+            }
+
+            const context = vm.createContext({});
+            const expectedOutput = vm.runInContext("[1, 2]", context);
+            const evaluator = vm.runInContext("(output) => output instanceof Array", context);
+            await runContractAttacks({
+              contract,
+              input: { request: "approved" },
+              expectedOutput,
+              evaluator,
+              generator: emptyBatch
+            });
+
+            try {
+              await runContractAttacks({
+                contract,
+                input: { request: "approved" },
+                expectedOutput: { value: "approved" },
+                evaluator: () => true,
+                generator() {
+                  const promise = Promise.reject(new Error("node14 undefined constructor rejection"));
+                  Object.defineProperty(promise, "constructor", {
+                    value: undefined,
+                    writable: false,
+                    configurable: false
+                  });
+                  return promise;
+                }
+              });
+              throw new Error("expected Promise rejection");
+            } catch (error) {
+              if (!/node14 undefined constructor rejection/.test(String(error && error.message))) {
+                throw error;
+              }
+            }
+          })().catch((error) => {
+            console.error(error);
+            process.exitCode = 1;
+          });
+          NODE
+
+      - name: Commit validated Round 7 source
+        if: steps.changes.outputs.changed == 'true'
+        shell: bash
+        run: |
+          git config user.name "AidaMichel"
+          git config user.email "126730924+AidaMichel@users.noreply.github.com"
+          git add src/ai-data.js src/contract-attacks.js docs/M8_AI_ATTACKS_SPEC.md test/m8-codex-round7.test.js
+          git commit -m "fix: consolidate M8 callback and data boundaries"
+          git push origin HEAD:milestone-8-ai-attacks
