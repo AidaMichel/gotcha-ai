@@ -930,6 +930,8 @@ those mutations must not affect Gotcha's validated copies.
 
 Generator-side mutation must not alter later attack execution.
 
+M8 treats the evaluator and injected generator functions themselves as trusted local integration code. The untrusted boundary is the structured data that crosses into and out of those callbacks. Gotcha restores a bounded set of shared JavaScript intrinsic surfaces as defense in depth so temporary callback mutation cannot corrupt M8's own validation or concurrent runs, but M8 is not a general JavaScript sandbox for arbitrary irreversible host-realm sabotage. Runtime-object rejection is capability-driven across the supported Node versions: when a host API exposes a side-effect-free native brand probe or singleton identity, M8 uses it to reject live runtime state before canonicalization.
+
 ---
 
 ## 19. Generator Output Shape

@@ -167,7 +167,7 @@ test(
       Object.getPrototypeOf(
         cloned
       ),
-      Object.prototype
+      null
     );
   }
 );

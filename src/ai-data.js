@@ -55,6 +55,9 @@ const reflectConstruct =
 const defineProperty =
   Object.defineProperty;
 
+const objectCreate =
+  Object.create;
+
 const objectFreeze =
   Object.freeze;
 
@@ -332,11 +335,42 @@ function captureNavigatorLocks() {
 const navigatorLocks =
   captureNavigatorLocks();
 
+function captureCryptoSubtleSingleton() {
+  try {
+    const cryptoObject =
+      globalThis.crypto;
+
+    if (
+      cryptoObject === undefined ||
+      cryptoObject === null ||
+      typeof cryptoObject !== "object"
+    ) {
+      return null;
+    }
+
+    const subtle =
+      cryptoObject.subtle;
+
+    return (
+      subtle !== null &&
+      typeof subtle === "object"
+    )
+      ? subtle
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+const cryptoSubtleSingleton =
+  captureCryptoSubtleSingleton();
+
 const unsupportedHostSingletons =
   objectFreeze(
     [
       workerThreads.locks,
-      navigatorLocks
+      navigatorLocks,
+      cryptoSubtleSingleton
     ].filter(
       (value, index, values) =>
         value !== undefined &&
@@ -543,6 +577,7 @@ const HOST_BRAND_GETTER_SPECS =
     ["TextEncoder", "encoding"],
     ["TextDecoder", "encoding"],
     ["URL", "href"],
+    ["URLPattern", "pathname"],
     ["URLSearchParams", "size"],
     ["Blob", "size"],
     ["File", "name"],
@@ -785,6 +820,31 @@ const asyncLocalStorageGetStore =
     "getStore"
   );
 
+function methodRejectsOrdinaryReceiver(
+  method
+) {
+  if (method === null) {
+    return false;
+  }
+
+  try {
+    reflectApply(
+      method,
+      {},
+      []
+    );
+
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+const asyncLocalStorageGetStoreAuthenticatesReceiver =
+  methodRejectsOrdinaryReceiver(
+    asyncLocalStorageGetStore
+  );
+
 const messagePortHasRef =
   typeof workerThreads.MessagePort ===
     "function"
@@ -1012,7 +1072,10 @@ function hasUnsupportedAdditionalBrand(
           []
         );
 
-      if (store !== undefined) {
+      if (
+        asyncLocalStorageGetStoreAuthenticatesReceiver ||
+        store !== undefined
+      ) {
         return true;
       }
     } catch {}
@@ -1412,6 +1475,20 @@ function prepareAiDataValue(
     );
   }
 
+  const directPrototype =
+    getPrototypeOf(value);
+
+  if (
+    directPrototype !== null &&
+    utilTypePredicates.isProxy(
+      directPrototype
+    )
+  ) {
+    throw new Error(
+      `${label} must not use a Proxy prototype.`
+    );
+  }
+
   if (
     isUnsupportedRuntimeObject(value)
   ) {
@@ -1448,10 +1525,17 @@ function prepareAiDataValue(
           label
         );
 
+  const sourcePrototype =
+    isArray
+      ? null
+      : directPrototype;
+
   const target =
     isArray
       ? new ArrayConstructor(entries.length)
-      : {};
+      : sourcePrototype === null
+        ? objectCreate(null)
+        : {};
 
   memo.set(
     value,

@@ -462,7 +462,11 @@ function safeObjectHasInstance(
     value !== null &&
     typeof value === "object"
   ) {
-    return true;
+    try {
+      return getPrototypeOf(value) !== null;
+    } catch {
+      return false;
+    }
   }
 
   return reflectApply(
@@ -652,6 +656,13 @@ function captureEvaluatorInstanceSemantics(
     }
 
     if (arrayIsArray(current)) {
+      if (
+        prototype !== null &&
+        utilIsProxy(prototype)
+      ) {
+        continue;
+      }
+
       addEvaluatorInstanceSemantic(
         semantics,
         captureNativeRealmConstructor(
@@ -719,6 +730,227 @@ function canInstallEvaluatorInstanceSemantic(
   }
 
   return previousDescriptor.configurable === true;
+}
+
+function captureEvaluatorFallbackPrototypes(
+  value
+) {
+  const fallback = {
+    arrayPrototype: null,
+    objectPrototype: null
+  };
+
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    utilIsProxy(value)
+  ) {
+    return fallback;
+  }
+
+  const seen =
+    new WeakSetConstructor();
+  const stack = [value];
+
+  while (stack.length > 0) {
+    const current =
+      reflectApply(
+        arrayPop,
+        stack,
+        []
+      );
+
+    if (
+      current === null ||
+      typeof current !== "object" ||
+      reflectApply(
+        weakSetHas,
+        seen,
+        [current]
+      ) ||
+      utilIsProxy(current)
+    ) {
+      continue;
+    }
+
+    reflectApply(
+      weakSetAdd,
+      seen,
+      [current]
+    );
+
+    let prototype;
+    let descriptors;
+
+    try {
+      prototype =
+        getPrototypeOf(current);
+      descriptors =
+        getOwnPropertyDescriptors(
+          current
+        );
+    } catch {
+      continue;
+    }
+
+    if (
+      prototype !== null &&
+      utilIsProxy(prototype)
+    ) {
+      continue;
+    }
+
+    if (arrayIsArray(current)) {
+      const arrayConstructor =
+        captureNativeRealmConstructor(
+          prototype,
+          arrayConstructorSource
+        );
+
+      if (
+        arrayConstructor !== null &&
+        arrayConstructor !== ArrayConstructor &&
+        fallback.arrayPrototype === null
+      ) {
+        const previousDescriptor =
+          getOwnPropertyDescriptor(
+            arrayConstructor,
+            arrayHasInstanceSymbol
+          );
+
+        if (
+          !canInstallEvaluatorInstanceSemantic(
+            arrayConstructor,
+            previousDescriptor
+          )
+        ) {
+          fallback.arrayPrototype =
+            prototype;
+        }
+      }
+
+      const parentPrototype =
+        prototype === null
+          ? null
+          : getPrototypeOf(prototype);
+
+      if (
+        parentPrototype !== null &&
+        !utilIsProxy(parentPrototype)
+      ) {
+        const objectConstructor =
+          captureNativeRealmConstructor(
+            parentPrototype,
+            objectConstructorSource
+          );
+
+        if (
+          objectConstructor !== null &&
+          objectConstructor !== ObjectConstructor &&
+          fallback.objectPrototype === null
+        ) {
+          const previousDescriptor =
+            getOwnPropertyDescriptor(
+              objectConstructor,
+              arrayHasInstanceSymbol
+            );
+
+          if (
+            !canInstallEvaluatorInstanceSemantic(
+              objectConstructor,
+              previousDescriptor
+            )
+          ) {
+            fallback.objectPrototype =
+              parentPrototype;
+          }
+        }
+      }
+    } else {
+      const objectConstructor =
+        captureNativeRealmConstructor(
+          prototype,
+          objectConstructorSource
+        );
+
+      if (
+        objectConstructor !== null &&
+        objectConstructor !== ObjectConstructor &&
+        fallback.objectPrototype === null
+      ) {
+        const previousDescriptor =
+          getOwnPropertyDescriptor(
+            objectConstructor,
+            arrayHasInstanceSymbol
+          );
+
+        if (
+          !canInstallEvaluatorInstanceSemantic(
+            objectConstructor,
+            previousDescriptor
+          )
+        ) {
+          fallback.objectPrototype =
+            prototype;
+        }
+      }
+    }
+
+    const keys = ownKeys(descriptors);
+    for (
+      let index = 0;
+      index < keys.length;
+      index += 1
+    ) {
+      const descriptor =
+        descriptors[keys[index]];
+
+      if (
+        descriptor !== undefined &&
+        "value" in descriptor &&
+        descriptor.value !== null &&
+        typeof descriptor.value === "object"
+      ) {
+        reflectApply(
+          arrayPush,
+          stack,
+          [descriptor.value]
+        );
+      }
+    }
+  }
+
+  return fallback;
+}
+
+function buildEvaluatorPrototypePlan(
+  fallback
+) {
+  const objectPrototypeForEvaluator =
+    fallback.objectPrototype === null
+      ? safeCallbackObjectPrototype
+      : fallback.objectPrototype;
+
+  let arrayPrototypeForEvaluator =
+    safeCallbackArrayPrototype;
+
+  if (fallback.arrayPrototype !== null) {
+    arrayPrototypeForEvaluator =
+      fallback.arrayPrototype;
+  } else if (fallback.objectPrototype !== null) {
+    arrayPrototypeForEvaluator =
+      buildSafeCallbackPrototype(
+        arrayPrototype,
+        fallback.objectPrototype
+      );
+  }
+
+  return {
+    objectPrototype:
+      objectPrototypeForEvaluator,
+    arrayPrototype:
+      arrayPrototypeForEvaluator
+  };
 }
 
 function withSafeEvaluatorInstanceSemantics(
@@ -913,6 +1145,16 @@ function requireOwnDataProperty(
   }
 }
 
+const PROPERTY_DESCRIPTOR_KEYS =
+  objectFreeze([
+    "value",
+    "get",
+    "set",
+    "writable",
+    "enumerable",
+    "configurable"
+  ]);
+
 function samePropertyDescriptor(
   left,
   right
@@ -925,15 +1167,13 @@ function samePropertyDescriptor(
   }
 
   for (
-    const key of [
-      "value",
-      "get",
-      "set",
-      "writable",
-      "enumerable",
-      "configurable"
-    ]
+    let index = 0;
+    index < PROPERTY_DESCRIPTOR_KEYS.length;
+    index += 1
   ) {
+    const key =
+      PROPERTY_DESCRIPTOR_KEYS[index];
+
     if (left[key] !== right[key]) {
       return false;
     }
@@ -1835,7 +2075,8 @@ function observeNativePromise(
 }
 
 function createEvaluatorSnapshot(
-  value
+  value,
+  prototypePlan
 ) {
   const cloned =
     cloneAiData(
@@ -1893,11 +2134,16 @@ function createEvaluatorSnapshot(
       }
     }
 
+    const currentPrototype =
+      getPrototypeOf(current);
+
     setPrototypeOf(
       current,
       arrayIsArray(current)
-        ? safeCallbackArrayPrototype
-        : safeCallbackObjectPrototype
+        ? prototypePlan.arrayPrototype
+        : currentPrototype === null
+          ? null
+          : prototypePlan.objectPrototype
     );
 
     objectFreeze(current);
@@ -1908,14 +2154,16 @@ function createEvaluatorSnapshot(
 
 function createSafeEvaluator(
   evaluator,
-  instanceSemantics
+  instanceSemantics,
+  prototypePlan
 ) {
   return function safeEvaluator(
     output
   ) {
     const evaluatorOutput =
       createEvaluatorSnapshot(
-        output
+        output,
+        prototypePlan
       );
 
     const result =
@@ -2707,6 +2955,10 @@ function buildEmptyAttackResult() {
 async function runContractAttacks(
   options = {}
 ) {
+  const runScope =
+    enterCallbackIntrinsicScope();
+
+  try {
   const optionDescriptors =
     captureOptions(options);
 
@@ -2780,10 +3032,21 @@ async function runContractAttacks(
       expectedOutputInput
     );
 
+  const evaluatorFallbackPrototypes =
+    captureEvaluatorFallbackPrototypes(
+      expectedOutputInput
+    );
+
+  const evaluatorPrototypePlan =
+    buildEvaluatorPrototypePlan(
+      evaluatorFallbackPrototypes
+    );
+
   const safeEvaluator =
     createSafeEvaluator(
       evaluator,
-      evaluatorInstanceSemantics
+      evaluatorInstanceSemantics,
+      evaluatorPrototypePlan
     );
 
   const contract =
@@ -2902,6 +3165,11 @@ async function runContractAttacks(
       attackResult,
     topFinding
   };
+  } finally {
+    closeCallbackIntrinsicScope(
+      runScope
+    );
+  }
 }
 
 module.exports = {
