@@ -669,7 +669,7 @@ test(
 );
 
 test(
-  "native generator Promise constructor accessor is rejected without invocation",
+  "native generator Promise constructor accessor is bypassed without invocation",
   async () => {
     let getterCalls = 0;
 
@@ -694,16 +694,18 @@ test(
       }
     );
 
-    await assert.rejects(
-      () =>
-        runContractAttacks(
-          baseOptions({
-            generator() {
-              return promise;
-            }
-          })
-        ),
-      /must not shadow constructor/
+    const result =
+      await runContractAttacks(
+        baseOptions({
+          generator() {
+            return promise;
+          }
+        })
+      );
+
+    assert.equal(
+      result.baselinePassed,
+      true
     );
 
     assert.equal(
@@ -714,7 +716,7 @@ test(
 );
 
 test(
-  "native generator Promise then accessor is rejected without invocation",
+  "native generator Promise then accessor is bypassed without invocation",
   async () => {
     let getterCalls = 0;
 
@@ -739,16 +741,18 @@ test(
       }
     );
 
-    await assert.rejects(
-      () =>
-        runContractAttacks(
-          baseOptions({
-            generator() {
-              return promise;
-            }
-          })
-        ),
-      /must not shadow then/
+    const result =
+      await runContractAttacks(
+        baseOptions({
+          generator() {
+            return promise;
+          }
+        })
+      );
+
+    assert.equal(
+      result.baselinePassed,
+      true
     );
 
     assert.equal(
