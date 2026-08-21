@@ -24,31 +24,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          node - <<'NODE'
-          for (const [name, Constructor] of [["Headers", globalThis.Headers], ["FormData", globalThis.FormData]]) {
-            if (typeof Constructor !== "function") continue;
-            const value = new Constructor();
-            value.foo = "bar";
-            Object.setPrototypeOf(value, Object.prototype);
-            const get = Constructor.prototype.get;
-            try {
-              Reflect.apply(get, value, ["__gotcha_brand_probe__"]);
-              console.log(`${name}.get brand probe: SUCCESS`);
-            } catch (error) {
-              console.log(`${name}.get brand probe: FAIL ${error && error.message}`);
-            }
-            if (typeof structuredClone === "function") {
-              try {
-                structuredClone(value);
-                console.log(`${name} structuredClone: SUCCESS`);
-              } catch (error) {
-                console.log(`${name} structuredClone: FAIL ${error && error.message}`);
-              }
-            }
-          }
-          NODE
-
-          python3 .github/scripts/m8-final-patch.py
+          python3 .github/scripts/m8-final-patch2.py
 
           node --check src/ai-data.js
           node --check src/contract-attacks.js
