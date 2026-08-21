@@ -1,0 +1,38 @@
+name: M8 temporary patch trigger
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: milestone-8-ai-attacks
+          fetch-depth: 0
+
+      - name: Execute stored patch step
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from textwrap import dedent
+
+          text = Path('.github/workflows/m8-temp-patch.yml').read_text()
+          marker = '      - name: Apply final adversarial remediation\n        run: |\n'
+          if marker not in text:
+              raise SystemExit('stored patch marker missing')
+
+          script = dedent(text.split(marker, 1)[1])
+          Path('/tmp/m8-final-patch.sh').write_text(script)
+          PY
+
+          bash /tmp/m8-final-patch.sh
