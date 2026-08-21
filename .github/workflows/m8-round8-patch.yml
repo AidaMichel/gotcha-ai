@@ -2,7 +2,7 @@ name: M8 Round 8 Patch Validation
 
 on:
   pull_request:
-    types: [reopened]
+    types: [closed]
 
 permissions:
   contents: write
@@ -13,53 +13,36 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout M8 branch
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: milestone-8-ai-attacks
           fetch-depth: 0
 
-      - name: Setup Node 22.23.0
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22.23.0
 
-      - name: Apply Round 8 patch
-        run: python3 .github/scripts/m8_round8_patch.py
-
-      - name: Keep Array/Object constructors under nesting-safe evaluator bridge
+      - name: Apply Round 8 candidate
         run: |
-          python3 <<'PY'
-          from pathlib import Path
-          path = Path("src/contract-attacks.js")
-          text = path.read_text()
-          old = '''    captureIntrinsicSurface(
-              ObjectConstructor
-            ),
-            captureIntrinsicSurface(
-              ArrayConstructor
-            ),
-'''
-          if old not in text:
-              old = '''    captureIntrinsicSurface(
-      ObjectConstructor
-    ),
-    captureIntrinsicSurface(
-      ArrayConstructor
-    ),
-'''
-          if old not in text:
-              raise SystemExit("Could not find Array/Object constructor surface entries")
-          path.write_text(text.replace(old, "", 1))
-          PY
-
-      - name: Fix generated foreign Promise regression quoting
-        run: |
+          python3 .github/scripts/m8_round8_patch.py
           python3 <<'PY'
           import re
           from pathlib import Path
-          path = Path("test/m8-codex-round8.test.js")
-          text = path.read_text()
+
+          source = Path('src/contract-attacks.js')
+          text = source.read_text()
+          text, count = re.subn(
+              r'    captureIntrinsicSurface\(\n      ObjectConstructor\n    \),\n    captureIntrinsicSurface\(\n      ArrayConstructor\n    \),\n',
+              '',
+              text,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit(f'Expected one Array/Object constructor surface pair, removed {count}')
+          source.write_text(text)
+
+          test_path = Path('test/m8-codex-round8.test.js')
+          text = test_path.read_text()
           replacement = '''    const makePromise = vm.runInContext(
               '() => { const promise = Promise.reject(new Error("foreign constructor rejection")); Object.defineProperty(promise, "constructor", { value: Promise, writable: false, enumerable: false, configurable: false }); return promise; }',
               context
@@ -72,18 +55,15 @@ jobs:
               flags=re.S,
           )
           if count != 1:
-              raise SystemExit(f"Expected one foreign Promise regression block, replaced {count}")
-          path.write_text(text)
+              raise SystemExit(f'Expected one foreign Promise regression block, replaced {count}')
+          test_path.write_text(text)
           PY
 
-      - name: Syntax checks
+      - name: Static gates
         run: |
           node --check src/ai-data.js
           node --check src/contract-attacks.js
           node --check test/m8-codex-round8.test.js
-
-      - name: Diff checks
-        run: |
           git diff --check
           test -z "$(git diff origin/main...HEAD -- src/engine.js)"
           test -z "$(git diff -- src/engine.js)"
@@ -107,8 +87,7 @@ jobs:
       - name: Full repository suite
         run: npm test
 
-      - name: Setup Node 14.18.0
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 14.18.0
 
@@ -118,37 +97,35 @@ jobs:
           node --check src/contract-attacks.js
           node <<'NODE'
           "use strict";
-          const vm = require("vm");
-          const workerThreads = require("worker_threads");
-          const { runContractAttacks } = require("./src");
-          const { cloneAiData } = require("./src/ai-data");
+          const vm = require('vm');
+          const workerThreads = require('worker_threads');
+          const { runContractAttacks } = require('./src');
+          const { cloneAiData } = require('./src/ai-data');
 
           const contract = {
             version: 1,
-            status: "confirmed",
-            task: "Return the approved value.",
+            status: 'confirmed',
+            task: 'Return the approved value.',
             rules: [{
-              id: "value-rule",
-              statement: "Return the approved value.",
-              kind: "required",
-              severity: "critical"
+              id: 'value-rule',
+              statement: 'Return the approved value.',
+              kind: 'required',
+              severity: 'critical'
             }]
           };
-
           const attackOutput = (id) => ({
             version: 1,
-            task: "Return the approved value.",
+            task: 'Return the approved value.',
             attacks: [{
               id,
-              ruleId: "value-rule",
-              type: "wrong-value",
-              description: "Changes the approved value.",
-              rationale: "Proposed violation.",
+              ruleId: 'value-rule',
+              type: 'wrong-value',
+              description: 'Changes the approved value.',
+              rationale: 'Proposed violation.',
               mutatedOutput: { value: id },
               scores: { realism: 1, subtlety: 1, novelty: 1, fixability: 1 }
             }]
           });
-
           const deferred = () => {
             let resolve;
             const promise = new Promise((done) => { resolve = done; });
@@ -164,39 +141,35 @@ jobs:
 
             const runA = runContractAttacks({
               contract,
-              input: { request: "approved" },
-              expectedOutput: { value: "approved" },
+              input: { request: 'approved' },
+              expectedOutput: { value: 'approved' },
               evaluator: () => true,
               async generator() {
                 Array.prototype.filter = () => [];
                 aStarted.resolve();
                 await releaseA.promise;
-                return attackOutput("a");
+                return attackOutput('a');
               }
             });
-
             await aStarted.promise;
-
             const runB = runContractAttacks({
               contract,
-              input: { request: "approved" },
-              expectedOutput: { value: "approved" },
+              input: { request: 'approved' },
+              expectedOutput: { value: 'approved' },
               evaluator: () => true,
               async generator() {
                 bStarted.resolve();
                 await releaseB.promise;
-                return attackOutput("b");
+                return attackOutput('b');
               }
             });
-
             await bStarted.promise;
             releaseA.resolve();
             const resultA = await runA;
             releaseB.resolve();
             const resultB = await runB;
-
             if (Array.prototype.filter !== originalFilter || !resultA.topFinding || !resultB.topFinding) {
-              throw new Error("overlap restoration smoke failed");
+              throw new Error('overlap restoration failed');
             }
 
             const context = vm.createContext({});
@@ -204,52 +177,41 @@ jobs:
               '() => { const p = Promise.reject(new Error("foreign")); Object.defineProperty(p, "constructor", { value: Promise, writable: false, configurable: false }); return p; }',
               context
             );
-
             try {
               await runContractAttacks({
                 contract,
-                input: { request: "approved" },
-                expectedOutput: { value: "approved" },
+                input: { request: 'approved' },
+                expectedOutput: { value: 'approved' },
                 evaluator: () => true,
                 generator: () => makePromise()
               });
-              throw new Error("expected foreign rejection");
+              throw new Error('expected foreign rejection');
             } catch (error) {
-              if (!/foreign/.test(String(error && error.message))) {
-                throw error;
-              }
+              if (!/foreign/.test(String(error && error.message))) throw error;
             }
 
-            const frozenContext = vm.createContext({});
-            const expected = vm.runInContext(
-              'Object.freeze(Array); Object.freeze(Object); [1, 2]',
-              frozenContext
-            );
-            const evaluator = vm.runInContext(
-              '(output) => Array.isArray(output)',
-              frozenContext
-            );
+            const frozen = vm.createContext({});
+            const expected = vm.runInContext('Object.freeze(Array); Object.freeze(Object); [1, 2]', frozen);
+            const evaluator = vm.runInContext('(output) => Array.isArray(output)', frozen);
             const frozenResult = await runContractAttacks({
               contract,
-              input: { request: "approved" },
+              input: { request: 'approved' },
               expectedOutput: expected,
               evaluator,
-              generator: () => ({ version: 1, task: "Return the approved value.", attacks: [] })
+              generator: () => ({ version: 1, task: 'Return the approved value.', attacks: [] })
             });
-            if (!frozenResult.baselinePassed) {
-              throw new Error("frozen cross-realm evaluator smoke failed");
-            }
+            if (!frozenResult.baselinePassed) throw new Error('frozen realm failed');
 
             if (
-              typeof workerThreads.MessageChannel === "function" &&
-              typeof workerThreads.MessagePort === "function" &&
-              typeof workerThreads.MessagePort.prototype.hasRef === "function"
+              typeof workerThreads.MessageChannel === 'function' &&
+              typeof workerThreads.MessagePort === 'function' &&
+              typeof workerThreads.MessagePort.prototype.hasRef === 'function'
             ) {
               const { port1, port2 } = new workerThreads.MessageChannel();
               const close = workerThreads.MessagePort.prototype.close;
               try {
                 for (const key of Reflect.ownKeys(port1)) {
-                  if (typeof key === "symbol") {
+                  if (typeof key === 'symbol') {
                     const descriptor = Object.getOwnPropertyDescriptor(port1, key);
                     if (descriptor && descriptor.configurable) Reflect.deleteProperty(port1, key);
                   }
@@ -257,19 +219,16 @@ jobs:
                 port1.foo = { bar: 1 };
                 Object.setPrototypeOf(port1, Object.prototype);
                 let rejected = false;
-                try {
-                  cloneAiData(port1, "port");
-                } catch (error) {
-                  rejected = /unsupported runtime object/.test(String(error && error.message));
-                }
-                if (!rejected) throw new Error("MessagePort boundary smoke failed");
+                try { cloneAiData(port1, 'port'); }
+                catch (error) { rejected = /unsupported runtime object/.test(String(error && error.message)); }
+                if (!rejected) throw new Error('MessagePort failed');
               } finally {
                 Reflect.apply(close, port1, []);
                 Reflect.apply(close, port2, []);
               }
             }
 
-            console.log("Node 14.18.0 M8 round 8 smoke PASS");
+            console.log('Node 14.18.0 M8 round 8 smoke PASS');
           })().catch((error) => {
             console.error(error);
             process.exitCode = 1;
