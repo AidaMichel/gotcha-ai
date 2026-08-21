@@ -20,19 +20,28 @@ jobs:
           ref: milestone-8-ai-attacks
           fetch-depth: 0
 
-      - name: Execute stored patch step
+      - name: Apply and verify final remediation
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          from textwrap import dedent
+          set -euo pipefail
 
-          text = Path('.github/workflows/m8-temp-patch.yml').read_text()
-          marker = '      - name: Apply final adversarial remediation\n        run: |\n'
-          if marker not in text:
-              raise SystemExit('stored patch marker missing')
+          python3 .github/scripts/m8-final-patch.py
 
-          script = dedent(text.split(marker, 1)[1])
-          Path('/tmp/m8-final-patch.sh').write_text(script)
-          PY
+          node --check src/ai-data.js
+          node --check src/contract-attacks.js
+          node --check test/m8-codex-round3.test.js
 
-          bash /tmp/m8-final-patch.sh
+          node --test test/m8-codex-round3.test.js
+
+          git config user.name "AidaMichel"
+          git config user.email "126730924+AidaMichel@users.noreply.github.com"
+
+          git add -- \
+            src/ai-data.js \
+            src/contract-attacks.js \
+            test/m8-codex-round3.test.js
+
+          if ! git diff --cached --quiet; then
+            git diff --cached --check
+            git commit -m "fix: close final M8 adversarial gaps"
+            git push origin HEAD:milestone-8-ai-attacks
+          fi
