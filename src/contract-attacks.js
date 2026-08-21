@@ -35,20 +35,16 @@ const promisePrototype =
 const promiseConstructor =
   Promise;
 
+const promiseThen =
+  Promise.prototype.then;
+
 const hasOwnProperty =
   Object.prototype.hasOwnProperty;
 
-const MAX_RULES =
-  7;
-
-const MAX_ATTACKS =
-  20;
-
-const CONTRACT_VERSION =
-  1;
-
-const GENERATOR_VERSION =
-  1;
+const MAX_RULES = 7;
+const MAX_ATTACKS = 20;
+const CONTRACT_VERSION = 1;
+const GENERATOR_VERSION = 1;
 
 const RULE_KINDS =
   new Set([
@@ -103,8 +99,7 @@ function requireNonEmptyString(
   label
 ) {
   if (
-    typeof value !==
-      "string" ||
+    typeof value !== "string" ||
     value.trim() === ""
   ) {
     throw new Error(
@@ -118,8 +113,7 @@ function requireScore(
   label
 ) {
   if (
-    typeof value !==
-      "number" ||
+    typeof value !== "number" ||
     !Number.isFinite(value) ||
     value < 0 ||
     value > 1
@@ -137,9 +131,7 @@ function hasOwn(
   return reflectApply(
     hasOwnProperty,
     value,
-    [
-      key
-    ]
+    [key]
   );
 }
 
@@ -151,8 +143,7 @@ function captureOptions(
 
   if (
     value === null ||
-    typeof value !==
-      "object" ||
+    typeof value !== "object" ||
     Array.isArray(value)
   ) {
     throw new Error(
@@ -160,9 +151,7 @@ function captureOptions(
     );
   }
 
-  if (
-    utilTypes.isProxy(value)
-  ) {
+  if (utilTypes.isProxy(value)) {
     throw new Error(
       `${label} must not be a Proxy.`
     );
@@ -172,8 +161,7 @@ function captureOptions(
     getPrototypeOf(value);
 
   if (
-    prototype !==
-      Object.prototype &&
+    prototype !== Object.prototype &&
     prototype !== null
   ) {
     throw new Error(
@@ -182,18 +170,10 @@ function captureOptions(
   }
 
   const descriptors =
-    getOwnPropertyDescriptors(
-      value
-    );
+    getOwnPropertyDescriptors(value);
 
-  for (
-    const key of
-      ownKeys(descriptors)
-  ) {
-    if (
-      typeof key ===
-        "symbol"
-    ) {
+  for (const key of ownKeys(descriptors)) {
+    if (typeof key === "symbol") {
       throw new Error(
         `${label} must not contain symbol-keyed properties.`
       );
@@ -211,9 +191,7 @@ function captureOptions(
       );
     }
 
-    if (
-      !descriptor.enumerable
-    ) {
+    if (!descriptor.enumerable) {
       throw new Error(
         `${label} must not contain non-enumerable own properties.`
       );
@@ -243,8 +221,7 @@ function requirePlainSnapshotObject(
 ) {
   if (
     value === null ||
-    typeof value !==
-      "object" ||
+    typeof value !== "object" ||
     Array.isArray(value)
   ) {
     throw new Error(
@@ -266,26 +243,17 @@ function normalizeRule(
     label
   );
 
-  const id =
-    rule.id;
-
-  const statement =
-    rule.statement;
-
-  const kind =
-    rule.kind;
-
-  const severity =
-    rule.severity;
+  const id = rule.id;
+  const statement = rule.statement;
+  const kind = rule.kind;
+  const severity = rule.severity;
 
   requireNonEmptyString(
     id,
     `${label} id`
   );
 
-  if (
-    ids.has(id)
-  ) {
+  if (ids.has(id)) {
     throw new Error(
       `Duplicate Quality Contract rule id: ${id}`
     );
@@ -299,8 +267,7 @@ function normalizeRule(
   );
 
   if (
-    typeof kind !==
-      "string" ||
+    typeof kind !== "string" ||
     !RULE_KINDS.has(kind)
   ) {
     throw new Error(
@@ -309,11 +276,8 @@ function normalizeRule(
   }
 
   if (
-    typeof severity !==
-      "string" ||
-    !SEVERITIES.has(
-      severity
-    )
+    typeof severity !== "string" ||
+    !SEVERITIES.has(severity)
   ) {
     throw new Error(
       `${label} severity must be one of: critical, major, minor.`
@@ -351,10 +315,7 @@ function validateConfirmedContract(
     );
   }
 
-  if (
-    snapshot.status !==
-      "confirmed"
-  ) {
+  if (snapshot.status !== "confirmed") {
     if (
       snapshot.status ===
         "no-active-rules"
@@ -374,20 +335,13 @@ function validateConfirmedContract(
     "Quality Contract task"
   );
 
-  if (
-    !Array.isArray(
-      snapshot.rules
-    )
-  ) {
+  if (!Array.isArray(snapshot.rules)) {
     throw new Error(
       "Quality Contract rules must be an array."
     );
   }
 
-  if (
-    snapshot.rules.length ===
-      0
-  ) {
+  if (snapshot.rules.length === 0) {
     throw new Error(
       "A confirmed Quality Contract must contain at least one active rule."
     );
@@ -402,15 +356,11 @@ function validateConfirmedContract(
     );
   }
 
-  const ids =
-    new Set();
+  const ids = new Set();
 
   const rules =
     snapshot.rules.map(
-      (
-        rule,
-        index
-      ) =>
+      (rule, index) =>
         normalizeRule(
           rule,
           index,
@@ -421,17 +371,12 @@ function validateConfirmedContract(
   return objectFreeze({
     version:
       CONTRACT_VERSION,
-
     status:
       "confirmed",
-
     task:
       snapshot.task,
-
     rules:
-      objectFreeze(
-        rules
-      )
+      objectFreeze(rules)
   });
 }
 
@@ -439,22 +384,56 @@ function requireTrustedCallbacks(
   evaluator,
   generator
 ) {
-  if (
-    typeof evaluator !==
-      "function"
-  ) {
+  if (typeof evaluator !== "function") {
     throw new Error(
       "Evaluator must be a function."
     );
   }
 
-  if (
-    typeof generator !==
-      "function"
-  ) {
+  if (typeof generator !== "function") {
     throw new Error(
       "Generator must be a function."
     );
+  }
+}
+
+function ignoreRejectedEvaluatorPromise() {
+  return undefined;
+}
+
+function observeRejectedEvaluatorPromise(
+  value
+) {
+  if (
+    getPrototypeOf(value) !==
+      promisePrototype
+  ) {
+    return;
+  }
+
+  const descriptors =
+    getOwnPropertyDescriptors(value);
+
+  if (
+    hasOwn(descriptors, "constructor") ||
+    hasOwn(descriptors, "then")
+  ) {
+    return;
+  }
+
+  try {
+    reflectApply(
+      promiseThen,
+      value,
+      [
+        undefined,
+        ignoreRejectedEvaluatorPromise
+      ]
+    );
+  } catch {
+    // The evaluator is rejected as async below regardless.
+    // Do not execute user-controlled Promise hooks merely
+    // to suppress an unsupported exotic Promise rejection.
   }
 }
 
@@ -468,25 +447,20 @@ function createSafeEvaluator(
       reflectApply(
         evaluator,
         undefined,
-        [
-          output
-        ]
+        [output]
       );
 
-    if (
-      utilTypes.isPromise(
+    if (utilTypes.isPromise(result)) {
+      observeRejectedEvaluatorPromise(
         result
-      )
-    ) {
+      );
+
       throw new Error(
         "Async checks are not supported by this deterministic engine."
       );
     }
 
-    if (
-      typeof result !==
-        "boolean"
-    ) {
+    if (typeof result !== "boolean") {
       throw new Error(
         "Evaluator must return a boolean."
       );
@@ -509,38 +483,23 @@ function runPositiveControl(
   const baselineMutation = {
     id:
       "__gotcha_contract_attack_baseline__",
-
     type:
       "positive-control",
-
     description:
       "Known-good expected output.",
-
     output:
       baselineOutput,
-
-    severity:
-      0,
-
-    realism:
-      0,
-
-    subtlety:
-      0,
-
-    novelty:
-      0,
-
-    fixability:
-      0
+    severity: 0,
+    realism: 0,
+    subtlety: 0,
+    novelty: 0,
+    fixability: 0
   };
 
   const baseline =
     attack(
       evaluator,
-      [
-        baselineMutation
-      ]
+      [baselineMutation]
     );
 
   const result =
@@ -569,19 +528,16 @@ function buildGeneratorArguments(
         contract,
         "Generator contract"
       ),
-
     input:
       cloneAiData(
         input,
         "Generator input"
       ),
-
     expectedOutput:
       cloneAiData(
         expectedOutput,
         "Generator expected output"
       ),
-
     instructions:
       GENERATOR_INSTRUCTIONS
   };
@@ -600,27 +556,15 @@ function requireSafeNativeGeneratorPromise(
   }
 
   const descriptors =
-    getOwnPropertyDescriptors(
-      value
-    );
+    getOwnPropertyDescriptors(value);
 
-  if (
-    hasOwn(
-      descriptors,
-      "constructor"
-    )
-  ) {
+  if (hasOwn(descriptors, "constructor")) {
     throw new Error(
       "Generator native Promise must not shadow constructor."
     );
   }
 
-  if (
-    hasOwn(
-      descriptors,
-      "then"
-    )
-  ) {
+  if (hasOwn(descriptors, "then")) {
     throw new Error(
       "Generator native Promise must not shadow then."
     );
@@ -646,10 +590,8 @@ function requireSafeNativeGeneratorPromise(
     prototypeDescriptors.constructor;
 
   if (
-    "get" in
-      inheritedConstructor ||
-    "set" in
-      inheritedConstructor ||
+    "get" in inheritedConstructor ||
+    "set" in inheritedConstructor ||
     inheritedConstructor.value !==
       promiseConstructor
   ) {
@@ -667,19 +609,13 @@ function invokeGenerator(
     reflectApply(
       generator,
       undefined,
-      [
-        argumentsObject
-      ]
+      [argumentsObject]
     );
 
   const isNativePromise =
-    utilTypes.isPromise(
-      returned
-    );
+    utilTypes.isPromise(returned);
 
-  if (
-    isNativePromise
-  ) {
+  if (isNativePromise) {
     requireSafeNativeGeneratorPromise(
       returned
     );
@@ -705,21 +641,13 @@ function normalizeGeneratorAttack(
     label
   );
 
-  const id =
-    attackCandidate.id;
-
-  const ruleId =
-    attackCandidate.ruleId;
-
-  const type =
-    attackCandidate.type;
-
+  const id = attackCandidate.id;
+  const ruleId = attackCandidate.ruleId;
+  const type = attackCandidate.type;
   const description =
     attackCandidate.description;
-
   const rationale =
     attackCandidate.rationale;
-
   const scores =
     attackCandidate.scores;
 
@@ -728,9 +656,7 @@ function normalizeGeneratorAttack(
     `${label} id`
   );
 
-  if (
-    attackIds.has(id)
-  ) {
+  if (attackIds.has(id)) {
     throw new Error(
       `Duplicate generated attack id: ${id}`
     );
@@ -744,13 +670,9 @@ function normalizeGeneratorAttack(
   );
 
   const rule =
-    ruleById.get(
-      ruleId
-    );
+    ruleById.get(ruleId);
 
-  if (
-    rule === undefined
-  ) {
+  if (rule === undefined) {
     throw new Error(
       `${label} references unknown Quality Contract rule id: ${ruleId}`
     );
@@ -787,52 +709,36 @@ function normalizeGeneratorAttack(
     `${label} scores`
   );
 
-  const normalizedScores =
-    {};
+  const normalizedScores = {};
 
-  for (
-    const scoreKey of
-      SCORE_KEYS
-  ) {
+  for (const scoreKey of SCORE_KEYS) {
     const score =
-      scores[
-        scoreKey
-      ];
+      scores[scoreKey];
 
     requireScore(
       score,
       `${label} ${scoreKey}`
     );
 
-    normalizedScores[
-      scoreKey
-    ] = score;
+    normalizedScores[scoreKey] =
+      score;
   }
 
   const mutatedOutput =
     snapshotAiData(
-      attackCandidate
-        .mutatedOutput,
+      attackCandidate.mutatedOutput,
       `${label} mutatedOutput`
     );
 
   return {
     index,
-
     id,
-
     ruleId,
-
     rule,
-
     type,
-
     description,
-
     rationale,
-
     mutatedOutput,
-
     scores:
       objectFreeze(
         normalizedScores
@@ -869,20 +775,13 @@ function validateGeneratorOutput(
     "Generator output task"
   );
 
-  if (
-    snapshot.task !==
-      contract.task
-  ) {
+  if (snapshot.task !== contract.task) {
     throw new Error(
       "Generator output task must exactly match the confirmed Quality Contract task."
     );
   }
 
-  if (
-    !Array.isArray(
-      snapshot.attacks
-    )
-  ) {
+  if (!Array.isArray(snapshot.attacks)) {
     throw new Error(
       "Generator output attacks must be an array."
     );
@@ -912,10 +811,7 @@ function validateGeneratorOutput(
 
   const attacks =
     snapshot.attacks.map(
-      (
-        attackCandidate,
-        index
-      ) =>
+      (attackCandidate, index) =>
         normalizeGeneratorAttack(
           attackCandidate,
           index,
@@ -927,14 +823,10 @@ function validateGeneratorOutput(
   return objectFreeze({
     version:
       GENERATOR_VERSION,
-
     task:
       snapshot.task,
-
     attacks:
-      objectFreeze(
-        attacks
-      )
+      objectFreeze(attacks)
   });
 }
 
@@ -953,13 +845,10 @@ function compileGeneratedAttack(
     objectFreeze({
       id:
         rule.id,
-
       statement:
         rule.statement,
-
       kind:
         rule.kind,
-
       severity:
         rule.severity
     });
@@ -967,46 +856,30 @@ function compileGeneratedAttack(
   return {
     id:
       candidate.id,
-
     ruleId:
       candidate.ruleId,
-
     rule:
       trustedRule,
-
     type:
       candidate.type,
-
     description:
       candidate.description,
-
     rationale:
       candidate.rationale,
-
     output:
       snapshotAiData(
-        candidate
-          .mutatedOutput,
+        candidate.mutatedOutput,
         `Generated attack ${candidate.id} output`
       ),
-
     severity,
-
     realism:
-      candidate.scores
-        .realism,
-
+      candidate.scores.realism,
     subtlety:
-      candidate.scores
-        .subtlety,
-
+      candidate.scores.subtlety,
     novelty:
-      candidate.scores
-        .novelty,
-
+      candidate.scores.novelty,
     fixability:
-      candidate.scores
-        .fixability
+      candidate.scores.fixability
   };
 }
 
@@ -1030,13 +903,9 @@ function filterGeneratedAttacks(
   expectedOutput
 ) {
   const retained = [];
-
   const discarded = [];
 
-  for (
-    const candidate of
-      validatedAttacks
-  ) {
+  for (const candidate of validatedAttacks) {
     if (
       isDeepStrictEqual(
         candidate.mutatedOutput,
@@ -1047,10 +916,8 @@ function filterGeneratedAttacks(
         objectFreeze({
           id:
             candidate.id,
-
           ruleId:
             candidate.ruleId,
-
           reason:
             "unchanged-output"
         })
@@ -1065,21 +932,15 @@ function filterGeneratedAttacks(
         candidate
       );
 
-    if (
-      duplicate !==
-        undefined
-    ) {
+    if (duplicate !== undefined) {
       discarded.push(
         objectFreeze({
           id:
             candidate.id,
-
           ruleId:
             candidate.ruleId,
-
           reason:
             "duplicate-attack",
-
           duplicateOf:
             duplicate.id
         })
@@ -1088,21 +949,14 @@ function filterGeneratedAttacks(
       continue;
     }
 
-    retained.push(
-      candidate
-    );
+    retained.push(candidate);
   }
 
   return {
     retained:
-      objectFreeze(
-        retained
-      ),
-
+      objectFreeze(retained),
     discarded:
-      objectFreeze(
-        discarded
-      )
+      objectFreeze(discarded)
   };
 }
 
@@ -1111,9 +965,7 @@ function compileAllGeneratedAttacks(
 ) {
   return retained.map(
     (candidate) =>
-      compileGeneratedAttack(
-        candidate
-      )
+      compileGeneratedAttack(candidate)
   );
 }
 
@@ -1129,9 +981,7 @@ async function runContractAttacks(
   options = {}
 ) {
   const optionDescriptors =
-    captureOptions(
-      options
-    );
+    captureOptions(options);
 
   const contractInput =
     readCapturedValue(
@@ -1169,16 +1019,9 @@ async function runContractAttacks(
   );
 
   const safeEvaluator =
-    createSafeEvaluator(
-      evaluator
-    );
+    createSafeEvaluator(evaluator);
 
-  if (
-    !hasOwn(
-      optionDescriptors,
-      "input"
-    )
-  ) {
+  if (!hasOwn(optionDescriptors, "input")) {
     throw new Error(
       "Contract attack options must include input."
     );
@@ -1242,12 +1085,9 @@ async function runContractAttacks(
     );
 
   const rawGeneratorOutput =
-    generatorInvocation
-      .isNativePromise
-      ? await generatorInvocation
-          .returned
-      : generatorInvocation
-          .returned;
+    generatorInvocation.isNativePromise
+      ? await generatorInvocation.returned
+      : generatorInvocation.returned;
 
   const generated =
     validateGeneratorOutput(
@@ -1267,8 +1107,7 @@ async function runContractAttacks(
     );
 
   const attackResult =
-    generatedAttacks.length ===
-      0
+    generatedAttacks.length === 0
       ? buildEmptyAttackResult()
       : attack(
           safeEvaluator,
@@ -1276,27 +1115,20 @@ async function runContractAttacks(
         );
 
   const topFinding =
-    attackResult
-      .survivors[0] ||
+    attackResult.survivors[0] ||
     null;
 
   return {
     version: 1,
-
     task:
       contract.task,
-
     baselinePassed:
       true,
-
     generatedAttacks,
-
     discardedAttacks:
       filtered.discarded,
-
     attack:
       attackResult,
-
     topFinding
   };
 }
