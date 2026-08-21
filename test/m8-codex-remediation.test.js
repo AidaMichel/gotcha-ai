@@ -382,6 +382,7 @@ test(
     let getterCalls = 0;
     let evaluatorCalls = 0;
     let generatorCalls = 0;
+    let returned;
 
     Object.defineProperty(
       Promise,
@@ -391,13 +392,15 @@ test(
 
         get() {
           getterCalls += 1;
-          return Promise;
+          throw new Error(
+            "species getter executed"
+          );
         }
       }
     );
 
     try {
-      await assert.rejects(
+      returned =
         runContractAttacks(
           makeOptions({
             evaluator() {
@@ -412,24 +415,7 @@ test(
               );
             }
           })
-        ),
-        /Promise intrinsic integrity check failed/
-      );
-
-      assert.equal(
-        getterCalls,
-        0
-      );
-
-      assert.equal(
-        evaluatorCalls,
-        0
-      );
-
-      assert.equal(
-        generatorCalls,
-        0
-      );
+        );
     } finally {
       Object.defineProperty(
         Promise,
@@ -437,6 +423,26 @@ test(
         originalSpecies
       );
     }
+
+    await assert.rejects(
+      returned,
+      /Promise intrinsic integrity check failed/
+    );
+
+    assert.equal(
+      getterCalls,
+      0
+    );
+
+    assert.equal(
+      evaluatorCalls,
+      0
+    );
+
+    assert.equal(
+      generatorCalls,
+      0
+    );
   }
 );
 
@@ -516,30 +522,38 @@ test(
     class CustomPromise
       extends Promise {}
 
-    const rejectedValues = [
-      vm.runInNewContext(
-        `Promise.reject(
-          new Error("foreign rejection")
-        )`
-      ),
+    const rejectedFactories = [
+      () =>
+        vm.runInNewContext(
+          `Promise.reject(
+            new Error("foreign rejection")
+          )`
+        ),
 
-      new CustomPromise(
-        (
-          _resolve,
-          reject
-        ) =>
-          reject(
-            new Error(
-              "subclass rejection"
+      () =>
+        new CustomPromise(
+          (
+            _resolve,
+            reject
+          ) =>
+            reject(
+              new Error(
+                "subclass rejection"
+              )
             )
-          )
-      )
+        )
     ];
 
-    for (const value of rejectedValues) {
+    for (
+      const createRejected of
+        rejectedFactories
+    ) {
       const unhandled =
         await captureUnhandled(
           async () => {
+            const value =
+              createRejected();
+
             await assert.rejects(
               runContractAttacks(
                 makeOptions({
