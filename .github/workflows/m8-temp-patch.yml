@@ -1,4 +1,4 @@
-name: M8 temporary round-3 patch
+name: M8 temporary final patch
 
 on:
   push:
@@ -19,19 +19,19 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Apply round-3 hardening
+      - name: Apply final adversarial remediation
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
-          ai = Path("src/ai-data.js")
-          text = ai.read_text()
+          # ---------------- ai-data.js ----------------
+          path = Path("src/ai-data.js")
+          text = path.read_text()
 
-          method_marker = '''const weakRefDeref =
+          marker = '''const weakRefDeref =
             capturePrototypeMethod(
           '''
-
-          method_insert = '''const additionalHostBrandMethodProbes =
+          insert = '''const additionalHostBrandMethodProbes =
             Object.freeze(
               [
                 {
@@ -67,23 +67,68 @@ jobs:
           const weakRefDeref =
             capturePrototypeMethod(
           '''
-
           if "additionalHostBrandMethodProbes" not in text:
-              if method_marker not in text:
-                  raise SystemExit("AI method insertion marker not found")
-              text = text.replace(
-                  method_marker,
-                  method_insert,
-                  1,
-              )
+              if marker not in text:
+                  raise SystemExit("ai-data host method marker missing")
+              text = text.replace(marker, insert, 1)
 
-          additional_marker = '''function hasUnsupportedAdditionalBrand(
+          marker = '''const webAssemblyInstanceExportsGetter =
+            typeof WebAssembly === "object" &&
+            WebAssembly !== null &&
+            typeof WebAssembly.Instance ===
+              "function"
+              ? capturePrototypeGetter(
+                  WebAssembly.Instance,
+                  "exports"
+                )
+              : null;
+          '''
+          insert = marker + '''
+
+          const webAssemblyMemoryBufferGetter =
+            typeof WebAssembly === "object" &&
+            WebAssembly !== null &&
+            typeof WebAssembly.Memory ===
+              "function"
+              ? capturePrototypeGetter(
+                  WebAssembly.Memory,
+                  "buffer"
+                )
+              : null;
+
+          const webAssemblyTableLengthGetter =
+            typeof WebAssembly === "object" &&
+            WebAssembly !== null &&
+            typeof WebAssembly.Table ===
+              "function"
+              ? capturePrototypeGetter(
+                  WebAssembly.Table,
+                  "length"
+                )
+              : null;
+
+          const webAssemblyGlobalValueGetter =
+            typeof WebAssembly === "object" &&
+            WebAssembly !== null &&
+            typeof WebAssembly.Global ===
+              "function"
+              ? capturePrototypeGetter(
+                  WebAssembly.Global,
+                  "value"
+                )
+              : null;
+          '''
+          if "webAssemblyMemoryBufferGetter" not in text:
+              if marker not in text:
+                  raise SystemExit("ai-data wasm marker missing")
+              text = text.replace(marker, insert, 1)
+
+          marker = '''function hasUnsupportedAdditionalBrand(
             value
           ) {
             if (weakRefDeref !== null) {
           '''
-
-          additional_insert = '''function hasUnsupportedAdditionalBrand(
+          insert = '''function hasUnsupportedAdditionalBrand(
             value
           ) {
             for (
@@ -101,24 +146,81 @@ jobs:
               } catch {}
             }
 
+            for (
+              const getter of [
+                webAssemblyMemoryBufferGetter,
+                webAssemblyTableLengthGetter,
+                webAssemblyGlobalValueGetter
+              ]
+            ) {
+              if (getter === null) {
+                continue;
+              }
+
+              try {
+                reflectApply(
+                  getter,
+                  value,
+                  []
+                );
+
+                return true;
+              } catch {}
+            }
+
             if (weakRefDeref !== null) {
           '''
+          if "webAssemblyMemoryBufferGetter,\n      webAssemblyTableLengthGetter" not in text:
+              if marker not in text:
+                  raise SystemExit("ai-data additional brand marker missing")
+              text = text.replace(marker, insert, 1)
 
-          if "const probe of\n      additionalHostBrandMethodProbes" not in text:
-              if additional_marker not in text:
-                  raise SystemExit("AI brand-loop marker not found")
-              text = text.replace(
-                  additional_marker,
-                  additional_insert,
-                  1,
-              )
+          path.write_text(text)
 
-          ai.write_text(text)
+          # ---------------- contract-attacks.js ----------------
+          path = Path("src/contract-attacks.js")
+          text = path.read_text()
 
-          contract = Path("src/contract-attacks.js")
-          text = contract.read_text()
+          marker = '''const defineProperty =
+            Object.defineProperty;
 
-          top_marker = '''const promiseSpeciesDescriptor =
+          const isExtensible =
+          '''
+          insert = '''const defineProperty =
+            Object.defineProperty;
+
+          const setPrototypeOf =
+            Object.setPrototypeOf;
+
+          const isExtensible =
+          '''
+          if "const setPrototypeOf" not in text:
+              if marker not in text:
+                  raise SystemExit("contract setPrototypeOf marker missing")
+              text = text.replace(marker, insert, 1)
+
+          marker = '''const objectFreeze =
+            Object.freeze;
+
+          const promisePrototype =
+          '''
+          insert = '''const objectFreeze =
+            Object.freeze;
+
+          const arrayMap =
+            Array.prototype.map;
+
+          const arrayFind =
+            Array.prototype.find;
+
+          const promisePrototype =
+          '''
+          if "const arrayMap" not in text:
+              if marker not in text:
+                  raise SystemExit("contract array intrinsic marker missing")
+              text = text.replace(marker, insert, 1)
+
+          marker = '''const promiseSpeciesDescriptor =
             getOwnPropertyDescriptor(
               promiseConstructor,
               promiseSpecies
@@ -126,223 +228,224 @@ jobs:
 
           const hasOwnProperty =
           '''
-
-          top_insert = '''const promiseSpeciesDescriptor =
+          insert = '''const promiseSpeciesDescriptor =
             getOwnPropertyDescriptor(
               promiseConstructor,
               promiseSpecies
             );
 
-          const functionToString =
-            Function.prototype.toString;
+          const safePromiseSpeciesContainer = {};
 
-          const promiseConstructorSource =
-            reflectApply(
-              functionToString,
-              promiseConstructor,
-              []
-            );
+          defineProperty(
+            safePromiseSpeciesContainer,
+            promiseSpecies,
+            {
+              value:
+                promiseConstructor,
+              writable: false,
+              enumerable: false,
+              configurable: false
+            }
+          );
 
-          const promiseSpeciesGetterSource =
-            promiseSpeciesDescriptor !==
-                undefined &&
-              typeof promiseSpeciesDescriptor
-                .get === "function"
-              ? reflectApply(
-                  functionToString,
-                  promiseSpeciesDescriptor.get,
-                  []
-                )
-              : null;
+          objectFreeze(
+            safePromiseSpeciesContainer
+          );
 
           const hasOwnProperty =
           '''
+          if "safePromiseSpeciesContainer" not in text:
+              if marker not in text:
+                  raise SystemExit("contract safe species marker missing")
+              text = text.replace(marker, insert, 1)
 
-          if "promiseConstructorSource" not in text:
-              if top_marker not in text:
-                  raise SystemExit("Promise source marker not found")
-              text = text.replace(
-                  top_marker,
-                  top_insert,
-                  1,
-              )
-
-          integrity_marker = '''function captureOptions(
-            value
+          start = text.index("function restorePromiseConstructor(\n")
+          end = text.index("function passPromiseValue(\n", start)
+          replacement = '''function restorePromiseConstructor(
+            holder,
+            descriptor
           ) {
-          '''
+            if (descriptor === undefined) {
+              deleteProperty(
+                holder,
+                "constructor"
+              );
 
-          integrity_insert = '''function hasMatchingDescriptorFlags(
-            left,
-            right
-          ) {
-            return (
-              left !== undefined &&
-              right !== undefined &&
-              left.enumerable ===
-                right.enumerable &&
-              left.configurable ===
-                right.configurable &&
-              left.writable ===
-                right.writable
+              return;
+            }
+
+            defineProperty(
+              holder,
+              "constructor",
+              descriptor
             );
           }
 
-          function isAuthenticatedStandardPromisePrototype(
-            prototype
+          function canInstallSafePromiseConstructor(
+            holder,
+            descriptor
           ) {
+            if (descriptor === undefined) {
+              return isExtensible(holder);
+            }
+
+            if (descriptor.configurable) {
+              return true;
+            }
+
+            return (
+              !("get" in descriptor) &&
+              !("set" in descriptor) &&
+              descriptor.writable
+            );
+          }
+
+          function installSafePromiseConstructor(
+            holder,
+            descriptor
+          ) {
+            if (descriptor === undefined) {
+              defineProperty(
+                holder,
+                "constructor",
+                {
+                  value:
+                    safePromiseSpeciesContainer,
+                  writable: true,
+                  enumerable: false,
+                  configurable: true
+                }
+              );
+
+              return;
+            }
+
+            if (descriptor.configurable) {
+              defineProperty(
+                holder,
+                "constructor",
+                {
+                  value:
+                    safePromiseSpeciesContainer,
+                  writable: true,
+                  enumerable:
+                    descriptor.enumerable,
+                  configurable: true
+                }
+              );
+
+              return;
+            }
+
+            defineProperty(
+              holder,
+              "constructor",
+              {
+                value:
+                  safePromiseSpeciesContainer
+              }
+            );
+          }
+
+          function withTemporarySafePromiseConstructor(
+            holder,
+            descriptor,
+            callback
+          ) {
+            installSafePromiseConstructor(
+              holder,
+              descriptor
+            );
+
+            try {
+              return callback();
+            } finally {
+              restorePromiseConstructor(
+                holder,
+                descriptor
+              );
+            }
+          }
+
+          function withSafePromiseConstructor(
+            value,
+            callback
+          ) {
+            if (
+              !utilTypes.isPromise(value) ||
+              utilTypes.isProxy(value)
+            ) {
+              throw new Error(
+                "Generator native Promise must be a genuine Promise object."
+              );
+            }
+
+            const ownConstructor =
+              getOwnPropertyDescriptor(
+                value,
+                "constructor"
+              );
+
+            if (
+              canInstallSafePromiseConstructor(
+                value,
+                ownConstructor
+              )
+            ) {
+              return withTemporarySafePromiseConstructor(
+                value,
+                ownConstructor,
+                callback
+              );
+            }
+
+            if (ownConstructor !== undefined) {
+              throw new Error(
+                "Native Promise cannot be observed safely."
+              );
+            }
+
+            const prototype =
+              getPrototypeOf(value);
+
             if (
               prototype === null ||
               typeof prototype !== "object" ||
               utilTypes.isProxy(prototype)
             ) {
-              return false;
+              throw new Error(
+                "Native Promise cannot be observed safely."
+              );
             }
 
-            let constructorDescriptor;
-            let constructorPrototypeDescriptor;
-            let speciesDescriptor;
-            let constructorSource;
-            let speciesGetterSource;
+            const prototypeConstructor =
+              getOwnPropertyDescriptor(
+                prototype,
+                "constructor"
+              );
 
-            try {
-              constructorDescriptor =
-                getOwnPropertyDescriptor(
-                  prototype,
-                  "constructor"
-                );
-
-              if (
-                constructorDescriptor ===
-                  undefined ||
-                "get" in
-                  constructorDescriptor ||
-                "set" in
-                  constructorDescriptor ||
-                typeof constructorDescriptor
-                  .value !== "function" ||
-                utilTypes.isProxy(
-                  constructorDescriptor.value
-                )
-              ) {
-                return false;
-              }
-
-              constructorPrototypeDescriptor =
-                getOwnPropertyDescriptor(
-                  constructorDescriptor.value,
-                  "prototype"
-                );
-
-              speciesDescriptor =
-                getOwnPropertyDescriptor(
-                  constructorDescriptor.value,
-                  promiseSpecies
-                );
-
-              constructorSource =
-                reflectApply(
-                  functionToString,
-                  constructorDescriptor.value,
-                  []
-                );
-
-              speciesGetterSource =
-                speciesDescriptor !==
-                    undefined &&
-                  typeof speciesDescriptor
-                    .get === "function"
-                  ? reflectApply(
-                      functionToString,
-                      speciesDescriptor.get,
-                      []
-                    )
-                  : null;
-            } catch {
-              return false;
+            if (
+              !canInstallSafePromiseConstructor(
+                prototype,
+                prototypeConstructor
+              )
+            ) {
+              throw new Error(
+                "Native Promise cannot be observed safely."
+              );
             }
 
-            return (
-              constructorSource ===
-                promiseConstructorSource &&
-              hasMatchingDescriptorFlags(
-                constructorDescriptor,
-                promisePrototypeConstructorDescriptor
-              ) &&
-              constructorPrototypeDescriptor !==
-                undefined &&
-              !("get" in
-                constructorPrototypeDescriptor) &&
-              !("set" in
-                constructorPrototypeDescriptor) &&
-              constructorPrototypeDescriptor.value ===
-                prototype &&
-              speciesDescriptor !==
-                undefined &&
-              !("value" in speciesDescriptor) &&
-              speciesDescriptor.set ===
-                undefined &&
-              speciesDescriptor.enumerable ===
-                promiseSpeciesDescriptor.enumerable &&
-              speciesDescriptor.configurable ===
-                promiseSpeciesDescriptor.configurable &&
-              speciesGetterSource ===
-                promiseSpeciesGetterSource
+            return withTemporarySafePromiseConstructor(
+              prototype,
+              prototypeConstructor,
+              callback
             );
           }
 
-          function captureOptions(
-            value
-          ) {
           '''
+          text = text[:start] + replacement + text[end:]
 
-          if "isAuthenticatedStandardPromisePrototype" not in text:
-              if integrity_marker not in text:
-                  raise SystemExit("Promise auth insertion marker not found")
-              text = text.replace(
-                  integrity_marker,
-                  integrity_insert,
-                  1,
-              )
-
-          nonext_old = '''  if (ownConstructor === undefined) {
-            if (!isExtensible(value)) {
-              throw new Error(
-                "Native Promise cannot be observed safely."
-              );
-            }
-
-            defineProperty(
-          '''
-
-          nonext_new = '''  if (ownConstructor === undefined) {
-            if (!isExtensible(value)) {
-              if (
-                isAuthenticatedStandardPromisePrototype(
-                  prototype
-                )
-              ) {
-                return callback();
-              }
-
-              throw new Error(
-                "Native Promise cannot be observed safely."
-              );
-            }
-
-            defineProperty(
-          '''
-
-          if "isAuthenticatedStandardPromisePrototype(\n          prototype" not in text:
-              if nonext_old not in text:
-                  raise SystemExit("Non-extensible Promise marker not found")
-              text = text.replace(
-                  nonext_old,
-                  nonext_new,
-                  1,
-              )
-
-          bridge_old = '''function bridgeNativePromise(
+          old = '''function bridgeNativePromise(
             value
           ) {
             return withSafePromiseConstructor(
@@ -359,8 +462,7 @@ jobs:
             );
           }
           '''
-
-          bridge_new = '''function bridgeNativePromise(
+          new = '''function bridgeNativePromise(
             value
           ) {
             return new promiseConstructor(
@@ -381,126 +483,550 @@ jobs:
             );
           }
           '''
+          if old not in text:
+              raise SystemExit("contract bridge function marker missing")
+          text = text.replace(old, new, 1)
 
-          if bridge_old in text:
-              text = text.replace(
-                  bridge_old,
-                  bridge_new,
-                  1,
-              )
-          elif "return new promiseConstructor" not in text:
-              raise SystemExit("Promise bridge marker not found")
+          old = '''    if (utilTypes.isPromise(result)) {
+              observeNativePromise(result);
 
-          contract.write_text(text)
+              throw new Error(
+                "Async checks are not supported by this deterministic engine."
+              );
+            }
 
-          tests = Path("test/m8-codex-remediation.test.js")
-          text = tests.read_text()
-
-          tamper_marker = '''    for (const value of candidates) {
-              const originalPrototype =
-                Object.getPrototypeOf(value);
+            if (typeof result !== "boolean") {
           '''
+          new = '''    if (utilTypes.isPromise(result)) {
+              observeNativePromise(result);
+              requirePromiseIntrinsicIntegrity();
 
-          tamper_insert = '''    for (const value of candidates) {
-              if (Object.isExtensible(value)) {
-                Object.defineProperty(
-                  value,
-                  "gotchaOwnData",
-                  {
-                    value: "preserved-data",
-                    enumerable: true,
-                    configurable: true,
-                    writable: true
-                  }
-                );
+              throw new Error(
+                "Async checks are not supported by this deterministic engine."
+              );
+            }
+
+            requirePromiseIntrinsicIntegrity();
+
+            if (typeof result !== "boolean") {
+          '''
+          if old not in text:
+              raise SystemExit("contract evaluator marker missing")
+          text = text.replace(old, new, 1)
+
+          marker = '''function buildGeneratorArguments(
+            contract,
+            input,
+            expectedOutput
+          ) {
+            return {
+          '''
+          insert = '''function isolateGeneratorData(
+            value
+          ) {
+            const seen =
+              new WeakSet();
+
+            const stack = [value];
+
+            while (stack.length > 0) {
+              const current =
+                stack.pop();
+
+              if (
+                current === null ||
+                typeof current !== "object" ||
+                seen.has(current)
+              ) {
+                continue;
               }
 
-              const originalPrototype =
-                Object.getPrototypeOf(value);
-          '''
+              seen.add(current);
 
-          if "gotchaOwnData" not in text:
-              if tamper_marker not in text:
-                  raise SystemExit("Hidden-slot own-data test marker not found")
-              text = text.replace(
-                  tamper_marker,
-                  tamper_insert,
-                  1,
-              )
-
-          public_marker = '''test(
-            "M8 package entry point exposes runContractAttacks",
-          '''
-
-          nonext_test = '''test(
-            "non-extensible cross-realm rejected generator Promises are observed safely",
-            async () => {
-              const unhandled =
-                await captureUnhandled(
-                  async () => {
-                    const value =
-                      vm.runInNewContext(`
-                        (() => {
-                          const promise =
-                            Promise.reject(
-                              new Error(
-                                "non-extensible foreign rejection"
-                              )
-                            );
-
-                          Object.preventExtensions(
-                            promise
-                          );
-
-                          return promise;
-                        })()
-                      `);
-
-                    await assert.rejects(
-                      runContractAttacks(
-                        makeOptions({
-                          generator() {
-                            return value;
-                          }
-                        })
-                      ),
-                      /non-extensible foreign rejection/
-                    );
-                  }
+              const descriptors =
+                getOwnPropertyDescriptors(
+                  current
                 );
 
-              assert.equal(
-                unhandled,
+              for (
+                const key of ownKeys(descriptors)
+              ) {
+                const descriptor =
+                  descriptors[key];
+
+                if (
+                  descriptor !== undefined &&
+                  "value" in descriptor &&
+                  descriptor.value !== null &&
+                  typeof descriptor.value ===
+                    "object"
+                ) {
+                  stack.push(
+                    descriptor.value
+                  );
+                }
+              }
+
+              setPrototypeOf(
+                current,
                 null
               );
             }
-          );
 
-          test(
-            "M8 package entry point exposes runContractAttacks",
+            return value;
+          }
+
+          function buildGeneratorArguments(
+            contract,
+            input,
+            expectedOutput
+          ) {
+            return isolateGeneratorData({
           '''
+          if "function isolateGeneratorData" not in text:
+              if marker not in text:
+                  raise SystemExit("contract generator isolation marker missing")
+              text = text.replace(marker, insert, 1)
+              old_tail = '''    instructions:
+              GENERATOR_INSTRUCTIONS
+            };
+          }
+          '''
+              new_tail = '''    instructions:
+              GENERATOR_INSTRUCTIONS
+            });
+          }
+          '''
+              if old_tail not in text:
+                  raise SystemExit("contract generator isolation tail missing")
+              text = text.replace(old_tail, new_tail, 1)
 
-          if "non-extensible cross-realm rejected generator Promises" not in text:
-              if public_marker not in text:
-                  raise SystemExit("Non-extensible Promise test marker not found")
-              text = text.replace(
-                  public_marker,
-                  nonext_test,
-                  1,
+          old = '''function invokeGenerator(
+            generator,
+            argumentsObject
+          ) {
+            const returned =
+              reflectApply(
+                generator,
+                undefined,
+                [argumentsObject]
+              );
+
+            const isNativePromise =
+              utilTypes.isPromise(returned);
+
+            return objectFreeze({
+              returned:
+                isNativePromise
+                  ? bridgeNativePromise(
+                      returned
+                    )
+                  : returned,
+              isNativePromise
+            });
+          }
+          '''
+          new = '''function invokeGenerator(
+            generator,
+            argumentsObject
+          ) {
+            const returned =
+              reflectApply(
+                generator,
+                undefined,
+                [argumentsObject]
+              );
+
+            const isNativePromise =
+              utilTypes.isPromise(returned);
+
+            const bridged =
+              isNativePromise
+                ? bridgeNativePromise(
+                    returned
+                  )
+                : returned;
+
+            try {
+              requirePromiseIntrinsicIntegrity();
+            } catch (error) {
+              if (isNativePromise) {
+                observeNativePromise(
+                  bridged
+                );
+              }
+
+              throw error;
+            }
+
+            return objectFreeze({
+              returned: bridged,
+              isNativePromise
+            });
+          }
+          '''
+          if old not in text:
+              raise SystemExit("contract invokeGenerator marker missing")
+          text = text.replace(old, new, 1)
+
+          old = '''  const ruleById =
+            new Map(
+              contract.rules.map(
+                (rule) => [
+                  rule.id,
+                  rule
+                ]
               )
+            );
 
-          tests.write_text(text)
+          const attackIds =
+            new Set();
+
+          const attacks =
+            snapshot.attacks.map(
+              (attackCandidate, index) =>
+                normalizeGeneratorAttack(
+                  attackCandidate,
+                  index,
+                  attackIds,
+                  ruleById
+                )
+            );
+          '''
+          new = '''  const ruleById =
+            new Map(
+              reflectApply(
+                arrayMap,
+                contract.rules,
+                [
+                  (rule) => [
+                    rule.id,
+                    rule
+                  ]
+                ]
+              )
+            );
+
+          const attackIds =
+            new Set();
+
+          const attacks =
+            reflectApply(
+              arrayMap,
+              snapshot.attacks,
+              [
+                (attackCandidate, index) =>
+                  normalizeGeneratorAttack(
+                    attackCandidate,
+                    index,
+                    attackIds,
+                    ruleById
+                  )
+              ]
+            );
+          '''
+          if old not in text:
+              raise SystemExit("contract validation map marker missing")
+          text = text.replace(old, new, 1)
+
+          old = '''  return retained.find(
+            (existing) =>
+              existing.ruleId ===
+                candidate.ruleId &&
+              isDeepStrictEqual(
+                existing.mutatedOutput,
+                candidate.mutatedOutput
+              )
+          );
+          '''
+          new = '''  return reflectApply(
+            arrayFind,
+            retained,
+            [
+              (existing) =>
+                existing.ruleId ===
+                  candidate.ruleId &&
+                isDeepStrictEqual(
+                  existing.mutatedOutput,
+                  candidate.mutatedOutput
+                )
+            ]
+          );
+          '''
+          if old not in text:
+              raise SystemExit("contract find marker missing")
+          text = text.replace(old, new, 1)
+
+          old = '''function compileAllGeneratedAttacks(
+            retained
+          ) {
+            return retained.map(
+              (candidate) =>
+                compileGeneratedAttack(candidate)
+            );
+          }
+          '''
+          new = '''function compileAllGeneratedAttacks(
+            retained
+          ) {
+            return reflectApply(
+              arrayMap,
+              retained,
+              [
+                (candidate) =>
+                  compileGeneratedAttack(
+                    candidate
+                  )
+              ]
+            );
+          }
+          '''
+          if old not in text:
+              raise SystemExit("contract compile map marker missing")
+          text = text.replace(old, new, 1)
+
+          path.write_text(text)
+
+          # ---------------- round-3 regression file ----------------
+          Path("test/m8-codex-round3.test.js").write_text(r'''"use strict";
+
+          const test = require("node:test");
+          const assert = require("node:assert/strict");
+          const vm = require("node:vm");
+          const { spawnSync } = require("node:child_process");
+          const path = require("node:path");
+
+          const { cloneAiData } = require("../src/ai-data");
+          const { runContractAttacks } = require("../src/contract-attacks");
+
+          function makeContract() {
+            return {
+              version: 1,
+              status: "confirmed",
+              task: "Return the approved time.",
+              rules: [
+                {
+                  id: "time-rule",
+                  statement: "Time must be 3 PM.",
+                  kind: "required",
+                  severity: "critical"
+                }
+              ]
+            };
+          }
+
+          function validGeneratorOutput() {
+            return {
+              version: 1,
+              task: "Return the approved time.",
+              attacks: [
+                {
+                  id: "wrong-time",
+                  ruleId: "time-rule",
+                  type: "wrong-time",
+                  description: "Changes the approved time.",
+                  rationale: "Proposed violation of the confirmed time rule.",
+                  mutatedOutput: { time: "4 PM" },
+                  scores: {
+                    realism: 1,
+                    subtlety: 1,
+                    novelty: 1,
+                    fixability: 1
+                  }
+                }
+              ]
+            };
+          }
+
+          function makeOptions(generator, input = { request: "3 PM" }) {
+            return {
+              contract: makeContract(),
+              input,
+              expectedOutput: { time: "3 PM" },
+              evaluator() {
+                return true;
+              },
+              generator
+            };
+          }
+
+          async function captureUnhandled(callback) {
+            let unhandled = null;
+            const listener = (reason) => {
+              unhandled = reason;
+            };
+            process.once("unhandledRejection", listener);
+            try {
+              await callback();
+              await new Promise((resolve) => setImmediate(resolve));
+              return unhandled;
+            } finally {
+              process.removeListener("unhandledRejection", listener);
+            }
+          }
+
+          test("Headers and FormData brands remain rejected when own data is added", () => {
+            const candidates = [];
+            if (typeof Headers === "function") {
+              candidates.push(new Headers());
+            }
+            if (typeof FormData === "function") {
+              candidates.push(new FormData());
+            }
+
+            for (const value of candidates) {
+              value.foo = "bar";
+              Object.setPrototypeOf(value, Object.prototype);
+              assert.throws(
+                () => cloneAiData(value),
+                /unsupported runtime object/
+              );
+            }
+          });
+
+          test("WebAssembly hidden-slot families fail closed without structuredClone fallback", () => {
+            const candidates = [];
+            if (typeof WebAssembly.Memory === "function") {
+              candidates.push(new WebAssembly.Memory({ initial: 1 }));
+            }
+            if (typeof WebAssembly.Table === "function") {
+              candidates.push(new WebAssembly.Table({ initial: 1, element: "anyfunc" }));
+            }
+            if (typeof WebAssembly.Global === "function") {
+              candidates.push(new WebAssembly.Global({ value: "i32", mutable: true }, 1));
+            }
+
+            for (const value of candidates) {
+              value.foo = "bar";
+              Object.setPrototypeOf(value, Object.prototype);
+              assert.throws(
+                () => cloneAiData(value),
+                /unsupported runtime object/
+              );
+            }
+          });
+
+          test("non-extensible cross-realm rejected Promises are observed", async () => {
+            const unhandled = await captureUnhandled(async () => {
+              const promise = vm.runInNewContext(`
+                (() => {
+                  const value = Promise.reject(new Error("foreign rejection"));
+                  Object.preventExtensions(value);
+                  return value;
+                })()
+              `);
+
+              await assert.rejects(
+                runContractAttacks(
+                  makeOptions(() => promise)
+                ),
+                /foreign rejection/
+              );
+            });
+
+            assert.equal(unhandled, null);
+          });
+
+          test("generator data does not expose shared Object or Array prototypes", async () => {
+            const result = await runContractAttacks(
+              makeOptions(
+                ({ contract, input, expectedOutput }) => {
+                  assert.equal(Object.getPrototypeOf(input), null);
+                  assert.equal(Object.getPrototypeOf(contract), null);
+                  assert.equal(Object.getPrototypeOf(contract.rules), null);
+                  assert.equal(Object.getPrototypeOf(expectedOutput), null);
+                  return validGeneratorOutput();
+                },
+                ["3 PM"]
+              )
+            );
+
+            assert.equal(result.generatedAttacks.length, 1);
+          });
+
+          test("callback-time Promise intrinsic tampering observes rejection before failing closed", () => {
+            const repoRoot = path.resolve(__dirname, "..");
+            const script = String.raw`
+              const { runContractAttacks } = require(${JSON.stringify(path.resolve(__dirname, "../src/contract-attacks.js"))});
+              const species = Symbol.species;
+              const originalSpecies = Object.getOwnPropertyDescriptor(Promise, species);
+              let unhandled = false;
+              process.on("unhandledRejection", () => { unhandled = true; });
+
+              const options = {
+                contract: {
+                  version: 1,
+                  status: "confirmed",
+                  task: "Return the approved time.",
+                  rules: [{
+                    id: "time-rule",
+                    statement: "Time must be 3 PM.",
+                    kind: "required",
+                    severity: "critical"
+                  }]
+                },
+                input: { request: "3 PM" },
+                expectedOutput: { time: "3 PM" },
+                evaluator() { return true; },
+                generator() {
+                  Object.defineProperty(Promise, species, {
+                    configurable: true,
+                    get() { throw new Error("hostile species"); }
+                  });
+                  return Promise.reject(new Error("generator rejection"));
+                }
+              };
+
+              const result = runContractAttacks(options);
+              Object.defineProperty(Promise, species, originalSpecies);
+              result.then(
+                () => { console.error("unexpected resolve"); process.exitCode = 2; },
+                (error) => {
+                  if (!/Promise intrinsic integrity check failed/.test(String(error && error.message))) {
+                    console.error(error);
+                    process.exitCode = 3;
+                  }
+                }
+              );
+
+              setImmediate(() => {
+                if (unhandled) {
+                  console.error("unhandled rejection leaked");
+                  process.exitCode = 4;
+                }
+              });
+            `;
+
+            const child = spawnSync(
+              process.execPath,
+              ["-e", script],
+              {
+                cwd: repoRoot,
+                encoding: "utf8"
+              }
+            );
+
+            assert.equal(child.status, 0, child.stderr || child.stdout);
+          });
+          ''')
+
+          node_files = [
+            "src/ai-data.js",
+            "src/contract-attacks.js",
+            "test/m8-codex-round3.test.js",
+          ]
           PY
 
           node --check src/ai-data.js
           node --check src/contract-attacks.js
-          node --check test/m8-codex-remediation.test.js
+          node --check test/m8-codex-round3.test.js
+          node --test test/m8-codex-round3.test.js
 
           git config user.name "AidaMichel"
           git config user.email "126730924+AidaMichel@users.noreply.github.com"
-          git add src/ai-data.js src/contract-attacks.js test/m8-codex-remediation.test.js
+          git add src/ai-data.js src/contract-attacks.js test/m8-codex-round3.test.js
 
           if ! git diff --cached --quiet; then
-            git commit -m "fix: close remaining M8 review gaps"
+            git commit -m "fix: close final M8 adversarial gaps"
             git push origin HEAD:milestone-8-ai-attacks
           fi
