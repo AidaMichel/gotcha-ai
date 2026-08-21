@@ -17,11 +17,23 @@ const {
 const getOwnPropertyDescriptors =
   Object.getOwnPropertyDescriptors;
 
+const getOwnPropertyDescriptor =
+  Object.getOwnPropertyDescriptor;
+
 const getPrototypeOf =
   Object.getPrototypeOf;
 
+const defineProperty =
+  Object.defineProperty;
+
+const isExtensible =
+  Object.isExtensible;
+
 const ownKeys =
   Reflect.ownKeys;
+
+const deleteProperty =
+  Reflect.deleteProperty;
 
 const reflectApply =
   Reflect.apply;
@@ -37,6 +49,21 @@ const promiseConstructor =
 
 const promiseThen =
   Promise.prototype.then;
+
+const promiseSpecies =
+  Symbol.species;
+
+const promisePrototypeConstructorDescriptor =
+  getOwnPropertyDescriptor(
+    promisePrototype,
+    "constructor"
+  );
+
+const promiseSpeciesDescriptor =
+  getOwnPropertyDescriptor(
+    promiseConstructor,
+    promiseSpecies
+  );
 
 const hasOwnProperty =
   Object.prototype.hasOwnProperty;
@@ -133,6 +160,64 @@ function hasOwn(
     value,
     [key]
   );
+}
+
+function samePropertyDescriptor(
+  left,
+  right
+) {
+  if (
+    left === undefined ||
+    right === undefined
+  ) {
+    return left === right;
+  }
+
+  for (
+    const key of [
+      "value",
+      "get",
+      "set",
+      "writable",
+      "enumerable",
+      "configurable"
+    ]
+  ) {
+    if (left[key] !== right[key]) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function requirePromiseIntrinsicIntegrity() {
+  const currentPrototypeConstructor =
+    getOwnPropertyDescriptor(
+      promisePrototype,
+      "constructor"
+    );
+
+  const currentSpecies =
+    getOwnPropertyDescriptor(
+      promiseConstructor,
+      promiseSpecies
+    );
+
+  if (
+    !samePropertyDescriptor(
+      currentPrototypeConstructor,
+      promisePrototypeConstructorDescriptor
+    ) ||
+    !samePropertyDescriptor(
+      currentSpecies,
+      promiseSpeciesDescriptor
+    )
+  ) {
+    throw new Error(
+      "Promise intrinsic integrity check failed."
+    );
+  }
 }
 
 function captureOptions(
@@ -397,44 +482,175 @@ function requireTrustedCallbacks(
   }
 }
 
-function ignoreRejectedEvaluatorPromise() {
-  return undefined;
-}
-
-function observeRejectedEvaluatorPromise(
-  value
+function restorePromiseConstructor(
+  value,
+  descriptor
 ) {
-  if (
-    getPrototypeOf(value) !==
-      promisePrototype
-  ) {
+  if (descriptor === undefined) {
+    deleteProperty(
+      value,
+      "constructor"
+    );
+
     return;
   }
 
-  const descriptors =
-    getOwnPropertyDescriptors(value);
+  defineProperty(
+    value,
+    "constructor",
+    descriptor
+  );
+}
+
+function withSafePromiseConstructor(
+  value,
+  callback
+) {
+  requirePromiseIntrinsicIntegrity();
 
   if (
-    hasOwn(descriptors, "constructor") ||
-    hasOwn(descriptors, "then")
+    !utilTypes.isPromise(value) ||
+    utilTypes.isProxy(value)
   ) {
-    return;
+    throw new Error(
+      "Generator native Promise must be a genuine Promise object."
+    );
+  }
+
+  const prototype =
+    getPrototypeOf(value);
+
+  const ownConstructor =
+    getOwnPropertyDescriptor(
+      value,
+      "constructor"
+    );
+
+  const alreadySafe =
+    (
+      ownConstructor === undefined &&
+      prototype === promisePrototype
+    ) ||
+    (
+      ownConstructor !== undefined &&
+      !("get" in ownConstructor) &&
+      !("set" in ownConstructor) &&
+      ownConstructor.value ===
+        promiseConstructor
+    );
+
+  if (alreadySafe) {
+    return callback();
+  }
+
+  if (ownConstructor === undefined) {
+    if (!isExtensible(value)) {
+      throw new Error(
+        "Native Promise cannot be observed safely."
+      );
+    }
+
+    defineProperty(
+      value,
+      "constructor",
+      {
+        value:
+          promiseConstructor,
+        writable: true,
+        enumerable: false,
+        configurable: true
+      }
+    );
+  } else if (ownConstructor.configurable) {
+    defineProperty(
+      value,
+      "constructor",
+      {
+        value:
+          promiseConstructor,
+        writable: true,
+        enumerable:
+          ownConstructor.enumerable,
+        configurable: true
+      }
+    );
+  } else if (
+    !("get" in ownConstructor) &&
+    !("set" in ownConstructor) &&
+    ownConstructor.writable
+  ) {
+    defineProperty(
+      value,
+      "constructor",
+      {
+        value:
+          promiseConstructor
+      }
+    );
+  } else {
+    throw new Error(
+      "Native Promise cannot be observed safely."
+    );
   }
 
   try {
-    reflectApply(
-      promiseThen,
+    return callback();
+  } finally {
+    restorePromiseConstructor(
       value,
-      [
-        undefined,
-        ignoreRejectedEvaluatorPromise
-      ]
+      ownConstructor
     );
-  } catch {
-    // The evaluator is rejected as async below regardless.
-    // Do not execute user-controlled Promise hooks merely
-    // to suppress an unsupported exotic Promise rejection.
   }
+}
+
+function passPromiseValue(
+  value
+) {
+  return value;
+}
+
+function rethrowPromiseReason(
+  reason
+) {
+  throw reason;
+}
+
+function ignoreRejectedPromise() {
+  return undefined;
+}
+
+function bridgeNativePromise(
+  value
+) {
+  return withSafePromiseConstructor(
+    value,
+    () =>
+      reflectApply(
+        promiseThen,
+        value,
+        [
+          passPromiseValue,
+          rethrowPromiseReason
+        ]
+      )
+  );
+}
+
+function observeNativePromise(
+  value
+) {
+  return withSafePromiseConstructor(
+    value,
+    () =>
+      reflectApply(
+        promiseThen,
+        value,
+        [
+          undefined,
+          ignoreRejectedPromise
+        ]
+      )
+  );
 }
 
 function createSafeEvaluator(
@@ -451,9 +667,7 @@ function createSafeEvaluator(
       );
 
     if (utilTypes.isPromise(result)) {
-      observeRejectedEvaluatorPromise(
-        result
-      );
+      observeNativePromise(result);
 
       throw new Error(
         "Async checks are not supported by this deterministic engine."
@@ -543,64 +757,6 @@ function buildGeneratorArguments(
   };
 }
 
-function requireSafeNativeGeneratorPromise(
-  value
-) {
-  if (
-    getPrototypeOf(value) !==
-      promisePrototype
-  ) {
-    throw new Error(
-      "Generator native Promise must use the standard Promise prototype."
-    );
-  }
-
-  const descriptors =
-    getOwnPropertyDescriptors(value);
-
-  if (hasOwn(descriptors, "constructor")) {
-    throw new Error(
-      "Generator native Promise must not shadow constructor."
-    );
-  }
-
-  if (hasOwn(descriptors, "then")) {
-    throw new Error(
-      "Generator native Promise must not shadow then."
-    );
-  }
-
-  const prototypeDescriptors =
-    getOwnPropertyDescriptors(
-      promisePrototype
-    );
-
-  if (
-    !hasOwn(
-      prototypeDescriptors,
-      "constructor"
-    )
-  ) {
-    throw new Error(
-      "Promise prototype constructor integrity check failed."
-    );
-  }
-
-  const inheritedConstructor =
-    prototypeDescriptors.constructor;
-
-  if (
-    "get" in inheritedConstructor ||
-    "set" in inheritedConstructor ||
-    inheritedConstructor.value !==
-      promiseConstructor
-  ) {
-    throw new Error(
-      "Promise prototype constructor integrity check failed."
-    );
-  }
-}
-
 function invokeGenerator(
   generator,
   argumentsObject
@@ -615,14 +771,13 @@ function invokeGenerator(
   const isNativePromise =
     utilTypes.isPromise(returned);
 
-  if (isNativePromise) {
-    requireSafeNativeGeneratorPromise(
-      returned
-    );
-  }
-
   return objectFreeze({
-    returned,
+    returned:
+      isNativePromise
+        ? bridgeNativePromise(
+            returned
+          )
+        : returned,
     isNativePromise
   });
 }
@@ -1012,6 +1167,8 @@ async function runContractAttacks(
       optionDescriptors,
       "generator"
     );
+
+  requirePromiseIntrinsicIntegrity();
 
   requireTrustedCallbacks(
     evaluator,
