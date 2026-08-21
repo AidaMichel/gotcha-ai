@@ -22,10 +22,10 @@ contract = replace_once(
 } = require("node:util");
 
 const utilIsPromise =
-  utilTypes.isPromise;
+  utilTypes["isPromise"];
 
 const utilIsProxy =
-  utilTypes.isProxy;''',
+  utilTypes["isProxy"];''',
     "capture util predicates",
 )
 
@@ -399,6 +399,31 @@ contract_path.write_text(contract)
 ai_path = Path("src/ai-data.js")
 ai = ai_path.read_text()
 
+ai = ai.replace("utilTypes.", "utilTypePredicates.")
+
+ai = replace_once(
+    ai,
+    '''const {
+  types: utilTypes,
+  inspect
+} = require("node:util");''',
+    '''const {
+  types: utilTypes,
+  inspect
+} = require("node:util");
+
+const utilTypePredicates =
+  Object.freeze(
+    Object.create(
+      null,
+      Object.getOwnPropertyDescriptors(
+        utilTypes
+      )
+    )
+  );''',
+    "capture util type predicates",
+)
+
 ai = replace_once(
     ai,
     '''const vm =
@@ -419,7 +444,7 @@ ai = replace_once(
   value
 ) {
   return (
-    utilTypes.isAnyArrayBuffer(value) ||''',
+    utilTypePredicates.isAnyArrayBuffer(value) ||''',
     '''function isUnsupportedRuntimeObject(
   value
 ) {
@@ -432,7 +457,7 @@ ai = replace_once(
         [value]
       )
     ) ||
-    utilTypes.isAnyArrayBuffer(value) ||''',
+    utilTypePredicates.isAnyArrayBuffer(value) ||''',
     "reject contextified vm objects",
 )
 
