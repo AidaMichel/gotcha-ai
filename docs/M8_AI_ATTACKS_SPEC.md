@@ -464,9 +464,9 @@ M8 is not a JavaScript sandbox for caller-supplied code. The security boundary i
 
 Callbacks should remain deterministic and side-effect free. M8 restores the core built-in prototype surfaces around callback invocation as defense in depth so ordinary accidental prototype mutation cannot corrupt later validation or ranking, but M8 does not claim containment of deliberate irreversible sabotage of the host JavaScript realm by trusted callback code.
 
-For asynchronous generators, that restoration boundary extends through settlement of the returned native Promise, so code after `await` cannot leave temporary built-in mutations behind before generator data is validated. Evaluator snapshots preserve ordinary local and authenticated cross-realm `instanceof Array` / `instanceof Object` behavior while keeping their exposed prototype graph detached.
+For asynchronous generators, that restoration boundary extends through settlement of the returned native Promise, so code after `await` cannot leave temporary built-in mutations behind before generator data is validated. Evaluator snapshots preserve ordinary local and authenticated cross-realm `instanceof Array` / `instanceof Object` behavior. When a hardened foreign constructor prevents a temporary `Symbol.hasInstance` bridge, M8 may use that realm's native prototype identity only after authenticating its entire intrinsic surface against the current runtime and records the choice per source node. Those foreign intrinsic surfaces are restored around evaluator execution, and a modified surface (for example an added inherited getter) is rejected before the evaluator runs.
 
-This distinction keeps the boundary testable: malformed or prototype-polluted **data** must fail closed, while arbitrary hostile JavaScript execution belongs to a separate sandboxing capability outside M8.
+This distinction keeps the boundary testable: malformed data, executable own-property behavior, Proxy-backed data, and observable custom prototypes must fail closed. JavaScript does not expose a finite generic enumeration of every current and future engine/private host slot after an object has been deliberately re-prototyped to an ordinary intrinsic. M8 therefore defines the durable security property at the canonical snapshot boundary: only validated own data is copied to fresh targets; source object identity, private slots, host capabilities, and executable prototype behavior never cross into the generator/evaluator snapshot. Arbitrary hostile JavaScript execution belongs to a separate sandboxing capability outside M8.
 
 ---
 
@@ -805,11 +805,15 @@ M8 must reject values containing:
 - sparse arrays
 - symbol-keyed properties
 - non-enumerable semantic properties
-- custom runtime object types
+- observable custom runtime object types or custom prototypes
 - executable callbacks
 - cyclic object graphs
 
-Examples of unsupported runtime types include:
+Recognized live runtime brands are rejected when the supported runtime exposes a side-effect-free native brand probe or stable singleton identity. That rejection is defense in depth, not an open-ended promise to enumerate every private host slot that Node or V8 may add in future releases.
+
+If caller code deliberately changes an otherwise opaque host object's prototype to an authenticated ordinary intrinsic and leaves only AI-safe own data observable, M8 may canonicalize that **own-data projection**. The canonical target is a fresh ordinary object/array and contains none of the source object's identity, private slots, native handles, or host methods. Safety is defined by what crosses this canonical boundary, not by pretending JavaScript can generically discover every hidden runtime brand.
+
+Examples of unsupported observable runtime types include:
 
 ```text
 Date
@@ -930,7 +934,9 @@ those mutations must not affect Gotcha's validated copies.
 
 Generator-side mutation must not alter later attack execution.
 
-M8 treats the evaluator and injected generator functions themselves as trusted local integration code. The untrusted boundary is the structured data that crosses into and out of those callbacks. Gotcha restores a bounded set of shared JavaScript intrinsic surfaces as defense in depth so temporary callback mutation cannot corrupt M8's own validation or concurrent runs, but M8 is not a general JavaScript sandbox for arbitrary irreversible host-realm sabotage. Runtime-object rejection is capability-driven across the supported Node versions: when a host API exposes a side-effect-free native brand probe or singleton identity, M8 uses it to reject live runtime state before canonicalization.
+M8 treats the evaluator and injected generator functions themselves as trusted local integration code. The untrusted boundary is the structured data that crosses into and out of those callbacks. Gotcha restores a bounded set of shared JavaScript intrinsic surfaces as defense in depth so temporary callback mutation cannot corrupt M8's own validation or concurrent runs, but M8 is not a general JavaScript sandbox for arbitrary irreversible host-realm sabotage.
+
+Runtime-object handling has two layers. First, capability-driven probes reject recognized live runtime state when the supported Node version exposes a side-effect-free brand probe or singleton identity. Second, the invariant that does not depend on Node's ever-growing host-class catalog is canonical capability erasure: accepted object-shaped input is rebuilt from validated own data into fresh ordinary targets before it crosses the callback boundary. A private slot that is not generically observable cannot survive that projection. New Node host families may justify additional rejection probes for diagnostics/strictness, but their mere existence does not expand M8 into an infinite runtime-brand blacklist requirement.
 
 ---
 

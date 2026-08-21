@@ -31,6 +31,9 @@ const getPrototypeOf =
 const objectCreate =
   Object.create;
 
+const objectIs =
+  Object.is;
+
 const objectPrototype =
   Object.prototype;
 
@@ -732,12 +735,308 @@ function canInstallEvaluatorInstanceSemantic(
   return previousDescriptor.configurable === true;
 }
 
+function sameIntrinsicCallable(
+  left,
+  right
+) {
+  if (
+    typeof left !== "function" ||
+    typeof right !== "function" ||
+    utilIsProxy(left) ||
+    utilIsProxy(right)
+  ) {
+    return false;
+  }
+
+  try {
+    return reflectApply(
+      functionToString,
+      left,
+      []
+    ) === reflectApply(
+      functionToString,
+      right,
+      []
+    );
+  } catch {
+    return false;
+  }
+}
+
+function sameIntrinsicObjectValue(
+  left,
+  right,
+  depth
+) {
+  if (left === right) {
+    return true;
+  }
+
+  if (
+    depth > 2 ||
+    left === null ||
+    right === null ||
+    typeof left !== "object" ||
+    typeof right !== "object" ||
+    utilIsProxy(left) ||
+    utilIsProxy(right)
+  ) {
+    return false;
+  }
+
+  let leftDescriptors;
+  let rightDescriptors;
+  let leftPrototype;
+  let rightPrototype;
+
+  try {
+    leftPrototype =
+      getPrototypeOf(left);
+    rightPrototype =
+      getPrototypeOf(right);
+    leftDescriptors =
+      getOwnPropertyDescriptors(left);
+    rightDescriptors =
+      getOwnPropertyDescriptors(right);
+  } catch {
+    return false;
+  }
+
+  if (
+    (leftPrototype === null) !==
+      (rightPrototype === null)
+  ) {
+    return false;
+  }
+
+  const leftKeys = ownKeys(leftDescriptors);
+  const rightKeys = ownKeys(rightDescriptors);
+
+  if (leftKeys.length !== rightKeys.length) {
+    return false;
+  }
+
+  for (
+    let index = 0;
+    index < leftKeys.length;
+    index += 1
+  ) {
+    const key = leftKeys[index];
+
+    if (!hasOwn(rightDescriptors, key)) {
+      return false;
+    }
+
+    if (
+      !sameIntrinsicDescriptorShape(
+        leftDescriptors[key],
+        rightDescriptors[key],
+        depth + 1
+      )
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function sameIntrinsicDescriptorShape(
+  left,
+  right,
+  depth = 0
+) {
+  if (
+    left === undefined ||
+    right === undefined ||
+    left.enumerable !== right.enumerable ||
+    left.configurable !== right.configurable ||
+    ("writable" in left) !==
+      ("writable" in right)
+  ) {
+    return false;
+  }
+
+  if ("writable" in left) {
+    if (left.writable !== right.writable) {
+      return false;
+    }
+
+    const leftValue = left.value;
+    const rightValue = right.value;
+
+    if (
+      typeof leftValue === "function" ||
+      typeof rightValue === "function"
+    ) {
+      return sameIntrinsicCallable(
+        leftValue,
+        rightValue
+      );
+    }
+
+    if (
+      leftValue !== null &&
+      rightValue !== null &&
+      typeof leftValue === "object" &&
+      typeof rightValue === "object"
+    ) {
+      return sameIntrinsicObjectValue(
+        leftValue,
+        rightValue,
+        depth
+      );
+    }
+
+    return objectIs(
+      leftValue,
+      rightValue
+    );
+  }
+
+  const leftGet = left.get;
+  const rightGet = right.get;
+  const leftSet = left.set;
+  const rightSet = right.set;
+
+  if (
+    (leftGet === undefined) !==
+      (rightGet === undefined) ||
+    (leftSet === undefined) !==
+      (rightSet === undefined)
+  ) {
+    return false;
+  }
+
+  if (
+    leftGet !== undefined &&
+    !sameIntrinsicCallable(
+      leftGet,
+      rightGet
+    )
+  ) {
+    return false;
+  }
+
+  if (
+    leftSet !== undefined &&
+    !sameIntrinsicCallable(
+      leftSet,
+      rightSet
+    )
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+function isPristineIntrinsicPrototype(
+  candidate,
+  reference
+) {
+  if (
+    candidate === null ||
+    typeof candidate !== "object" ||
+    utilIsProxy(candidate)
+  ) {
+    return false;
+  }
+
+  let candidateDescriptors;
+  let referenceDescriptors;
+
+  try {
+    candidateDescriptors =
+      getOwnPropertyDescriptors(
+        candidate
+      );
+    referenceDescriptors =
+      getOwnPropertyDescriptors(
+        reference
+      );
+  } catch {
+    return false;
+  }
+
+  const candidateKeys =
+    ownKeys(candidateDescriptors);
+  const referenceKeys =
+    ownKeys(referenceDescriptors);
+
+  if (
+    candidateKeys.length !==
+      referenceKeys.length
+  ) {
+    return false;
+  }
+
+  for (
+    let index = 0;
+    index < referenceKeys.length;
+    index += 1
+  ) {
+    const key = referenceKeys[index];
+
+    if (
+      !hasOwn(candidateDescriptors, key) ||
+      !sameIntrinsicDescriptorShape(
+        candidateDescriptors[key],
+        referenceDescriptors[key]
+      )
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function addForeignPrototypeSurface(
+  fallback,
+  prototype,
+  reference
+) {
+  if (
+    !isPristineIntrinsicPrototype(
+      prototype,
+      reference
+    )
+  ) {
+    throw new Error(
+      "Hardened cross-realm evaluator prototypes must retain native intrinsic surfaces."
+    );
+  }
+
+  for (
+    let index = 0;
+    index < fallback.foreignSurfaces.length;
+    index += 1
+  ) {
+    if (
+      fallback.foreignSurfaces[index].holder ===
+        prototype
+    ) {
+      return;
+    }
+  }
+
+  reflectApply(
+    arrayPush,
+    fallback.foreignSurfaces,
+    [captureIntrinsicSurface(prototype)]
+  );
+}
+
 function captureEvaluatorFallbackPrototypes(
   value
 ) {
   const fallback = {
+    bySource:
+      new WeakMapConstructor(),
     arrayPrototype: null,
-    objectPrototype: null
+    objectPrototype: null,
+    foreignSurfaces: []
   };
 
   if (
@@ -807,10 +1106,25 @@ function captureEvaluatorFallbackPrototypes(
           arrayConstructorSource
         );
 
+      const parentPrototype =
+        prototype === null
+          ? null
+          : getPrototypeOf(prototype);
+
+      const objectConstructor =
+        parentPrototype === null ||
+        utilIsProxy(parentPrototype)
+          ? null
+          : captureNativeRealmConstructor(
+              parentPrototype,
+              objectConstructorSource
+            );
+
+      let plannedPrototype = null;
+
       if (
         arrayConstructor !== null &&
-        arrayConstructor !== ArrayConstructor &&
-        fallback.arrayPrototype === null
+        arrayConstructor !== ArrayConstructor
       ) {
         const previousDescriptor =
           getOwnPropertyDescriptor(
@@ -824,47 +1138,77 @@ function captureEvaluatorFallbackPrototypes(
             previousDescriptor
           )
         ) {
-          fallback.arrayPrototype =
-            prototype;
+          addForeignPrototypeSurface(
+            fallback,
+            prototype,
+            arrayPrototype
+          );
+
+          if (parentPrototype !== null) {
+            addForeignPrototypeSurface(
+              fallback,
+              parentPrototype,
+              objectPrototype
+            );
+          }
+
+          plannedPrototype = prototype;
+
+          if (fallback.arrayPrototype === null) {
+            fallback.arrayPrototype =
+              plannedPrototype;
+          }
         }
       }
 
-      const parentPrototype =
-        prototype === null
-          ? null
-          : getPrototypeOf(prototype);
-
       if (
-        parentPrototype !== null &&
-        !utilIsProxy(parentPrototype)
+        objectConstructor !== null &&
+        objectConstructor !== ObjectConstructor
       ) {
-        const objectConstructor =
-          captureNativeRealmConstructor(
-            parentPrototype,
-            objectConstructorSource
+        const previousDescriptor =
+          getOwnPropertyDescriptor(
+            objectConstructor,
+            arrayHasInstanceSymbol
           );
 
         if (
-          objectConstructor !== null &&
-          objectConstructor !== ObjectConstructor &&
-          fallback.objectPrototype === null
+          !canInstallEvaluatorInstanceSemantic(
+            objectConstructor,
+            previousDescriptor
+          )
         ) {
-          const previousDescriptor =
-            getOwnPropertyDescriptor(
-              objectConstructor,
-              arrayHasInstanceSymbol
-            );
+          addForeignPrototypeSurface(
+            fallback,
+            parentPrototype,
+            objectPrototype
+          );
 
-          if (
-            !canInstallEvaluatorInstanceSemantic(
-              objectConstructor,
-              previousDescriptor
-            )
-          ) {
+          if (fallback.objectPrototype === null) {
             fallback.objectPrototype =
               parentPrototype;
           }
+
+          if (plannedPrototype === null) {
+            plannedPrototype =
+              buildSafeCallbackPrototype(
+                arrayPrototype,
+                parentPrototype
+              );
+
+            if (fallback.arrayPrototype === null) {
+              fallback.arrayPrototype =
+                plannedPrototype;
+            }
+          }
         }
+      }
+
+      if (plannedPrototype !== null) {
+        reflectApply(
+          weakMapSet,
+          fallback.bySource,
+          [current, plannedPrototype]
+        );
       }
     } else {
       const objectConstructor =
@@ -875,8 +1219,7 @@ function captureEvaluatorFallbackPrototypes(
 
       if (
         objectConstructor !== null &&
-        objectConstructor !== ObjectConstructor &&
-        fallback.objectPrototype === null
+        objectConstructor !== ObjectConstructor
       ) {
         const previousDescriptor =
           getOwnPropertyDescriptor(
@@ -890,8 +1233,22 @@ function captureEvaluatorFallbackPrototypes(
             previousDescriptor
           )
         ) {
-          fallback.objectPrototype =
-            prototype;
+          addForeignPrototypeSurface(
+            fallback,
+            prototype,
+            objectPrototype
+          );
+
+          reflectApply(
+            weakMapSet,
+            fallback.bySource,
+            [current, prototype]
+          );
+
+          if (fallback.objectPrototype === null) {
+            fallback.objectPrototype =
+              prototype;
+          }
         }
       }
     }
@@ -924,7 +1281,9 @@ function captureEvaluatorFallbackPrototypes(
 }
 
 function buildEvaluatorPrototypePlan(
-  fallback
+  fallback,
+  sourceRoot,
+  canonicalRoot
 ) {
   const objectPrototypeForEvaluator =
     fallback.objectPrototype === null
@@ -932,24 +1291,134 @@ function buildEvaluatorPrototypePlan(
       : fallback.objectPrototype;
 
   let arrayPrototypeForEvaluator =
-    safeCallbackArrayPrototype;
+    fallback.arrayPrototype;
 
-  if (fallback.arrayPrototype !== null) {
+  if (arrayPrototypeForEvaluator === null) {
     arrayPrototypeForEvaluator =
-      fallback.arrayPrototype;
-  } else if (fallback.objectPrototype !== null) {
-    arrayPrototypeForEvaluator =
-      buildSafeCallbackPrototype(
-        arrayPrototype,
-        fallback.objectPrototype
+      fallback.objectPrototype === null
+        ? safeCallbackArrayPrototype
+        : buildSafeCallbackPrototype(
+            arrayPrototype,
+            fallback.objectPrototype
+          );
+  }
+
+  const byNode =
+    new WeakMapConstructor();
+
+  if (
+    sourceRoot !== null &&
+    canonicalRoot !== null &&
+    typeof sourceRoot === "object" &&
+    typeof canonicalRoot === "object"
+  ) {
+    const seen =
+      new WeakSetConstructor();
+    const stack = [{
+      source: sourceRoot,
+      canonical: canonicalRoot
+    }];
+
+    while (stack.length > 0) {
+      const pair =
+        reflectApply(
+          arrayPop,
+          stack,
+          []
+        );
+
+      if (
+        pair.source === null ||
+        pair.canonical === null ||
+        typeof pair.source !== "object" ||
+        typeof pair.canonical !== "object" ||
+        reflectApply(
+          weakSetHas,
+          seen,
+          [pair.source]
+        )
+      ) {
+        continue;
+      }
+
+      reflectApply(
+        weakSetAdd,
+        seen,
+        [pair.source]
       );
+
+      const plannedPrototype =
+        reflectApply(
+          weakMapGet,
+          fallback.bySource,
+          [pair.source]
+        );
+
+      if (plannedPrototype !== undefined) {
+        reflectApply(
+          weakMapSet,
+          byNode,
+          [
+            pair.canonical,
+            plannedPrototype
+          ]
+        );
+      }
+
+      const sourceDescriptors =
+        getOwnPropertyDescriptors(
+          pair.source
+        );
+      const canonicalDescriptors =
+        getOwnPropertyDescriptors(
+          pair.canonical
+        );
+      const keys = ownKeys(sourceDescriptors);
+
+      for (
+        let index = 0;
+        index < keys.length;
+        index += 1
+      ) {
+        const key = keys[index];
+        const sourceDescriptor =
+          sourceDescriptors[key];
+        const canonicalDescriptor =
+          canonicalDescriptors[key];
+
+        if (
+          sourceDescriptor !== undefined &&
+          canonicalDescriptor !== undefined &&
+          "value" in sourceDescriptor &&
+          "value" in canonicalDescriptor &&
+          sourceDescriptor.value !== null &&
+          canonicalDescriptor.value !== null &&
+          typeof sourceDescriptor.value === "object" &&
+          typeof canonicalDescriptor.value === "object"
+        ) {
+          reflectApply(
+            arrayPush,
+            stack,
+            [{
+              source:
+                sourceDescriptor.value,
+              canonical:
+                canonicalDescriptor.value
+            }]
+          );
+        }
+      }
+    }
   }
 
   return {
+    byNode,
     objectPrototype:
       objectPrototypeForEvaluator,
     arrayPrototype:
-      arrayPrototypeForEvaluator
+      arrayPrototypeForEvaluator,
+    foreignSurfaces:
+      fallback.foreignSurfaces
   };
 }
 
@@ -2094,62 +2563,121 @@ function createEvaluatorSnapshot(
   const seen =
     new WeakSetConstructor();
 
-  const stack = [cloned];
+  const stack = [{
+    source: value,
+    target: cloned
+  }];
 
   while (stack.length > 0) {
-    const current =
-      stack.pop();
+    const pair =
+      reflectApply(
+        arrayPop,
+        stack,
+        []
+      );
+    const current = pair.target;
+    const source = pair.source;
 
     if (
       current === null ||
+      source === null ||
       typeof current !== "object" ||
-      seen.has(current)
+      typeof source !== "object" ||
+      reflectApply(
+        weakSetHas,
+        seen,
+        [current]
+      )
     ) {
       continue;
     }
 
-    seen.add(current);
+    reflectApply(
+      weakSetAdd,
+      seen,
+      [current]
+    );
 
     const descriptors =
       getOwnPropertyDescriptors(
         current
       );
+    const sourceDescriptors =
+      getOwnPropertyDescriptors(
+        source
+      );
+    const keys = ownKeys(descriptors);
 
     for (
-      const key of ownKeys(descriptors)
+      let index = 0;
+      index < keys.length;
+      index += 1
     ) {
+      const key = keys[index];
       const descriptor =
         descriptors[key];
+      const sourceDescriptor =
+        sourceDescriptors[key];
 
       if (
         descriptor !== undefined &&
+        sourceDescriptor !== undefined &&
         "value" in descriptor &&
+        "value" in sourceDescriptor &&
         descriptor.value !== null &&
-        typeof descriptor.value ===
-          "object"
+        sourceDescriptor.value !== null &&
+        typeof descriptor.value === "object" &&
+        typeof sourceDescriptor.value === "object"
       ) {
-        stack.push(
-          descriptor.value
+        reflectApply(
+          arrayPush,
+          stack,
+          [{
+            source:
+              sourceDescriptor.value,
+            target:
+              descriptor.value
+          }]
         );
       }
     }
 
-    const currentPrototype =
-      getPrototypeOf(current);
+    const sourcePrototype =
+      getPrototypeOf(source);
+    const plannedPrototype =
+      reflectApply(
+        weakMapGet,
+        prototypePlan.byNode,
+        [source]
+      );
 
     setPrototypeOf(
       current,
-      arrayIsArray(current)
-        ? prototypePlan.arrayPrototype
-        : currentPrototype === null
-          ? null
-          : prototypePlan.objectPrototype
+      plannedPrototype !== undefined
+        ? plannedPrototype
+        : arrayIsArray(current)
+          ? prototypePlan.arrayPrototype
+          : sourcePrototype === null
+            ? null
+            : prototypePlan.objectPrototype
     );
 
     objectFreeze(current);
   }
 
   return cloned;
+}
+
+function restoreEvaluatorForeignSurfaces(
+  prototypePlan
+) {
+  if (
+    prototypePlan.foreignSurfaces.length > 0
+  ) {
+    restoreCallbackIntrinsicSurfaces(
+      prototypePlan.foreignSurfaces
+    );
+  }
 }
 
 function createSafeEvaluator(
@@ -2166,21 +2694,33 @@ function createSafeEvaluator(
         prototypePlan
       );
 
-    const result =
-      withRestoredCallbackIntrinsicSurfaces(
-        () =>
-          withSafeEvaluatorInstanceSemantics(
-            instanceSemantics,
-            () =>
-              reflectApply(
-                evaluator,
-                undefined,
-                [evaluatorOutput]
-              )
-          ),
-        undefined,
-        []
+    restoreEvaluatorForeignSurfaces(
+      prototypePlan
+    );
+
+    let result;
+
+    try {
+      result =
+        withRestoredCallbackIntrinsicSurfaces(
+          () =>
+            withSafeEvaluatorInstanceSemantics(
+              instanceSemantics,
+              () =>
+                reflectApply(
+                  evaluator,
+                  undefined,
+                  [evaluatorOutput]
+                )
+            ),
+          undefined,
+          []
+        );
+    } finally {
+      restoreEvaluatorForeignSurfaces(
+        prototypePlan
       );
+    }
 
     if (utilIsPromise(result)) {
       observeNativePromise(result);
@@ -2208,10 +2748,7 @@ function runPositiveControl(
   expectedOutput
 ) {
   const baselineOutput =
-    snapshotAiData(
-      expectedOutput,
-      "Positive-control expected output"
-    );
+    expectedOutput;
 
   const baselineMutation = {
     id:
@@ -3037,18 +3574,6 @@ async function runContractAttacks(
       expectedOutputInput
     );
 
-  const evaluatorPrototypePlan =
-    buildEvaluatorPrototypePlan(
-      evaluatorFallbackPrototypes
-    );
-
-  const safeEvaluator =
-    createSafeEvaluator(
-      evaluator,
-      evaluatorInstanceSemantics,
-      evaluatorPrototypePlan
-    );
-
   const contract =
     validateConfirmedContract(
       contractInput
@@ -3064,6 +3589,20 @@ async function runContractAttacks(
     snapshotAiData(
       expectedOutputInput,
       "Contract attack expectedOutput"
+    );
+
+  const evaluatorPrototypePlan =
+    buildEvaluatorPrototypePlan(
+      evaluatorFallbackPrototypes,
+      expectedOutputInput,
+      expectedOutput
+    );
+
+  const safeEvaluator =
+    createSafeEvaluator(
+      evaluator,
+      evaluatorInstanceSemantics,
+      evaluatorPrototypePlan
     );
 
   runPositiveControl(

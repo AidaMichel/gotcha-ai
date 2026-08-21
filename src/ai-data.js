@@ -22,6 +22,9 @@ const {
 const workerThreads =
   require("node:worker_threads");
 
+const nodeCrypto =
+  require("node:crypto");
+
 const vm =
   require("node:vm");
 
@@ -365,12 +368,43 @@ function captureCryptoSubtleSingleton() {
 const cryptoSubtleSingleton =
   captureCryptoSubtleSingleton();
 
+function captureNodeCryptoSubtleSingleton() {
+  try {
+    const webcrypto =
+      nodeCrypto.webcrypto;
+
+    if (
+      webcrypto === undefined ||
+      webcrypto === null ||
+      typeof webcrypto !== "object"
+    ) {
+      return null;
+    }
+
+    const subtle =
+      webcrypto.subtle;
+
+    return (
+      subtle !== null &&
+      typeof subtle === "object"
+    )
+      ? subtle
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+const nodeCryptoSubtleSingleton =
+  captureNodeCryptoSubtleSingleton();
+
 const unsupportedHostSingletons =
   objectFreeze(
     [
       workerThreads.locks,
       navigatorLocks,
-      cryptoSubtleSingleton
+      cryptoSubtleSingleton,
+      nodeCryptoSubtleSingleton
     ].filter(
       (value, index, values) =>
         value !== undefined &&
