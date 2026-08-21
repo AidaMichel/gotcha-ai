@@ -39,15 +39,18 @@ jobs:
             captureIntrinsicSurface(
               ArrayConstructor
             ),
-            captureIntrinsicSurface(
-              NumberConstructor
-            )'''
-          new = '''    captureIntrinsicSurface(
-              NumberConstructor
-            )'''
+'''
           if old not in text:
-              raise SystemExit("Could not find Array/Object constructor surface block")
-          path.write_text(text.replace(old, new, 1))
+              old = '''    captureIntrinsicSurface(
+      ObjectConstructor
+    ),
+    captureIntrinsicSurface(
+      ArrayConstructor
+    ),
+'''
+          if old not in text:
+              raise SystemExit("Could not find Array/Object constructor surface entries")
+          path.write_text(text.replace(old, "", 1))
           PY
 
       - name: Fix generated foreign Promise regression quoting
