@@ -34,6 +34,12 @@ const objectCreate =
 const objectPrototype =
   Object.prototype;
 
+const ObjectConstructor =
+  Object;
+
+const NumberConstructor =
+  Number;
+
 const arrayPrototype =
   Array.prototype;
 
@@ -72,6 +78,9 @@ const MapConstructor =
 const WeakSetConstructor =
   WeakSet;
 
+const WeakMapConstructor =
+  WeakMap;
+
 const defineProperty =
   Object.defineProperty;
 
@@ -98,6 +107,42 @@ const arrayMap =
 
 const arrayFind =
   Array.prototype.find;
+
+const arrayPush =
+  Array.prototype.push;
+
+const arrayPop =
+  Array.prototype.pop;
+
+const stringPrototype =
+  String.prototype;
+
+const stringTrim =
+  String.prototype.trim;
+
+const numberIsFinite =
+  Number.isFinite;
+
+const mapPrototype =
+  MapConstructor.prototype;
+
+const mapGet =
+  MapConstructor.prototype.get;
+
+const setPrototype =
+  SetConstructor.prototype;
+
+const setHas =
+  SetConstructor.prototype.has;
+
+const setAdd =
+  SetConstructor.prototype.add;
+
+const weakSetPrototype =
+  WeakSetConstructor.prototype;
+
+const weakMapPrototype =
+  WeakMapConstructor.prototype;
 
 const promisePrototype =
   Promise.prototype;
@@ -239,29 +284,55 @@ function safeArrayHasInstance(
   );
 }
 
-function restoreArrayHasInstance() {
+function safeObjectHasInstance(
+  value
+) {
   if (
-    arrayHasInstanceDescriptor ===
-      undefined
+    value !== null &&
+    typeof value === "object"
   ) {
-    deleteProperty(
-      ArrayConstructor,
-      arrayHasInstanceSymbol
-    );
+    return true;
+  }
 
+  return reflectApply(
+    functionHasInstance,
+    ObjectConstructor,
+    [value]
+  );
+}
+
+function restoreOwnDescriptor(
+  holder,
+  key,
+  descriptor
+) {
+  if (descriptor === undefined) {
+    deleteProperty(holder, key);
     return;
   }
 
   defineProperty(
-    ArrayConstructor,
-    arrayHasInstanceSymbol,
-    arrayHasInstanceDescriptor
+    holder,
+    key,
+    descriptor
   );
 }
 
-function withSafeArrayHasInstance(
+function withSafeEvaluatorInstanceSemantics(
   callback
 ) {
+  const previousArrayDescriptor =
+    getOwnPropertyDescriptor(
+      ArrayConstructor,
+      arrayHasInstanceSymbol
+    );
+
+  const previousObjectDescriptor =
+    getOwnPropertyDescriptor(
+      ObjectConstructor,
+      arrayHasInstanceSymbol
+    );
+
   defineProperty(
     ArrayConstructor,
     arrayHasInstanceSymbol,
@@ -274,10 +345,31 @@ function withSafeArrayHasInstance(
     }
   );
 
+  defineProperty(
+    ObjectConstructor,
+    arrayHasInstanceSymbol,
+    {
+      value:
+        safeObjectHasInstance,
+      writable: false,
+      enumerable: false,
+      configurable: true
+    }
+  );
+
   try {
     return callback();
   } finally {
-    restoreArrayHasInstance();
+    restoreOwnDescriptor(
+      ObjectConstructor,
+      arrayHasInstanceSymbol,
+      previousObjectDescriptor
+    );
+    restoreOwnDescriptor(
+      ArrayConstructor,
+      arrayHasInstanceSymbol,
+      previousArrayDescriptor
+    );
   }
 }
 
@@ -340,7 +432,11 @@ function requireNonEmptyString(
 ) {
   if (
     typeof value !== "string" ||
-    value.trim() === ""
+    reflectApply(
+      stringTrim,
+      value,
+      []
+    ) === ""
   ) {
     throw new Error(
       `${label} must be a non-empty string.`
@@ -354,7 +450,7 @@ function requireScore(
 ) {
   if (
     typeof value !== "number" ||
-    !Number.isFinite(value) ||
+    !numberIsFinite(value) ||
     value < 0 ||
     value > 1
   ) {
@@ -424,6 +520,141 @@ function samePropertyDescriptor(
   }
 
   return true;
+}
+
+function captureIntrinsicSurface(
+  holder
+) {
+  return {
+    holder,
+    descriptors:
+      getOwnPropertyDescriptors(holder)
+  };
+}
+
+function captureCallbackIntrinsicSurfaces() {
+  return [
+    captureIntrinsicSurface(
+      objectPrototype
+    ),
+    captureIntrinsicSurface(
+      arrayPrototype
+    ),
+    captureIntrinsicSurface(
+      stringPrototype
+    ),
+    captureIntrinsicSurface(
+      mapPrototype
+    ),
+    captureIntrinsicSurface(
+      setPrototype
+    ),
+    captureIntrinsicSurface(
+      weakMapPrototype
+    ),
+    captureIntrinsicSurface(
+      weakSetPrototype
+    ),
+    captureIntrinsicSurface(
+      ObjectConstructor
+    ),
+    captureIntrinsicSurface(
+      ArrayConstructor
+    ),
+    captureIntrinsicSurface(
+      NumberConstructor
+    )
+  ];
+}
+
+function restoreIntrinsicSurface(
+  surface
+) {
+  const holder =
+    surface.holder;
+  const expected =
+    surface.descriptors;
+  const current =
+    getOwnPropertyDescriptors(holder);
+
+  const currentKeys = ownKeys(current);
+  for (
+    let index = 0;
+    index < currentKeys.length;
+    index += 1
+  ) {
+    const key = currentKeys[index];
+
+    if (!hasOwn(expected, key)) {
+      if (!deleteProperty(holder, key)) {
+        throw new Error(
+          "Callback intrinsic surface could not be restored."
+        );
+      }
+    }
+  }
+
+  const expectedKeys = ownKeys(expected);
+  for (
+    let index = 0;
+    index < expectedKeys.length;
+    index += 1
+  ) {
+    const key = expectedKeys[index];
+    const currentDescriptor =
+      getOwnPropertyDescriptor(
+        holder,
+        key
+      );
+    const expectedDescriptor =
+      expected[key];
+
+    if (
+      !samePropertyDescriptor(
+        currentDescriptor,
+        expectedDescriptor
+      )
+    ) {
+      try {
+        defineProperty(
+          holder,
+          key,
+          expectedDescriptor
+        );
+      } catch {
+        throw new Error(
+          "Callback intrinsic surface could not be restored."
+        );
+      }
+    }
+  }
+}
+
+function withRestoredCallbackIntrinsicSurfaces(
+  callback,
+  thisArg,
+  args
+) {
+  const surfaces =
+    captureCallbackIntrinsicSurfaces();
+
+  try {
+    return reflectApply(
+      callback,
+      thisArg,
+      args
+    );
+  } finally {
+    for (
+      let index = 0;
+      index < surfaces.length;
+      index += 1
+    ) {
+      restoreIntrinsicSurface(
+        surfaces[index]
+      );
+    }
+  }
 }
 
 function requirePromiseIntrinsicIntegrity() {
@@ -563,6 +794,21 @@ function normalizeRule(
     label
   );
 
+  for (
+    const key of [
+      "id",
+      "statement",
+      "kind",
+      "severity"
+    ]
+  ) {
+    requireOwnDataProperty(
+      rule,
+      key,
+      label
+    );
+  }
+
   const id = rule.id;
   const statement = rule.statement;
   const kind = rule.kind;
@@ -573,13 +819,23 @@ function normalizeRule(
     `${label} id`
   );
 
-  if (ids.has(id)) {
+  if (
+    reflectApply(
+      setHas,
+      ids,
+      [id]
+    )
+  ) {
     throw new Error(
       `Duplicate Quality Contract rule id: ${id}`
     );
   }
 
-  ids.add(id);
+  reflectApply(
+    setAdd,
+    ids,
+    [id]
+  );
 
   requireNonEmptyString(
     statement,
@@ -625,6 +881,21 @@ function validateConfirmedContract(
     snapshot,
     "Quality Contract"
   );
+
+  for (
+    const key of [
+      "version",
+      "status",
+      "task",
+      "rules"
+    ]
+  ) {
+    requireOwnDataProperty(
+      snapshot,
+      key,
+      "Quality Contract"
+    );
+  }
 
   if (
     snapshot.version !==
@@ -679,13 +950,17 @@ function validateConfirmedContract(
   const ids = new SetConstructor();
 
   const rules =
-    snapshot.rules.map(
-      (rule, index) =>
-        normalizeRule(
-          rule,
-          index,
-          ids
-        )
+    reflectApply(
+      arrayMap,
+      snapshot.rules,
+      [
+        (rule, index) =>
+          normalizeRule(
+            rule,
+            index,
+            ids
+          )
+      ]
     );
 
   return objectFreeze({
@@ -939,6 +1214,16 @@ function withSafePromiseConstructor(
   }
 
   if (ownConstructor !== undefined) {
+    if (
+      !("get" in ownConstructor) &&
+      !("set" in ownConstructor) &&
+      ownConstructor.value ===
+        promiseConstructor
+    ) {
+      requirePromiseIntrinsicIntegrity();
+      return callback();
+    }
+
     throw new Error(
       "Native Promise cannot be observed safely."
     );
@@ -1128,9 +1413,9 @@ function createSafeEvaluator(
       );
 
     const result =
-      withSafeArrayHasInstance(
+      withSafeEvaluatorInstanceSemantics(
         () =>
-          reflectApply(
+          withRestoredCallbackIntrinsicSurfaces(
             evaluator,
             undefined,
             [evaluatorOutput]
@@ -1291,7 +1576,7 @@ function invokeGenerator(
   argumentsObject
 ) {
   const returned =
-    reflectApply(
+    withRestoredCallbackIntrinsicSurfaces(
       generator,
       undefined,
       [argumentsObject]
@@ -1372,13 +1657,23 @@ function normalizeGeneratorAttack(
     `${label} id`
   );
 
-  if (attackIds.has(id)) {
+  if (
+    reflectApply(
+      setHas,
+      attackIds,
+      [id]
+    )
+  ) {
     throw new Error(
       `Duplicate generated attack id: ${id}`
     );
   }
 
-  attackIds.add(id);
+  reflectApply(
+    setAdd,
+    attackIds,
+    [id]
+  );
 
   requireNonEmptyString(
     ruleId,
@@ -1386,7 +1681,11 @@ function normalizeGeneratorAttack(
   );
 
   const rule =
-    ruleById.get(ruleId);
+    reflectApply(
+      mapGet,
+      ruleById,
+      [ruleId]
+    );
 
   if (rule === undefined) {
     throw new Error(
@@ -1425,7 +1724,8 @@ function normalizeGeneratorAttack(
     `${label} scores`
   );
 
-  const normalizedScores = {};
+  const normalizedScores =
+    objectCreate(null);
 
   for (const scoreKey of SCORE_KEYS) {
     requireOwnDataProperty(

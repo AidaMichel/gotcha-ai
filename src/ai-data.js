@@ -25,6 +25,10 @@ const workerThreads =
 const vm =
   require("node:vm");
 
+const {
+  AsyncLocalStorage
+} = require("node:async_hooks");
+
 const vmIsContext =
   typeof vm.isContext === "function"
     ? vm.isContext
@@ -725,6 +729,12 @@ const vmScriptCreateCachedData =
     "createCachedData"
   );
 
+const asyncLocalStorageGetStore =
+  capturePrototypeMethod(
+    AsyncLocalStorage,
+    "getStore"
+  );
+
 function hasUnsupportedHostBrand(
   value
 ) {
@@ -880,6 +890,21 @@ function hasUnsupportedAdditionalBrand(
       );
 
       return true;
+    } catch {}
+  }
+
+  if (asyncLocalStorageGetStore !== null) {
+    try {
+      const store =
+        reflectApply(
+          asyncLocalStorageGetStore,
+          value,
+          []
+        );
+
+      if (store !== undefined) {
+        return true;
+      }
     } catch {}
   }
 

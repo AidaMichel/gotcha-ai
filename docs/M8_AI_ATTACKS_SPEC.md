@@ -456,6 +456,18 @@ Gotcha owns:
 
 ---
 
+### 5.9 Trusted callback boundary
+
+The evaluator and injected generator are **trusted local integration callbacks**.
+
+M8 is not a JavaScript sandbox for caller-supplied code. The security boundary is the structured data that crosses into and out of those callbacks, especially AI/model-produced generator data. Model-produced strings or objects are validated as declarative data and are never executed as code.
+
+Callbacks should remain deterministic and side-effect free. M8 restores the core built-in prototype surfaces around callback invocation as defense in depth so ordinary accidental prototype mutation cannot corrupt later validation or ranking, but M8 does not claim containment of deliberate irreversible sabotage of the host JavaScript realm by trusted callback code.
+
+This distinction keeps the boundary testable: malformed or prototype-polluted **data** must fail closed, while arbitrary hostile JavaScript execution belongs to a separate sandboxing capability outside M8.
+
+---
+
 ## 6. Case-Scoped Attack Generation
 
 M8 operates on one eval case at a time.
