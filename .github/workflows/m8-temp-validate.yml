@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - milestone-8-ai-attacks
+  pull_request:
+    branches:
+      - main
 
 jobs:
   validate:
