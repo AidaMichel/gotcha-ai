@@ -27,6 +27,7 @@ jobs:
         run: |
           python3 .github/scripts/m8_round7_patch.py
           python3 .github/scripts/m8_round7_fix_order.py
+          python3 .github/scripts/m8_round7_fix_iterators.py
 
       - name: Detect source changes
         id: changes
