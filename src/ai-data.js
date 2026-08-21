@@ -12,6 +12,9 @@ const {
 const workerThreads =
   require("node:worker_threads");
 
+const vm =
+  require("node:vm");
+
 const getOwnPropertyDescriptors =
   Object.getOwnPropertyDescriptors;
 
@@ -29,6 +32,30 @@ const reflectApply =
 
 const defineProperty =
   Object.defineProperty;
+
+const objectFreeze =
+  Object.freeze;
+
+const arrayIsArray =
+  Array.isArray;
+
+const objectIs =
+  Object.is;
+
+const numberIsFinite =
+  Number.isFinite;
+
+const numberIsInteger =
+  Number.isInteger;
+
+const WeakSetConstructor =
+  WeakSet;
+
+const WeakMapConstructor =
+  WeakMap;
+
+const ArrayConstructor =
+  Array;
 
 const functionToString =
   Function.prototype.toString;
@@ -96,7 +123,7 @@ function requireFiniteNumber(
   value,
   label
 ) {
-  if (!Number.isFinite(value)) {
+  if (!numberIsFinite(value)) {
     throw new Error(
       `${label} must be a finite number.`
     );
@@ -249,7 +276,7 @@ function isArrayIndexKey(
     Number(key);
 
   return (
-    Number.isInteger(numeric) &&
+    numberIsInteger(numeric) &&
     numeric >= 0 &&
     numeric < MAX_ARRAY_INDEX &&
     String(numeric) === key
@@ -284,7 +311,7 @@ const navigatorLocks =
   captureNavigatorLocks();
 
 const unsupportedHostSingletons =
-  Object.freeze(
+  objectFreeze(
     [
       workerThreads.locks,
       navigatorLocks
@@ -363,6 +390,34 @@ function capturePrototypeMethod(
     : null;
 }
 
+function captureMethodFromPrototype(
+  prototype,
+  propertyName
+) {
+  if (
+    prototype === null ||
+    typeof prototype !== "object" ||
+    utilTypes.isProxy(prototype)
+  ) {
+    return null;
+  }
+
+  const descriptor =
+    getOwnPropertyDescriptor(
+      prototype,
+      propertyName
+    );
+
+  return (
+    descriptor !== undefined &&
+    "value" in descriptor &&
+    typeof descriptor.value ===
+      "function"
+  )
+    ? descriptor.value
+    : null;
+}
+
 function captureGlobalConstructor(
   name
 ) {
@@ -427,7 +482,7 @@ const performanceObserverBrandProbe =
   capturePerformanceObserverBrandProbe();
 
 const performanceObserverInspectOptions =
-  Object.freeze({
+  objectFreeze({
     depth: 0
   });
 
@@ -458,7 +513,7 @@ function hasUnsupportedPerformanceObserverBrand(
 }
 
 const HOST_BRAND_GETTER_SPECS =
-  Object.freeze([
+  objectFreeze([
     ["Crypto", "subtle"],
     ["Navigator", "userAgent"],
     ["AbortController", "signal"],
@@ -483,7 +538,7 @@ const HOST_BRAND_GETTER_SPECS =
   ]);
 
 const unsupportedHostBrandGetters =
-  Object.freeze(
+  objectFreeze(
     HOST_BRAND_GETTER_SPECS
       .map(
         ([constructorName, propertyName]) =>
@@ -501,7 +556,7 @@ const unsupportedHostBrandGetters =
   );
 
 const additionalHostBrandMethodProbes =
-  Object.freeze(
+  objectFreeze(
     [
       {
         method:
@@ -550,10 +605,10 @@ const finalizationRegistryUnregister =
   );
 
 const finalizationRegistryProbeToken =
-  Object.freeze({});
+  objectFreeze({});
 
 const intlResolvedOptionMethods =
-  Object.freeze(
+  objectFreeze(
     [
       "Collator",
       "DateTimeFormat",
@@ -638,6 +693,22 @@ const webAssemblyGlobalValueGetter =
         "value"
       )
     : null;
+
+const vmScriptBasePrototype =
+  typeof vm.Script === "function" &&
+  vm.Script.prototype !== null &&
+  typeof vm.Script.prototype ===
+    "object"
+    ? getPrototypeOf(
+        vm.Script.prototype
+      )
+    : null;
+
+const vmScriptCreateCachedData =
+  captureMethodFromPrototype(
+    vmScriptBasePrototype,
+    "createCachedData"
+  );
 
 function hasUnsupportedHostBrand(
   value
@@ -785,79 +856,72 @@ function hasUnsupportedAdditionalBrand(
     } catch {}
   }
 
+  if (vmScriptCreateCachedData !== null) {
+    try {
+      reflectApply(
+        vmScriptCreateCachedData,
+        value,
+        []
+      );
+
+      return true;
+    } catch {}
+  }
+
   return false;
 }
 
 function isStructuredCloneProbeSafe(
   value
 ) {
-  const seen =
-    new WeakSet();
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    utilTypes.isProxy(value)
+  ) {
+    return false;
+  }
 
-  const stack = [value];
+  let descriptors;
 
-  while (stack.length > 0) {
-    const current =
-      stack.pop();
+  try {
+    descriptors =
+      getOwnPropertyDescriptors(
+        value
+      );
+  } catch {
+    return false;
+  }
+
+  for (
+    const key of ownKeys(descriptors)
+  ) {
+    if (typeof key === "symbol") {
+      return false;
+    }
+
+    const descriptor =
+      descriptors[key];
 
     if (
-      current === null ||
-      typeof current !== "object" ||
-      seen.has(current)
+      "get" in descriptor ||
+      "set" in descriptor
     ) {
-      continue;
-    }
-
-    if (utilTypes.isProxy(current)) {
       return false;
     }
 
-    seen.add(current);
+    const child =
+      descriptor.value;
 
-    let descriptors;
-
-    try {
-      descriptors =
-        getOwnPropertyDescriptors(
-          current
-        );
-    } catch {
-      return false;
-    }
-
-    for (
-      const key of ownKeys(descriptors)
-    ) {
-      if (typeof key === "symbol") {
-        return false;
-      }
-
-      const descriptor =
-        descriptors[key];
-
-      if (
-        "get" in descriptor ||
-        "set" in descriptor
-      ) {
-        return false;
-      }
-
-      const child =
-        descriptor.value;
-
-      if (
-        typeof child === "function" ||
-        typeof child === "symbol"
-      ) {
-        return false;
-      }
-
-      if (
+    if (
+      typeof child === "function" ||
+      typeof child === "symbol" ||
+      (
         child !== null &&
         typeof child === "object"
-      ) {
-        stack.push(child);
-      }
+      )
+    ) {
+      return false;
     }
   }
 
@@ -882,8 +946,12 @@ function hasUncloneableStructuredCloneBrand(
     );
 
     return false;
-  } catch {
-    return true;
+  } catch (error) {
+    return (
+      error !== null &&
+      typeof error === "object" &&
+      error.name === "DataCloneError"
+    );
   }
 }
 
@@ -1022,7 +1090,7 @@ function captureArrayEntries(
     "set" in lengthDescriptor ||
     typeof lengthDescriptor.value !==
       "number" ||
-    !Number.isInteger(
+    !numberIsInteger(
       lengthDescriptor.value
     ) ||
     lengthDescriptor.value < 0
@@ -1166,7 +1234,7 @@ function prepareAiDataValue(
 
     return {
       value:
-        Object.is(value, -0)
+        objectIs(value, -0)
           ? 0
           : value,
       frame: null
@@ -1209,7 +1277,7 @@ function prepareAiDataValue(
   }
 
   const isArray =
-    Array.isArray(value);
+    arrayIsArray(value);
 
   const entries =
     isArray
@@ -1224,7 +1292,7 @@ function prepareAiDataValue(
 
   const target =
     isArray
-      ? new Array(entries.length)
+      ? new ArrayConstructor(entries.length)
       : {};
 
   memo.set(
@@ -1252,10 +1320,10 @@ function cloneAiData(
   label = "AI data"
 ) {
   const active =
-    new WeakSet();
+    new WeakSetConstructor();
 
   const memo =
-    new WeakMap();
+    new WeakMapConstructor();
 
   const root =
     prepareAiDataValue(
@@ -1340,7 +1408,7 @@ function freezeAiData(
   }
 
   const seen =
-    new WeakSet();
+    new WeakSetConstructor();
 
   const stack = [
     {
@@ -1379,7 +1447,7 @@ function freezeAiData(
     }
 
     const isArray =
-      Array.isArray(current);
+      arrayIsArray(current);
 
     const entries =
       isArray
@@ -1411,7 +1479,7 @@ function freezeAiData(
       }
     }
 
-    Object.freeze(current);
+    objectFreeze(current);
   }
 
   return value;

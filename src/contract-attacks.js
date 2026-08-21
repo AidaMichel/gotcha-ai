@@ -23,6 +23,30 @@ const getOwnPropertyDescriptor =
 const getPrototypeOf =
   Object.getPrototypeOf;
 
+const objectCreate =
+  Object.create;
+
+const objectPrototype =
+  Object.prototype;
+
+const arrayPrototype =
+  Array.prototype;
+
+const arrayIsArray =
+  Array.isArray;
+
+const functionToString =
+  Function.prototype.toString;
+
+const SetConstructor =
+  Set;
+
+const MapConstructor =
+  Map;
+
+const WeakSetConstructor =
+  WeakSet;
+
 const defineProperty =
   Object.defineProperty;
 
@@ -74,6 +98,24 @@ const promiseSpeciesDescriptor =
     promiseSpecies
   );
 
+const promiseConstructorSource =
+  reflectApply(
+    functionToString,
+    promiseConstructor,
+    []
+  );
+
+const promiseSpeciesGetterSource =
+  promiseSpeciesDescriptor !== undefined &&
+  typeof promiseSpeciesDescriptor.get ===
+    "function"
+    ? reflectApply(
+        functionToString,
+        promiseSpeciesDescriptor.get,
+        []
+      )
+    : null;
+
 const safePromiseSpeciesContainer = {};
 
 defineProperty(
@@ -94,6 +136,69 @@ objectFreeze(
 
 const hasOwnProperty =
   Object.prototype.hasOwnProperty;
+
+function buildSafeCallbackPrototype(
+  sourcePrototype,
+  parentPrototype
+) {
+  const target =
+    objectCreate(parentPrototype);
+
+  const descriptors =
+    getOwnPropertyDescriptors(
+      sourcePrototype
+    );
+
+  for (
+    const key of ownKeys(descriptors)
+  ) {
+    if (
+      key === "constructor" ||
+      key === "__proto__" ||
+      key === Symbol.unscopables
+    ) {
+      continue;
+    }
+
+    const descriptor =
+      descriptors[key];
+
+    if (
+      !("value" in descriptor) ||
+      typeof descriptor.value !==
+        "function"
+    ) {
+      continue;
+    }
+
+    defineProperty(
+      target,
+      key,
+      {
+        value:
+          descriptor.value,
+        writable: false,
+        enumerable:
+          descriptor.enumerable,
+        configurable: false
+      }
+    );
+  }
+
+  return objectFreeze(target);
+}
+
+const safeCallbackObjectPrototype =
+  buildSafeCallbackPrototype(
+    objectPrototype,
+    null
+  );
+
+const safeCallbackArrayPrototype =
+  buildSafeCallbackPrototype(
+    arrayPrototype,
+    safeCallbackObjectPrototype
+  );
 
 const MAX_RULES = 7;
 const MAX_ATTACKS = 20;
@@ -256,7 +361,7 @@ function captureOptions(
   if (
     value === null ||
     typeof value !== "object" ||
-    Array.isArray(value)
+    arrayIsArray(value)
   ) {
     throw new Error(
       `${label} must be an object.`
@@ -334,7 +439,7 @@ function requirePlainSnapshotObject(
   if (
     value === null ||
     typeof value !== "object" ||
-    Array.isArray(value)
+    arrayIsArray(value)
   ) {
     throw new Error(
       `${label} must be an object.`
@@ -447,7 +552,7 @@ function validateConfirmedContract(
     "Quality Contract task"
   );
 
-  if (!Array.isArray(snapshot.rules)) {
+  if (!arrayIsArray(snapshot.rules)) {
     throw new Error(
       "Quality Contract rules must be an array."
     );
@@ -468,7 +573,7 @@ function validateConfirmedContract(
     );
   }
 
-  const ids = new Set();
+  const ids = new SetConstructor();
 
   const rules =
     snapshot.rules.map(
@@ -507,6 +612,89 @@ function requireTrustedCallbacks(
       "Generator must be a function."
     );
   }
+}
+
+function isAuthenticatedStandardPromisePrototype(
+  prototype,
+  constructorDescriptor
+) {
+  if (
+    prototype === null ||
+    typeof prototype !== "object" ||
+    utilTypes.isProxy(prototype) ||
+    constructorDescriptor === undefined ||
+    "get" in constructorDescriptor ||
+    "set" in constructorDescriptor ||
+    typeof constructorDescriptor.value !==
+      "function" ||
+    utilTypes.isProxy(
+      constructorDescriptor.value
+    ) ||
+    promiseSpeciesGetterSource === null
+  ) {
+    return false;
+  }
+
+  const constructor =
+    constructorDescriptor.value;
+
+  let constructorSource;
+  let prototypeDescriptor;
+  let speciesDescriptor;
+  let speciesGetterSource;
+
+  try {
+    constructorSource =
+      reflectApply(
+        functionToString,
+        constructor,
+        []
+      );
+
+    prototypeDescriptor =
+      getOwnPropertyDescriptor(
+        constructor,
+        "prototype"
+      );
+
+    speciesDescriptor =
+      getOwnPropertyDescriptor(
+        constructor,
+        promiseSpecies
+      );
+
+    speciesGetterSource =
+      speciesDescriptor !== undefined &&
+      typeof speciesDescriptor.get ===
+        "function" &&
+      !utilTypes.isProxy(
+        speciesDescriptor.get
+      )
+        ? reflectApply(
+            functionToString,
+            speciesDescriptor.get,
+            []
+          )
+        : null;
+  } catch {
+    return false;
+  }
+
+  return (
+    constructorSource ===
+      promiseConstructorSource &&
+    prototypeDescriptor !==
+      undefined &&
+    !("get" in prototypeDescriptor) &&
+    !("set" in prototypeDescriptor) &&
+    prototypeDescriptor.value ===
+      prototype &&
+    speciesDescriptor !== undefined &&
+    !("value" in speciesDescriptor) &&
+    speciesDescriptor.set === undefined &&
+    speciesGetterSource ===
+      promiseSpeciesGetterSource
+  );
 }
 
 function restorePromiseConstructor(
@@ -673,20 +861,29 @@ function withSafePromiseConstructor(
     );
 
   if (
-    !canInstallSafePromiseConstructor(
+    canInstallSafePromiseConstructor(
       prototype,
       prototypeConstructor
     )
   ) {
-    throw new Error(
-      "Native Promise cannot be observed safely."
+    return withTemporarySafePromiseConstructor(
+      prototype,
+      prototypeConstructor,
+      callback
     );
   }
 
-  return withTemporarySafePromiseConstructor(
-    prototype,
-    prototypeConstructor,
-    callback
+  if (
+    isAuthenticatedStandardPromisePrototype(
+      prototype,
+      prototypeConstructor
+    )
+  ) {
+    return callback();
+  }
+
+  throw new Error(
+    "Native Promise cannot be observed safely."
   );
 }
 
@@ -744,17 +941,94 @@ function observeNativePromise(
   );
 }
 
+function createEvaluatorSnapshot(
+  value
+) {
+  const cloned =
+    cloneAiData(
+      value,
+      "Evaluator output"
+    );
+
+  if (
+    cloned === null ||
+    typeof cloned !== "object"
+  ) {
+    return cloned;
+  }
+
+  const seen =
+    new WeakSetConstructor();
+
+  const stack = [cloned];
+
+  while (stack.length > 0) {
+    const current =
+      stack.pop();
+
+    if (
+      current === null ||
+      typeof current !== "object" ||
+      seen.has(current)
+    ) {
+      continue;
+    }
+
+    seen.add(current);
+
+    const descriptors =
+      getOwnPropertyDescriptors(
+        current
+      );
+
+    for (
+      const key of ownKeys(descriptors)
+    ) {
+      const descriptor =
+        descriptors[key];
+
+      if (
+        descriptor !== undefined &&
+        "value" in descriptor &&
+        descriptor.value !== null &&
+        typeof descriptor.value ===
+          "object"
+      ) {
+        stack.push(
+          descriptor.value
+        );
+      }
+    }
+
+    setPrototypeOf(
+      current,
+      arrayIsArray(current)
+        ? safeCallbackArrayPrototype
+        : safeCallbackObjectPrototype
+    );
+
+    objectFreeze(current);
+  }
+
+  return cloned;
+}
+
 function createSafeEvaluator(
   evaluator
 ) {
   return function safeEvaluator(
     output
   ) {
+    const evaluatorOutput =
+      createEvaluatorSnapshot(
+        output
+      );
+
     const result =
       reflectApply(
         evaluator,
         undefined,
-        [output]
+        [evaluatorOutput]
       );
 
     if (utilTypes.isPromise(result)) {
@@ -829,7 +1103,7 @@ function isolateGeneratorData(
   value
 ) {
   const seen =
-    new WeakSet();
+    new WeakSetConstructor();
 
   const stack = [value];
 
@@ -1099,7 +1373,7 @@ function validateGeneratorOutput(
     );
   }
 
-  if (!Array.isArray(snapshot.attacks)) {
+  if (!arrayIsArray(snapshot.attacks)) {
     throw new Error(
       "Generator output attacks must be an array."
     );
@@ -1115,7 +1389,7 @@ function validateGeneratorOutput(
   }
 
   const ruleById =
-    new Map(
+    new MapConstructor(
       reflectApply(
         arrayMap,
         contract.rules,
@@ -1129,7 +1403,7 @@ function validateGeneratorOutput(
     );
 
   const attackIds =
-    new Set();
+    new SetConstructor();
 
   const attacks =
     reflectApply(
