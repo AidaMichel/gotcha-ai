@@ -24,7 +24,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          python3 .github/scripts/m8-final-patch2.py
+          python3 .github/scripts/m8-final-patch3.py
 
           node --check src/ai-data.js
           node --check src/contract-attacks.js
