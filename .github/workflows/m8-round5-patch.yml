@@ -1,4 +1,4 @@
-name: M8 round 5 remediation
+name: M8 round 5 Node 14 validation
 
 on:
   pull_request:
@@ -6,11 +6,10 @@ on:
       - main
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  patch-and-validate:
-    if: github.event.pull_request.head.repo.full_name == github.repository
+  node14:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,46 +19,166 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22.23.0
-
-      - name: Apply round 5 patch
-        run: python3 .github/scripts/m8_round5_patch.py
+          node-version: 14.18.0
 
       - name: Syntax
         run: |
           node --check src/ai-data.js
           node --check src/contract-attacks.js
-          node --check test/m8-codex-round5.test.js
 
-      - name: Round 5 focused regressions
-        run: node --test test/m8-codex-round5.test.js
-
-      - name: M8 focused suites
+      - name: Round 5 minimum-runtime smoke
         run: |
-          node --test \
-            test/contract-attacks.test.js \
-            test/ai-data.test.js \
-            test/m8-codex-remediation.test.js \
-            test/m8-codex-round3.test.js \
-            test/m8-codex-round4.test.js \
-            test/m8-codex-round5.test.js
+          node --unhandled-rejections=strict - <<'NODE'
+          "use strict";
 
-      - name: Full repository
-        run: node --test
+          const vm = require("node:vm");
+          const util = require("node:util");
+          const { runContractAttacks } = require("./src");
+          const { cloneAiData } = require("./src/ai-data");
 
-      - name: Diff checks
-        run: |
-          git diff --check
-          git diff origin/main...HEAD -- src/engine.js
+          function contract() {
+            return {
+              version: 1,
+              status: "confirmed",
+              task: "Return the approved value.",
+              rules: [{
+                id: "value-rule",
+                statement: "Return the approved value.",
+                kind: "required",
+                severity: "critical"
+              }]
+            };
+          }
 
-      - name: Commit validated remediation
-        run: |
-          if git diff --quiet -- src/ai-data.js src/contract-attacks.js test/m8-codex-round5.test.js; then
-            echo "Round 5 already applied; nothing to commit."
-            exit 0
-          fi
-          git config user.name "AidaMichel"
-          git config user.email "126730924+AidaMichel@users.noreply.github.com"
-          git add src/ai-data.js src/contract-attacks.js test/m8-codex-round5.test.js
-          git commit -m "fix: harden M8 round 5 boundaries"
-          git push origin HEAD:${{ github.event.pull_request.head.ref }}
+          function output(mutatedOutput) {
+            return {
+              version: 1,
+              task: "Return the approved value.",
+              attacks: [{
+                id: "wrong-value",
+                ruleId: "value-rule",
+                type: "wrong-value",
+                description: "Changes the approved value.",
+                rationale: "Proposed violation.",
+                mutatedOutput,
+                scores: {
+                  realism: 1,
+                  subtlety: 1,
+                  novelty: 1,
+                  fixability: 1
+                }
+              }]
+            };
+          }
+
+          function deep(depth, leaf) {
+            const root = {};
+            let cursor = root;
+            for (let index = 0; index < depth; index += 1) {
+              cursor.next = {};
+              cursor = cursor.next;
+            }
+            cursor.value = leaf;
+            return root;
+          }
+
+          async function main() {
+            const context = vm.createContext({ foo: "bar" });
+            let contextRejected = false;
+            try {
+              cloneAiData(context, "context");
+            } catch (error) {
+              contextRejected = /unsupported runtime object/.test(String(error && error.message));
+            }
+            if (!contextRejected) throw new Error("vm context was not rejected");
+
+            const expected = deep(2500, "approved");
+            const deepResult = await runContractAttacks({
+              contract: contract(),
+              input: { request: "approved" },
+              expectedOutput: expected,
+              evaluator: () => true,
+              generator: () => output(deep(2500, "approved"))
+            });
+            if (
+              deepResult.generatedAttacks.length !== 0 ||
+              deepResult.discardedAttacks.length !== 1 ||
+              deepResult.discardedAttacks[0].reason !== "unchanged-output"
+            ) {
+              throw new Error("deep stack-safe equality smoke failed");
+            }
+
+            const originalIsPromise = util.types.isPromise;
+            try {
+              let sawRejection = false;
+              try {
+                await runContractAttacks({
+                  contract: contract(),
+                  input: { request: "approved" },
+                  expectedOutput: { value: "approved" },
+                  evaluator: () => true,
+                  generator() {
+                    util.types.isPromise = () => false;
+                    return Promise.reject(new Error("captured predicate rejection"));
+                  }
+                });
+              } catch (error) {
+                sawRejection = /captured predicate rejection/.test(String(error && error.message));
+              }
+              if (!sawRejection) throw new Error("captured Promise predicate smoke failed");
+            } finally {
+              util.types.isPromise = originalIsPromise;
+            }
+
+            const arrayResult = await runContractAttacks({
+              contract: contract(),
+              input: { request: "approved" },
+              expectedOutput: [],
+              evaluator: value => value instanceof Array,
+              generator: () => output(["wrong"])
+            });
+            if (!arrayResult.topFinding || arrayResult.topFinding.id !== "wrong-value") {
+              throw new Error("Array instanceof compatibility smoke failed");
+            }
+
+            const originalVersion = Object.getOwnPropertyDescriptor(Object.prototype, "version");
+            const originalTask = Object.getOwnPropertyDescriptor(Object.prototype, "task");
+            const originalAttacks = Object.getOwnPropertyDescriptor(Object.prototype, "attacks");
+            const restore = (key, descriptor) => {
+              if (descriptor === undefined) delete Object.prototype[key];
+              else Object.defineProperty(Object.prototype, key, descriptor);
+            };
+
+            try {
+              let rejectedInherited = false;
+              try {
+                await runContractAttacks({
+                  contract: contract(),
+                  input: { request: "approved" },
+                  expectedOutput: { value: "approved" },
+                  evaluator: () => true,
+                  generator() {
+                    Object.prototype.version = 1;
+                    Object.prototype.task = "Return the approved value.";
+                    Object.prototype.attacks = output({ value: "wrong" }).attacks;
+                    return {};
+                  }
+                });
+              } catch (error) {
+                rejectedInherited = /own data property/.test(String(error && error.message));
+              }
+              if (!rejectedInherited) throw new Error("inherited generator schema was accepted");
+            } finally {
+              restore("version", originalVersion);
+              restore("task", originalTask);
+              restore("attacks", originalAttacks);
+            }
+
+            console.log("Node 14.18.0 M8 round 5 smoke PASS");
+          }
+
+          main().catch((error) => {
+            console.error(error);
+            process.exitCode = 1;
+          });
+          NODE
