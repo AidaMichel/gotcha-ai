@@ -49,6 +49,9 @@ const ownKeys =
 const reflectApply =
   Reflect.apply;
 
+const reflectConstruct =
+  Reflect.construct;
+
 const defineProperty =
   Object.defineProperty;
 
@@ -713,6 +716,53 @@ const webAssemblyGlobalValueGetter =
       )
     : null;
 
+const webAssemblyTagProbeSentinel =
+  objectFreeze({});
+
+const webAssemblyExceptionConstructor =
+  typeof WebAssembly === "object" &&
+  WebAssembly !== null &&
+  typeof WebAssembly.Exception ===
+    "function"
+    ? WebAssembly.Exception
+    : null;
+
+const webAssemblyTagProbeValues =
+  webAssemblyExceptionConstructor !== null
+    ? new Proxy(
+        [],
+        {
+          get(target, key) {
+            if (key === "length") {
+              throw webAssemblyTagProbeSentinel;
+            }
+
+            return target[key];
+          }
+        }
+      )
+    : null;
+
+const webAssemblyProbeTag =
+  typeof WebAssembly === "object" &&
+  WebAssembly !== null &&
+  typeof WebAssembly.Tag === "function"
+    ? new WebAssembly.Tag({
+        parameters: []
+      })
+    : null;
+
+const webAssemblyExceptionIs =
+  typeof WebAssembly === "object" &&
+  WebAssembly !== null &&
+  typeof WebAssembly.Exception ===
+    "function"
+    ? capturePrototypeMethod(
+        WebAssembly.Exception,
+        "is"
+      )
+    : null;
+
 const vmScriptBasePrototype =
   typeof vm.Script === "function" &&
   vm.Script.prototype !== null &&
@@ -768,6 +818,45 @@ function hasUnsupportedAdditionalBrand(
         probe.method,
         value,
         probe.args
+      );
+
+      return true;
+    } catch {}
+  }
+
+  if (
+    webAssemblyExceptionConstructor !== null &&
+    webAssemblyTagProbeValues !== null
+  ) {
+    try {
+      reflectConstruct(
+        webAssemblyExceptionConstructor,
+        [
+          value,
+          webAssemblyTagProbeValues
+        ]
+      );
+
+      return true;
+    } catch (error) {
+      if (
+        error ===
+          webAssemblyTagProbeSentinel
+      ) {
+        return true;
+      }
+    }
+  }
+
+  if (
+    webAssemblyExceptionIs !== null &&
+    webAssemblyProbeTag !== null
+  ) {
+    try {
+      reflectApply(
+        webAssemblyExceptionIs,
+        value,
+        [webAssemblyProbeTag]
       );
 
       return true;

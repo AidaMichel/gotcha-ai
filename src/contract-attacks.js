@@ -99,6 +99,23 @@ const deleteProperty =
 const reflectApply =
   Reflect.apply;
 
+const reflectConstruct =
+  Reflect.construct;
+
+const objectConstructorSource =
+  reflectApply(
+    functionToString,
+    ObjectConstructor,
+    []
+  );
+
+const arrayConstructorSource =
+  reflectApply(
+    functionToString,
+    ArrayConstructor,
+    []
+  );
+
 const objectFreeze =
   Object.freeze;
 
@@ -143,6 +160,59 @@ const weakSetPrototype =
 
 const weakMapPrototype =
   WeakMapConstructor.prototype;
+
+const weakMapGet =
+  WeakMapConstructor.prototype.get;
+
+const weakMapSet =
+  WeakMapConstructor.prototype.set;
+
+const weakSetHas =
+  WeakSetConstructor.prototype.has;
+
+const weakSetAdd =
+  WeakSetConstructor.prototype.add;
+
+const arrayValues =
+  arrayPrototype.values;
+
+const arrayKeys =
+  arrayPrototype.keys;
+
+const arrayEntries =
+  arrayPrototype.entries;
+
+const arrayIterator =
+  arrayPrototype[Symbol.iterator];
+
+const stringIterator =
+  stringPrototype[Symbol.iterator];
+
+const arrayIteratorPrototype =
+  getPrototypeOf(
+    reflectApply(
+      arrayIterator,
+      [],
+      []
+    )
+  );
+
+const arrayIteratorNext =
+  arrayIteratorPrototype.next;
+
+const stringIteratorPrototype =
+  getPrototypeOf(
+    reflectApply(
+      stringIterator,
+      "",
+      []
+    )
+  );
+
+const sharedIteratorPrototype =
+  getPrototypeOf(
+    arrayIteratorPrototype
+  );
 
 const promisePrototype =
   Promise.prototype;
@@ -207,6 +277,99 @@ objectFreeze(
 const hasOwnProperty =
   Object.prototype.hasOwnProperty;
 
+function detachedIteratorSelf() {
+  return this;
+}
+
+function createDetachedArrayIterator(
+  method,
+  receiver
+) {
+  const iterator =
+    reflectApply(
+      method,
+      receiver,
+      []
+    );
+
+  const prototype =
+    objectCreate(null);
+
+  defineProperty(
+    prototype,
+    "next",
+    {
+      value:
+        arrayIteratorNext,
+      writable: true,
+      enumerable: false,
+      configurable: true
+    }
+  );
+
+  defineProperty(
+    prototype,
+    Symbol.iterator,
+    {
+      value:
+        detachedIteratorSelf,
+      writable: true,
+      enumerable: false,
+      configurable: true
+    }
+  );
+
+  setPrototypeOf(
+    iterator,
+    prototype
+  );
+
+  return iterator;
+}
+
+function safeArrayValues() {
+  return createDetachedArrayIterator(
+    arrayValues,
+    this
+  );
+}
+
+function safeArrayKeys() {
+  return createDetachedArrayIterator(
+    arrayKeys,
+    this
+  );
+}
+
+function safeArrayEntries() {
+  return createDetachedArrayIterator(
+    arrayEntries,
+    this
+  );
+}
+
+function safeArrayPrototypeMethod(
+  key,
+  fallback
+) {
+  if (
+    key === "values" ||
+    key === Symbol.iterator
+  ) {
+    return safeArrayValues;
+  }
+
+  if (key === "keys") {
+    return safeArrayKeys;
+  }
+
+  if (key === "entries") {
+    return safeArrayEntries;
+  }
+
+  return fallback;
+}
+
 function buildSafeCallbackPrototype(
   sourcePrototype,
   parentPrototype
@@ -241,12 +404,20 @@ function buildSafeCallbackPrototype(
       continue;
     }
 
+    const method =
+      sourcePrototype === arrayPrototype
+        ? safeArrayPrototypeMethod(
+            key,
+            descriptor.value
+          )
+        : descriptor.value;
+
     defineProperty(
       target,
       key,
       {
         value:
-          descriptor.value,
+          method,
         writable: false,
         enumerable:
           descriptor.enumerable,
@@ -318,58 +489,287 @@ function restoreOwnDescriptor(
   );
 }
 
-function withSafeEvaluatorInstanceSemantics(
-  callback
+function captureNativeRealmConstructor(
+  prototype,
+  expectedSource
 ) {
-  const previousArrayDescriptor =
+  if (
+    prototype === null ||
+    typeof prototype !== "object" ||
+    utilIsProxy(prototype)
+  ) {
+    return null;
+  }
+
+  const descriptor =
     getOwnPropertyDescriptor(
-      ArrayConstructor,
-      arrayHasInstanceSymbol
+      prototype,
+      "constructor"
     );
 
-  const previousObjectDescriptor =
-    getOwnPropertyDescriptor(
-      ObjectConstructor,
-      arrayHasInstanceSymbol
-    );
+  if (
+    descriptor === undefined ||
+    "get" in descriptor ||
+    "set" in descriptor ||
+    typeof descriptor.value !==
+      "function" ||
+    utilIsProxy(descriptor.value)
+  ) {
+    return null;
+  }
 
-  defineProperty(
-    ArrayConstructor,
-    arrayHasInstanceSymbol,
-    {
-      value:
-        safeArrayHasInstance,
-      writable: false,
-      enumerable: false,
-      configurable: true
-    }
-  );
-
-  defineProperty(
-    ObjectConstructor,
-    arrayHasInstanceSymbol,
-    {
-      value:
-        safeObjectHasInstance,
-      writable: false,
-      enumerable: false,
-      configurable: true
-    }
-  );
+  const constructor =
+    descriptor.value;
 
   try {
+    const source =
+      reflectApply(
+        functionToString,
+        constructor,
+        []
+      );
+
+    const prototypeDescriptor =
+      getOwnPropertyDescriptor(
+        constructor,
+        "prototype"
+      );
+
+    if (
+      source !== expectedSource ||
+      prototypeDescriptor === undefined ||
+      "get" in prototypeDescriptor ||
+      "set" in prototypeDescriptor ||
+      prototypeDescriptor.value !==
+        prototype
+    ) {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+
+  return constructor;
+}
+
+function addEvaluatorInstanceSemantic(
+  semantics,
+  constructor,
+  hasInstance
+) {
+  if (constructor === null) {
+    return;
+  }
+
+  for (
+    let index = 0;
+    index < semantics.length;
+    index += 1
+  ) {
+    if (
+      semantics[index].constructor ===
+        constructor
+    ) {
+      return;
+    }
+  }
+
+  reflectApply(
+    arrayPush,
+    semantics,
+    [{ constructor, hasInstance }]
+  );
+}
+
+function captureEvaluatorInstanceSemantics(
+  value
+) {
+  const semantics = [];
+
+  addEvaluatorInstanceSemantic(
+    semantics,
+    ArrayConstructor,
+    safeArrayHasInstance
+  );
+
+  addEvaluatorInstanceSemantic(
+    semantics,
+    ObjectConstructor,
+    safeObjectHasInstance
+  );
+
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    utilIsProxy(value)
+  ) {
+    return semantics;
+  }
+
+  const seen =
+    new WeakSetConstructor();
+  const stack = [value];
+
+  while (stack.length > 0) {
+    const current =
+      reflectApply(
+        arrayPop,
+        stack,
+        []
+      );
+
+    if (
+      current === null ||
+      typeof current !== "object" ||
+      reflectApply(
+        weakSetHas,
+        seen,
+        [current]
+      ) ||
+      utilIsProxy(current)
+    ) {
+      continue;
+    }
+
+    reflectApply(
+      weakSetAdd,
+      seen,
+      [current]
+    );
+
+    let prototype;
+    let descriptors;
+
+    try {
+      prototype =
+        getPrototypeOf(current);
+      descriptors =
+        getOwnPropertyDescriptors(
+          current
+        );
+    } catch {
+      continue;
+    }
+
+    if (arrayIsArray(current)) {
+      addEvaluatorInstanceSemantic(
+        semantics,
+        captureNativeRealmConstructor(
+          prototype,
+          arrayConstructorSource
+        ),
+        safeArrayHasInstance
+      );
+
+      const objectPrototype =
+        prototype === null
+          ? null
+          : getPrototypeOf(prototype);
+
+      addEvaluatorInstanceSemantic(
+        semantics,
+        captureNativeRealmConstructor(
+          objectPrototype,
+          objectConstructorSource
+        ),
+        safeObjectHasInstance
+      );
+    } else {
+      addEvaluatorInstanceSemantic(
+        semantics,
+        captureNativeRealmConstructor(
+          prototype,
+          objectConstructorSource
+        ),
+        safeObjectHasInstance
+      );
+    }
+
+    for (
+      const key of ownKeys(descriptors)
+    ) {
+      const descriptor =
+        descriptors[key];
+
+      if (
+        descriptor !== undefined &&
+        "value" in descriptor &&
+        descriptor.value !== null &&
+        typeof descriptor.value ===
+          "object"
+      ) {
+        reflectApply(
+          arrayPush,
+          stack,
+          [descriptor.value]
+        );
+      }
+    }
+  }
+
+  return semantics;
+}
+
+function withSafeEvaluatorInstanceSemantics(
+  semantics,
+  callback
+) {
+  const installed = [];
+
+  try {
+    for (
+      let index = 0;
+      index < semantics.length;
+      index += 1
+    ) {
+      const semantic =
+        semantics[index];
+      const constructor =
+        semantic.constructor;
+      const previousDescriptor =
+        getOwnPropertyDescriptor(
+          constructor,
+          arrayHasInstanceSymbol
+        );
+
+      defineProperty(
+        constructor,
+        arrayHasInstanceSymbol,
+        {
+          value:
+            semantic.hasInstance,
+          writable: false,
+          enumerable: false,
+          configurable: true
+        }
+      );
+
+      reflectApply(
+        arrayPush,
+        installed,
+        [{
+          constructor,
+          previousDescriptor
+        }]
+      );
+    }
+
     return callback();
   } finally {
-    restoreOwnDescriptor(
-      ObjectConstructor,
-      arrayHasInstanceSymbol,
-      previousObjectDescriptor
-    );
-    restoreOwnDescriptor(
-      ArrayConstructor,
-      arrayHasInstanceSymbol,
-      previousArrayDescriptor
-    );
+    while (installed.length > 0) {
+      const entry =
+        reflectApply(
+          arrayPop,
+          installed,
+          []
+        );
+
+      restoreOwnDescriptor(
+        entry.constructor,
+        arrayHasInstanceSymbol,
+        entry.previousDescriptor
+      );
+    }
   }
 }
 
@@ -556,6 +956,15 @@ function captureCallbackIntrinsicSurfaces() {
       weakSetPrototype
     ),
     captureIntrinsicSurface(
+      arrayIteratorPrototype
+    ),
+    captureIntrinsicSurface(
+      stringIteratorPrototype
+    ),
+    captureIntrinsicSurface(
+      sharedIteratorPrototype
+    ),
+    captureIntrinsicSurface(
       ObjectConstructor
     ),
     captureIntrinsicSurface(
@@ -630,6 +1039,20 @@ function restoreIntrinsicSurface(
   }
 }
 
+function restoreCallbackIntrinsicSurfaces(
+  surfaces
+) {
+  for (
+    let index = 0;
+    index < surfaces.length;
+    index += 1
+  ) {
+    restoreIntrinsicSurface(
+      surfaces[index]
+    );
+  }
+}
+
 function withRestoredCallbackIntrinsicSurfaces(
   callback,
   thisArg,
@@ -645,15 +1068,9 @@ function withRestoredCallbackIntrinsicSurfaces(
       args
     );
   } finally {
-    for (
-      let index = 0;
-      index < surfaces.length;
-      index += 1
-    ) {
-      restoreIntrinsicSurface(
-        surfaces[index]
-      );
-    }
+    restoreCallbackIntrinsicSurfaces(
+      surfaces
+    );
   }
 }
 
@@ -1217,8 +1634,12 @@ function withSafePromiseConstructor(
     if (
       !("get" in ownConstructor) &&
       !("set" in ownConstructor) &&
-      ownConstructor.value ===
-        promiseConstructor
+      (
+        ownConstructor.value ===
+          promiseConstructor ||
+        ownConstructor.value ===
+          undefined
+      )
     ) {
       requirePromiseIntrinsicIntegrity();
       return callback();
@@ -1402,7 +1823,8 @@ function createEvaluatorSnapshot(
 }
 
 function createSafeEvaluator(
-  evaluator
+  evaluator,
+  instanceSemantics
 ) {
   return function safeEvaluator(
     output
@@ -1414,6 +1836,7 @@ function createSafeEvaluator(
 
     const result =
       withSafeEvaluatorInstanceSemantics(
+        instanceSemantics,
         () =>
           withRestoredCallbackIntrinsicSurfaces(
             evaluator,
@@ -1538,7 +1961,9 @@ function isolateGeneratorData(
 
     setPrototypeOf(
       current,
-      null
+      arrayIsArray(current)
+        ? safeCallbackArrayPrototype
+        : safeCallbackObjectPrototype
     );
   }
 
@@ -1575,39 +2000,68 @@ function invokeGenerator(
   generator,
   argumentsObject
 ) {
-  const returned =
-    withRestoredCallbackIntrinsicSurfaces(
-      generator,
-      undefined,
-      [argumentsObject]
+  const surfaces =
+    captureCallbackIntrinsicSurfaces();
+
+  let returned;
+
+  try {
+    returned =
+      reflectApply(
+        generator,
+        undefined,
+        [argumentsObject]
+      );
+  } catch (error) {
+    restoreCallbackIntrinsicSurfaces(
+      surfaces
     );
+    throw error;
+  }
 
   const isNativePromise =
     utilIsPromise(returned);
 
-  const bridged =
-    isNativePromise
-      ? bridgeNativePromise(
-          returned
-        )
-      : returned;
+  if (!isNativePromise) {
+    restoreCallbackIntrinsicSurfaces(
+      surfaces
+    );
+    requirePromiseIntrinsicIntegrity();
+
+    return {
+      isNativePromise: false,
+      returned
+    };
+  }
+
+  let bridged;
+
+  try {
+    bridged =
+      bridgeNativePromise(
+        returned
+      );
+  } catch (error) {
+    restoreCallbackIntrinsicSurfaces(
+      surfaces
+    );
+    throw error;
+  }
+
+  let integrityError = null;
 
   try {
     requirePromiseIntrinsicIntegrity();
   } catch (error) {
-    if (isNativePromise) {
-      observeNativePromise(
-        bridged
-      );
-    }
-
-    throw error;
+    integrityError = error;
   }
 
-  return objectFreeze({
+  return {
+    isNativePromise: true,
     returned: bridged,
-    isNativePromise
-  });
+    surfaces,
+    integrityError
+  };
 }
 
 function normalizeGeneratorAttack(
@@ -1932,6 +2386,8 @@ function isAiDataEqual(
   right
 ) {
   const stack = [[left, right]];
+  const compared =
+    new WeakMapConstructor();
 
   while (stack.length > 0) {
     const pair = stack.pop();
@@ -1963,6 +2419,40 @@ function isAiDataEqual(
     ) {
       return false;
     }
+
+    let comparedRights =
+      reflectApply(
+        weakMapGet,
+        compared,
+        [leftValue]
+      );
+
+    if (comparedRights === undefined) {
+      comparedRights =
+        new WeakSetConstructor();
+      reflectApply(
+        weakMapSet,
+        compared,
+        [
+          leftValue,
+          comparedRights
+        ]
+      );
+    } else if (
+      reflectApply(
+        weakSetHas,
+        comparedRights,
+        [rightValue]
+      )
+    ) {
+      continue;
+    }
+
+    reflectApply(
+      weakSetAdd,
+      comparedRights,
+      [rightValue]
+    );
 
     const leftKeys =
       reflectApply(
@@ -2168,9 +2658,6 @@ async function runContractAttacks(
     generator
   );
 
-  const safeEvaluator =
-    createSafeEvaluator(evaluator);
-
   if (!hasOwn(optionDescriptors, "input")) {
     throw new Error(
       "Contract attack options must include input."
@@ -2198,6 +2685,17 @@ async function runContractAttacks(
       "Contract attack options must include contract."
     );
   }
+
+  const evaluatorInstanceSemantics =
+    captureEvaluatorInstanceSemantics(
+      expectedOutputInput
+    );
+
+  const safeEvaluator =
+    createSafeEvaluator(
+      evaluator,
+      evaluatorInstanceSemantics
+    );
 
   const contract =
     validateConfirmedContract(
@@ -2234,10 +2732,44 @@ async function runContractAttacks(
       generatorArguments
     );
 
-  const rawGeneratorOutput =
-    generatorInvocation.isNativePromise
-      ? await generatorInvocation.returned
-      : generatorInvocation.returned;
+  let rawGeneratorOutput;
+
+  if (generatorInvocation.isNativePromise) {
+    let settledValue;
+    let settlementError;
+    let rejected = false;
+
+    try {
+      settledValue =
+        await generatorInvocation.returned;
+    } catch (error) {
+      rejected = true;
+      settlementError = error;
+    }
+
+    restoreCallbackIntrinsicSurfaces(
+      generatorInvocation.surfaces
+    );
+
+    if (
+      generatorInvocation.integrityError !==
+        null
+    ) {
+      throw generatorInvocation.integrityError;
+    }
+
+    requirePromiseIntrinsicIntegrity();
+
+    if (rejected) {
+      throw settlementError;
+    }
+
+    rawGeneratorOutput =
+      settledValue;
+  } else {
+    rawGeneratorOutput =
+      generatorInvocation.returned;
+  }
 
   const generated =
     validateGeneratorOutput(

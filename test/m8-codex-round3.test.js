@@ -135,14 +135,38 @@ test("non-extensible cross-realm rejected Promises are observed", async () => {
   assert.equal(unhandled, null);
 });
 
-test("generator data does not expose shared Object or Array prototypes", async () => {
+test("generator data uses detached safe prototypes without exposing shared built-ins", async () => {
   const result = await runContractAttacks(
     makeOptions(
       ({ contract, input, expectedOutput }) => {
-        assert.equal(Object.getPrototypeOf(input), null);
-        assert.equal(Object.getPrototypeOf(contract), null);
-        assert.equal(Object.getPrototypeOf(contract.rules), null);
-        assert.equal(Object.getPrototypeOf(expectedOutput), null);
+        const inputPrototype = Object.getPrototypeOf(input);
+        const contractPrototype = Object.getPrototypeOf(contract);
+        const rulesPrototype = Object.getPrototypeOf(contract.rules);
+        const outputPrototype = Object.getPrototypeOf(expectedOutput);
+
+        assert.notEqual(inputPrototype, Array.prototype);
+        assert.notEqual(rulesPrototype, Array.prototype);
+        assert.notEqual(contractPrototype, Object.prototype);
+        assert.notEqual(outputPrototype, Object.prototype);
+
+        assert.equal(typeof input.map, "function");
+        assert.equal(typeof contract.rules.map, "function");
+
+        assert.equal(
+          Object.getPrototypeOf(
+            Object.getPrototypeOf(inputPrototype)
+          ),
+          null
+        );
+        assert.equal(
+          Object.getPrototypeOf(contractPrototype),
+          null
+        );
+        assert.equal(
+          Object.getPrototypeOf(outputPrototype),
+          null
+        );
+
         return validGeneratorOutput();
       },
       ["3 PM"]

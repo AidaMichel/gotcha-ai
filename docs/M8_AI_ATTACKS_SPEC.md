@@ -464,6 +464,8 @@ M8 is not a JavaScript sandbox for caller-supplied code. The security boundary i
 
 Callbacks should remain deterministic and side-effect free. M8 restores the core built-in prototype surfaces around callback invocation as defense in depth so ordinary accidental prototype mutation cannot corrupt later validation or ranking, but M8 does not claim containment of deliberate irreversible sabotage of the host JavaScript realm by trusted callback code.
 
+For asynchronous generators, that restoration boundary extends through settlement of the returned native Promise, so code after `await` cannot leave temporary built-in mutations behind before generator data is validated. Evaluator snapshots preserve ordinary local and authenticated cross-realm `instanceof Array` / `instanceof Object` behavior while keeping their exposed prototype graph detached.
+
 This distinction keeps the boundary testable: malformed or prototype-polluted **data** must fail closed, while arbitrary hostile JavaScript execution belongs to a separate sandboxing capability outside M8.
 
 ---
