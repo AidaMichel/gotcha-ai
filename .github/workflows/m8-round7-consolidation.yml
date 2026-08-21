@@ -87,20 +87,11 @@ jobs:
             version: 1,
             status: "confirmed",
             task: "Return the approved value.",
-            rules: [{
-              id: "value-rule",
-              statement: "Return the approved value.",
-              kind: "required",
-              severity: "critical"
-            }]
+            rules: [{ id: "value-rule", statement: "Return the approved value.", kind: "required", severity: "critical" }]
           };
 
           function emptyBatch() {
-            return {
-              version: 1,
-              task: contract.task,
-              attacks: []
-            };
+            return { version: 1, task: contract.task, attacks: [] };
           }
 
           (async () => {
@@ -111,31 +102,19 @@ jobs:
               expectedOutput: { value: "approved" },
               evaluator: () => true,
               async generator({ contract, input }) {
-                if (contract.rules.map((rule) => rule.id)[0] !== "value-rule") {
-                  throw new Error("generator array map compatibility failed");
-                }
-                if (input.map((value) => value)[0] !== "approved") {
-                  throw new Error("generator input map compatibility failed");
-                }
+                if (contract.rules.map((rule) => rule.id)[0] !== "value-rule") throw new Error("generator array map compatibility failed");
+                if (input.map((value) => value)[0] !== "approved") throw new Error("generator input map compatibility failed");
                 await Promise.resolve();
                 Array.prototype.filter = () => [];
                 return emptyBatch();
               }
             });
-            if (Array.prototype.filter !== originalFilter) {
-              throw new Error("async generator intrinsic restoration failed");
-            }
+            if (Array.prototype.filter !== originalFilter) throw new Error("async generator intrinsic restoration failed");
 
             const context = vm.createContext({});
             const expectedOutput = vm.runInContext("[1, 2]", context);
             const evaluator = vm.runInContext("(output) => output instanceof Array", context);
-            await runContractAttacks({
-              contract,
-              input: { request: "approved" },
-              expectedOutput,
-              evaluator,
-              generator: emptyBatch
-            });
+            await runContractAttacks({ contract, input: { request: "approved" }, expectedOutput, evaluator, generator: emptyBatch });
 
             try {
               await runContractAttacks({
@@ -145,19 +124,13 @@ jobs:
                 evaluator: () => true,
                 generator() {
                   const promise = Promise.reject(new Error("node14 undefined constructor rejection"));
-                  Object.defineProperty(promise, "constructor", {
-                    value: undefined,
-                    writable: false,
-                    configurable: false
-                  });
+                  Object.defineProperty(promise, "constructor", { value: undefined, writable: false, configurable: false });
                   return promise;
                 }
               });
               throw new Error("expected Promise rejection");
             } catch (error) {
-              if (!/node14 undefined constructor rejection/.test(String(error && error.message))) {
-                throw error;
-              }
+              if (!/node14 undefined constructor rejection/.test(String(error && error.message))) throw error;
             }
           })().catch((error) => {
             console.error(error);
