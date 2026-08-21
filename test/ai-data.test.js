@@ -8,6 +8,7 @@ const assert =
 
 const {
   cloneAiData,
+  freezeAiData,
   snapshotAiData
 } = require("../src/ai-data");
 
@@ -953,6 +954,293 @@ test(
       () =>
         cloneAiData(value),
       /unsupported runtime object/
+    );
+  }
+);
+
+test(
+  "cloneAiData preserves shared aliases without amplification",
+  () => {
+    let source = {
+      leaf: true
+    };
+
+    const levels = 12;
+
+    for (
+      let level = 0;
+      level < levels;
+      level += 1
+    ) {
+      source = {
+        left: source,
+        right: source
+      };
+    }
+
+    const cloned =
+      cloneAiData(source);
+
+    assert.notStrictEqual(
+      cloned,
+      source
+    );
+
+    let current =
+      cloned;
+
+    for (
+      let level = 0;
+      level < levels;
+      level += 1
+    ) {
+      assert.strictEqual(
+        current.left,
+        current.right
+      );
+
+      current =
+        current.left;
+    }
+
+    const seen =
+      new WeakSet();
+
+    let uniqueObjects = 0;
+
+    const stack = [
+      cloned
+    ];
+
+    while (
+      stack.length > 0
+    ) {
+      const value =
+        stack.pop();
+
+      if (
+        value === null ||
+        typeof value !== "object" ||
+        seen.has(value)
+      ) {
+        continue;
+      }
+
+      seen.add(value);
+      uniqueObjects += 1;
+
+      for (
+        const child of
+          Object.values(value)
+      ) {
+        stack.push(child);
+      }
+    }
+
+    assert.equal(
+      uniqueObjects,
+      levels + 1
+    );
+
+    assert.notStrictEqual(
+      cloned.left,
+      source.left
+    );
+  }
+);
+
+test(
+  "cloneAiData rejects prototype-tampered host runtime objects",
+  () => {
+    const candidates = [];
+
+    if (
+      typeof AbortController ===
+        "function"
+    ) {
+      candidates.push([
+        "AbortController",
+        new AbortController()
+      ]);
+    }
+
+    if (
+      typeof CountQueuingStrategy ===
+        "function"
+    ) {
+      candidates.push([
+        "CountQueuingStrategy",
+        new CountQueuingStrategy({
+          highWaterMark: 1
+        })
+      ]);
+    }
+
+    if (
+      typeof ByteLengthQueuingStrategy ===
+        "function"
+    ) {
+      candidates.push([
+        "ByteLengthQueuingStrategy",
+        new ByteLengthQueuingStrategy({
+          highWaterMark: 1
+        })
+      ]);
+    }
+
+    try {
+      const {
+        PerformanceObserver
+      } = require(
+        "node:perf_hooks"
+      );
+
+      candidates.push([
+        "PerformanceObserver",
+        new PerformanceObserver(
+          () => {}
+        )
+      ]);
+    } catch {}
+
+    if (
+      globalThis.crypto
+    ) {
+      candidates.push([
+        "Crypto",
+        globalThis.crypto
+      ]);
+    }
+
+    if (
+      globalThis.navigator
+    ) {
+      candidates.push([
+        "Navigator",
+        globalThis.navigator
+      ]);
+    }
+
+    for (
+      const [
+        name,
+        value
+      ] of candidates
+    ) {
+      const originalPrototype =
+        Object.getPrototypeOf(
+          value
+        );
+
+      try {
+        Object.setPrototypeOf(
+          value,
+          Object.prototype
+        );
+
+        assert.throws(
+          () =>
+            cloneAiData(
+              value,
+              name
+            ),
+          /unsupported runtime object/
+        );
+      } finally {
+        Object.setPrototypeOf(
+          value,
+          originalPrototype
+        );
+      }
+    }
+  }
+);
+
+
+test(
+  "freezeAiData rejects Proxy without invoking traps",
+  () => {
+    let trapCalls = 0;
+
+    const value =
+      new Proxy(
+        {
+          safe: true
+        },
+        {
+          ownKeys() {
+            trapCalls += 1;
+
+            return [
+              "safe"
+            ];
+          },
+
+          get(
+            target,
+            key,
+            receiver
+          ) {
+            trapCalls += 1;
+
+            return Reflect.get(
+              target,
+              key,
+              receiver
+            );
+          }
+        }
+      );
+
+    assert.throws(
+      () =>
+        freezeAiData(
+          value
+        ),
+      /Proxy/
+    );
+
+    assert.equal(
+      trapCalls,
+      0
+    );
+  }
+);
+
+test(
+  "freezeAiData rejects accessors without invoking getters",
+  () => {
+    let getterCalls = 0;
+
+    const value = {};
+
+    Object.defineProperty(
+      value,
+      "danger",
+      {
+        enumerable: true,
+
+        get() {
+          getterCalls += 1;
+
+          return {
+            unsafe: true
+          };
+        }
+      }
+    );
+
+    assert.throws(
+      () =>
+        freezeAiData(
+          value
+        ),
+      /accessor/
+    );
+
+    assert.equal(
+      getterCalls,
+      0
     );
   }
 );

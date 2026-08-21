@@ -1,11 +1,23 @@
 "use strict";
 
 const {
-  types: utilTypes
+  types: utilTypes,
+  inspect
 } = require("node:util");
+
+const {
+  PerformanceObserver
+} = require("node:perf_hooks");
+
+const {
+  locks: workerThreadLocks
+} = require("node:worker_threads");
 
 const getOwnPropertyDescriptors =
   Object.getOwnPropertyDescriptors;
+
+const getOwnPropertyDescriptor =
+  Object.getOwnPropertyDescriptor;
 
 const getPrototypeOf =
   Object.getPrototypeOf;
@@ -107,23 +119,379 @@ function isArrayIndexKey(
     String(numeric) === key
   );
 }
+function captureNavigatorLocks() {
+  try {
+    if (
+      globalThis.navigator ===
+        undefined ||
+      globalThis.navigator ===
+        null
+    ) {
+      return null;
+    }
+
+    const locks =
+      globalThis.navigator.locks;
+
+    return (
+      locks !== null &&
+      typeof locks === "object"
+    )
+      ? locks
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+const navigatorLocks =
+  captureNavigatorLocks();
+
+const unsupportedHostSingletons =
+  Object.freeze(
+    [
+      workerThreadLocks,
+      navigatorLocks
+    ].filter(
+      (value, index, values) =>
+        value !== undefined &&
+        value !== null &&
+        values.indexOf(value) ===
+          index
+    )
+  );
+
+function hasUnsupportedHostSingleton(
+  value
+) {
+  return unsupportedHostSingletons
+    .some(
+      (singleton) =>
+        singleton === value
+    );
+}
+
+function captureHostBrandGetter(
+  constructorName,
+  propertyName
+) {
+  const constructor =
+    globalThis[constructorName];
+
+  if (
+    typeof constructor !==
+      "function" ||
+    constructor.prototype ===
+      null ||
+    typeof constructor.prototype !==
+      "object"
+  ) {
+    return null;
+  }
+
+  const descriptor =
+    Reflect.apply(
+      getOwnPropertyDescriptor,
+      Object,
+      [
+        constructor.prototype,
+        propertyName
+      ]
+    );
+
+  if (
+    descriptor === undefined ||
+    typeof descriptor.get !==
+      "function"
+  ) {
+    return null;
+  }
+
+  return descriptor.get;
+}
+
+function capturePerformanceObserverBrandProbe() {
+  if (
+    typeof PerformanceObserver !==
+      "function" ||
+    PerformanceObserver.prototype ===
+      null ||
+    typeof PerformanceObserver
+      .prototype !== "object"
+  ) {
+    return null;
+  }
+
+  const descriptor =
+    Reflect.apply(
+      getOwnPropertyDescriptor,
+      Object,
+      [
+        PerformanceObserver.prototype,
+        inspect.custom
+      ]
+    );
+
+  if (
+    descriptor === undefined ||
+    typeof descriptor.value !==
+      "function"
+  ) {
+    return null;
+  }
+
+  return descriptor.value;
+}
+
+const performanceObserverBrandProbe =
+  capturePerformanceObserverBrandProbe();
+
+const performanceObserverInspectOptions =
+  Object.freeze({
+    depth: 0
+  });
+
+function hasUnsupportedPerformanceObserverBrand(
+  value
+) {
+  if (
+    performanceObserverBrandProbe ===
+      null
+  ) {
+    return false;
+  }
+
+  try {
+    Reflect.apply(
+      performanceObserverBrandProbe,
+      value,
+      [
+        0,
+        performanceObserverInspectOptions,
+        inspect
+      ]
+    );
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const HOST_BRAND_GETTER_SPECS =
+  Object.freeze([
+    [
+      "Crypto",
+      "subtle"
+    ],
+    [
+      "Navigator",
+      "userAgent"
+    ],
+    [
+      "AbortController",
+      "signal"
+    ],
+    [
+      "AbortSignal",
+      "aborted"
+    ],
+    [
+      "TextEncoder",
+      "encoding"
+    ],
+    [
+      "TextDecoder",
+      "encoding"
+    ],
+    [
+      "URL",
+      "href"
+    ],
+    [
+      "URLSearchParams",
+      "size"
+    ],
+    [
+      "Blob",
+      "size"
+    ],
+    [
+      "File",
+      "name"
+    ],
+    [
+      "Request",
+      "url"
+    ],
+    [
+      "Response",
+      "status"
+    ],
+    [
+      "ReadableStream",
+      "locked"
+    ],
+    [
+      "WritableStream",
+      "locked"
+    ],
+    [
+      "TransformStream",
+      "readable"
+    ],
+    [
+      "TextEncoderStream",
+      "readable"
+    ],
+    [
+      "TextDecoderStream",
+      "readable"
+    ],
+    [
+      "CompressionStream",
+      "readable"
+    ],
+    [
+      "DecompressionStream",
+      "readable"
+    ],
+    [
+      "CountQueuingStrategy",
+      "highWaterMark"
+    ],
+    [
+      "ByteLengthQueuingStrategy",
+      "highWaterMark"
+    ]
+  ]);
+
+const unsupportedHostBrandGetters =
+  Object.freeze(
+    HOST_BRAND_GETTER_SPECS
+      .map(
+        ([
+          constructorName,
+          propertyName
+        ]) =>
+          captureHostBrandGetter(
+            constructorName,
+            propertyName
+          )
+      )
+      .filter(
+        (getter) =>
+          getter !== null
+      )
+  );
+
+function hasUnsupportedHostBrand(
+  value
+) {
+  for (
+    const getter of
+      unsupportedHostBrandGetters
+  ) {
+    try {
+      Reflect.apply(
+        getter,
+        value,
+        []
+      );
+
+      return true;
+    } catch {
+      // Wrong receivers fail native
+      // brand checks without being
+      // accepted as runtime objects.
+    }
+  }
+
+  return false;
+}
+
 function isUnsupportedRuntimeObject(
   value
 ) {
   return (
-    utilTypes.isDate(value) ||
-    utilTypes.isMap(value) ||
-    utilTypes.isSet(value) ||
-    utilTypes.isWeakMap(value) ||
-    utilTypes.isWeakSet(value) ||
-    utilTypes.isRegExp(value) ||
-    utilTypes.isPromise(value) ||
-    utilTypes.isNativeError(value) ||
-    utilTypes.isArrayBuffer(value) ||
-    utilTypes.isSharedArrayBuffer(value) ||
-    utilTypes.isDataView(value) ||
-    utilTypes.isTypedArray(value) ||
-    utilTypes.isBoxedPrimitive(value)
+    utilTypes.isAnyArrayBuffer(
+      value
+    ) ||
+    utilTypes.isArrayBufferView(
+      value
+    ) ||
+    utilTypes.isArgumentsObject(
+      value
+    ) ||
+    utilTypes.isBoxedPrimitive(
+      value
+    ) ||
+    utilTypes.isDate(
+      value
+    ) ||
+    utilTypes.isGeneratorObject(
+      value
+    ) ||
+    utilTypes.isMap(
+      value
+    ) ||
+    utilTypes.isMapIterator(
+      value
+    ) ||
+    utilTypes.isModuleNamespaceObject(
+      value
+    ) ||
+    utilTypes.isNativeError(
+      value
+    ) ||
+    utilTypes.isPromise(
+      value
+    ) ||
+    utilTypes.isRegExp(
+      value
+    ) ||
+    utilTypes.isSet(
+      value
+    ) ||
+    utilTypes.isSetIterator(
+      value
+    ) ||
+    utilTypes.isWeakMap(
+      value
+    ) ||
+    utilTypes.isWeakSet(
+      value
+    ) ||
+    (
+      typeof utilTypes.isCryptoKey ===
+        "function" &&
+      utilTypes.isCryptoKey(
+        value
+      )
+    ) ||
+    (
+      typeof utilTypes.isKeyObject ===
+        "function" &&
+      utilTypes.isKeyObject(
+        value
+      )
+    ) ||
+    (
+      typeof utilTypes.isExternal ===
+        "function" &&
+      utilTypes.isExternal(
+        value
+      )
+    ) ||
+    hasUnsupportedPerformanceObserverBrand(
+      value
+    ) ||
+    hasUnsupportedHostSingleton(
+      value
+    ) ||
+    hasUnsupportedHostBrand(
+      value
+    )
   );
 }
 function capturePlainObjectEntries(
@@ -360,7 +728,8 @@ function captureArrayEntries(
 function prepareAiDataValue(
   value,
   label,
-  active
+  active,
+  memo
 ) {
   if (
     value === null
@@ -440,6 +809,16 @@ function prepareAiDataValue(
     );
   }
 
+  if (
+    memo.has(value)
+  ) {
+    return {
+      value:
+        memo.get(value),
+      frame: null
+    };
+  }
+
   const isArray =
     Array.isArray(value);
 
@@ -461,6 +840,11 @@ function prepareAiDataValue(
         )
       : {};
 
+  memo.set(
+    value,
+    target
+  );
+
   active.add(value);
 
   return {
@@ -477,7 +861,9 @@ function prepareAiDataValue(
 
       index: 0,
 
-      active
+      active,
+
+      memo
     }
   };
 }
@@ -489,11 +875,15 @@ function cloneAiData(
   const active =
     new WeakSet();
 
+  const memo =
+    new WeakMap();
+
   const root =
     prepareAiDataValue(
       value,
       label,
-      active
+      active,
+      memo
     );
 
   if (
@@ -538,7 +928,8 @@ function cloneAiData(
       prepareAiDataValue(
         entry.value,
         entry.label,
-        frame.active
+        frame.active,
+        frame.memo
       );
 
     defineProperty(
@@ -569,7 +960,8 @@ function cloneAiData(
 }
 
 function freezeAiData(
-  value
+  value,
+  label = "AI data"
 ) {
   if (
     value === null ||
@@ -583,14 +975,20 @@ function freezeAiData(
     new WeakSet();
 
   const stack = [
-    value
+    {
+      value,
+      label
+    }
   ];
 
   while (
     stack.length > 0
   ) {
-    const current =
+    const frame =
       stack.pop();
+
+    const current =
+      frame.value;
 
     if (
       current === null ||
@@ -601,51 +999,61 @@ function freezeAiData(
       continue;
     }
 
-    seen.add(current);
+    if (
+      utilTypes.isProxy(
+        current
+      )
+    ) {
+      throw new Error(
+        `${frame.label} must not be a Proxy.`
+      );
+    }
 
     if (
-      Array.isArray(current)
+      isUnsupportedRuntimeObject(
+        current
+      )
     ) {
-      for (
-        let index = 0;
-        index <
-          current.length;
-        index += 1
-      ) {
-        const child =
-          current[index];
+      throw new Error(
+        `${frame.label} contains an unsupported runtime object.`
+      );
+    }
 
-        if (
-          child !== null &&
-          typeof child ===
-            "object" &&
-          !seen.has(child)
-        ) {
-          stack.push(
-            child
-          );
-        }
-      }
-    } else {
-      for (
-        const key of
-          Object.keys(
-            current
+    const isArray =
+      Array.isArray(current);
+
+    const entries =
+      isArray
+        ? captureArrayEntries(
+            current,
+            frame.label
           )
-      ) {
-        const child =
-          current[key];
-
-        if (
-          child !== null &&
-          typeof child ===
-            "object" &&
-          !seen.has(child)
-        ) {
-          stack.push(
-            child
+        : capturePlainObjectEntries(
+            current,
+            frame.label
           );
-        }
+
+    seen.add(current);
+
+    for (
+      const entry of entries
+    ) {
+      const child =
+        entry.value;
+
+      if (
+        child !== null &&
+        typeof child ===
+          "object" &&
+        !seen.has(child)
+      ) {
+        stack.push({
+          value:
+            child,
+
+          label:
+            entry.label
+        });
       }
     }
 
