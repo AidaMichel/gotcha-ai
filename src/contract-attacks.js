@@ -1,9 +1,14 @@
 "use strict";
 
 const {
-  types: utilTypes,
-  isDeepStrictEqual
+  types: utilTypes
 } = require("node:util");
+
+const utilIsPromise =
+  utilTypes["isPromise"];
+
+const utilIsProxy =
+  utilTypes["isProxy"];
 
 const {
   attack
@@ -34,6 +39,26 @@ const arrayPrototype =
 
 const arrayIsArray =
   Array.isArray;
+
+const ArrayConstructor =
+  Array;
+
+const arrayHasInstanceSymbol =
+  Symbol.hasInstance;
+
+const functionHasInstance =
+  Function.prototype[
+    Symbol.hasInstance
+  ];
+
+const arrayHasInstanceDescriptor =
+  getOwnPropertyDescriptor(
+    ArrayConstructor,
+    arrayHasInstanceSymbol
+  );
+
+const objectKeys =
+  Object.keys;
 
 const functionToString =
   Function.prototype.toString;
@@ -200,6 +225,62 @@ const safeCallbackArrayPrototype =
     safeCallbackObjectPrototype
   );
 
+function safeArrayHasInstance(
+  value
+) {
+  if (arrayIsArray(value)) {
+    return true;
+  }
+
+  return reflectApply(
+    functionHasInstance,
+    ArrayConstructor,
+    [value]
+  );
+}
+
+function restoreArrayHasInstance() {
+  if (
+    arrayHasInstanceDescriptor ===
+      undefined
+  ) {
+    deleteProperty(
+      ArrayConstructor,
+      arrayHasInstanceSymbol
+    );
+
+    return;
+  }
+
+  defineProperty(
+    ArrayConstructor,
+    arrayHasInstanceSymbol,
+    arrayHasInstanceDescriptor
+  );
+}
+
+function withSafeArrayHasInstance(
+  callback
+) {
+  defineProperty(
+    ArrayConstructor,
+    arrayHasInstanceSymbol,
+    {
+      value:
+        safeArrayHasInstance,
+      writable: false,
+      enumerable: false,
+      configurable: true
+    }
+  );
+
+  try {
+    return callback();
+  } finally {
+    restoreArrayHasInstance();
+  }
+}
+
 const MAX_RULES = 7;
 const MAX_ATTACKS = 20;
 const CONTRACT_VERSION = 1;
@@ -294,6 +375,28 @@ function hasOwn(
   );
 }
 
+function requireOwnDataProperty(
+  value,
+  key,
+  label
+) {
+  const descriptor =
+    getOwnPropertyDescriptor(
+      value,
+      key
+    );
+
+  if (
+    descriptor === undefined ||
+    "get" in descriptor ||
+    "set" in descriptor
+  ) {
+    throw new Error(
+      `${label} must include own data property ${key}.`
+    );
+  }
+}
+
 function samePropertyDescriptor(
   left,
   right
@@ -368,7 +471,7 @@ function captureOptions(
     );
   }
 
-  if (utilTypes.isProxy(value)) {
+  if (utilIsProxy(value)) {
     throw new Error(
       `${label} must not be a Proxy.`
     );
@@ -621,13 +724,13 @@ function isAuthenticatedStandardPromisePrototype(
   if (
     prototype === null ||
     typeof prototype !== "object" ||
-    utilTypes.isProxy(prototype) ||
+    utilIsProxy(prototype) ||
     constructorDescriptor === undefined ||
     "get" in constructorDescriptor ||
     "set" in constructorDescriptor ||
     typeof constructorDescriptor.value !==
       "function" ||
-    utilTypes.isProxy(
+    utilIsProxy(
       constructorDescriptor.value
     ) ||
     promiseSpeciesGetterSource === null
@@ -667,7 +770,7 @@ function isAuthenticatedStandardPromisePrototype(
       speciesDescriptor !== undefined &&
       typeof speciesDescriptor.get ===
         "function" &&
-      !utilTypes.isProxy(
+      !utilIsProxy(
         speciesDescriptor.get
       )
         ? reflectApply(
@@ -808,8 +911,8 @@ function withSafePromiseConstructor(
   callback
 ) {
   if (
-    !utilTypes.isPromise(value) ||
-    utilTypes.isProxy(value)
+    !utilIsPromise(value) ||
+    utilIsProxy(value)
   ) {
     throw new Error(
       "Generator native Promise must be a genuine Promise object."
@@ -847,7 +950,7 @@ function withSafePromiseConstructor(
   if (
     prototype === null ||
     typeof prototype !== "object" ||
-    utilTypes.isProxy(prototype)
+    utilIsProxy(prototype)
   ) {
     throw new Error(
       "Native Promise cannot be observed safely."
@@ -1025,13 +1128,16 @@ function createSafeEvaluator(
       );
 
     const result =
-      reflectApply(
-        evaluator,
-        undefined,
-        [evaluatorOutput]
+      withSafeArrayHasInstance(
+        () =>
+          reflectApply(
+            evaluator,
+            undefined,
+            [evaluatorOutput]
+          )
       );
 
-    if (utilTypes.isPromise(result)) {
+    if (utilIsPromise(result)) {
       observeNativePromise(result);
       requirePromiseIntrinsicIntegrity();
 
@@ -1192,7 +1298,7 @@ function invokeGenerator(
     );
 
   const isNativePromise =
-    utilTypes.isPromise(returned);
+    utilIsPromise(returned);
 
   const bridged =
     isNativePromise
@@ -1232,6 +1338,24 @@ function normalizeGeneratorAttack(
     attackCandidate,
     label
   );
+
+  for (
+    const key of [
+      "id",
+      "ruleId",
+      "type",
+      "description",
+      "rationale",
+      "mutatedOutput",
+      "scores"
+    ]
+  ) {
+    requireOwnDataProperty(
+      attackCandidate,
+      key,
+      label
+    );
+  }
 
   const id = attackCandidate.id;
   const ruleId = attackCandidate.ruleId;
@@ -1304,6 +1428,12 @@ function normalizeGeneratorAttack(
   const normalizedScores = {};
 
   for (const scoreKey of SCORE_KEYS) {
+    requireOwnDataProperty(
+      scores,
+      scoreKey,
+      `${label} scores`
+    );
+
     const score =
       scores[scoreKey];
 
@@ -1352,6 +1482,20 @@ function validateGeneratorOutput(
     snapshot,
     "Generator output"
   );
+
+  for (
+    const key of [
+      "version",
+      "task",
+      "attacks"
+    ]
+  ) {
+    requireOwnDataProperty(
+      snapshot,
+      key,
+      "Generator output"
+    );
+  }
 
   if (
     snapshot.version !==
@@ -1483,6 +1627,100 @@ function compileGeneratedAttack(
   };
 }
 
+function isAiDataEqual(
+  left,
+  right
+) {
+  const stack = [[left, right]];
+
+  while (stack.length > 0) {
+    const pair = stack.pop();
+    const leftValue = pair[0];
+    const rightValue = pair[1];
+
+    if (leftValue === rightValue) {
+      continue;
+    }
+
+    if (
+      leftValue === null ||
+      rightValue === null ||
+      typeof leftValue !==
+        typeof rightValue
+    ) {
+      return false;
+    }
+
+    if (
+      typeof leftValue !== "object"
+    ) {
+      return false;
+    }
+
+    if (
+      arrayIsArray(leftValue) !==
+        arrayIsArray(rightValue)
+    ) {
+      return false;
+    }
+
+    const leftKeys =
+      reflectApply(
+        objectKeys,
+        Object,
+        [leftValue]
+      );
+
+    const rightKeys =
+      reflectApply(
+        objectKeys,
+        Object,
+        [rightValue]
+      );
+
+    if (
+      leftKeys.length !==
+        rightKeys.length
+    ) {
+      return false;
+    }
+
+    for (const key of leftKeys) {
+      if (!hasOwn(rightValue, key)) {
+        return false;
+      }
+
+      const leftDescriptor =
+        getOwnPropertyDescriptor(
+          leftValue,
+          key
+        );
+
+      const rightDescriptor =
+        getOwnPropertyDescriptor(
+          rightValue,
+          key
+        );
+
+      if (
+        leftDescriptor === undefined ||
+        rightDescriptor === undefined ||
+        !("value" in leftDescriptor) ||
+        !("value" in rightDescriptor)
+      ) {
+        return false;
+      }
+
+      stack.push([
+        leftDescriptor.value,
+        rightDescriptor.value
+      ]);
+    }
+  }
+
+  return true;
+}
+
 function findDuplicateAttack(
   retained,
   candidate
@@ -1494,7 +1732,7 @@ function findDuplicateAttack(
       (existing) =>
         existing.ruleId ===
           candidate.ruleId &&
-        isDeepStrictEqual(
+        isAiDataEqual(
           existing.mutatedOutput,
           candidate.mutatedOutput
         )
@@ -1511,7 +1749,7 @@ function filterGeneratedAttacks(
 
   for (const candidate of validatedAttacks) {
     if (
-      isDeepStrictEqual(
+      isAiDataEqual(
         candidate.mutatedOutput,
         expectedOutput
       )

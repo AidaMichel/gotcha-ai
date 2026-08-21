@@ -5,6 +5,16 @@ const {
   inspect
 } = require("node:util");
 
+const utilTypePredicates =
+  Object.freeze(
+    Object.create(
+      null,
+      Object.getOwnPropertyDescriptors(
+        utilTypes
+      )
+    )
+  );
+
 const {
   PerformanceObserver
 } = require("node:perf_hooks");
@@ -14,6 +24,11 @@ const workerThreads =
 
 const vm =
   require("node:vm");
+
+const vmIsContext =
+  typeof vm.isContext === "function"
+    ? vm.isContext
+    : null;
 
 const getOwnPropertyDescriptors =
   Object.getOwnPropertyDescriptors;
@@ -141,7 +156,7 @@ function isNativeConstructorDescriptor(
     "set" in descriptor ||
     typeof descriptor.value !==
       "function" ||
-    utilTypes.isProxy(
+    utilTypePredicates.isProxy(
       descriptor.value
     )
   ) {
@@ -188,7 +203,7 @@ function isOrdinaryObjectPrototype(
 
   if (
     typeof prototype !== "object" ||
-    utilTypes.isProxy(prototype)
+    utilTypePredicates.isProxy(prototype)
   ) {
     return false;
   }
@@ -226,7 +241,7 @@ function isOrdinaryArrayPrototype(
   if (
     prototype === null ||
     typeof prototype !== "object" ||
-    utilTypes.isProxy(prototype)
+    utilTypePredicates.isProxy(prototype)
   ) {
     return false;
   }
@@ -397,7 +412,7 @@ function captureMethodFromPrototype(
   if (
     prototype === null ||
     typeof prototype !== "object" ||
-    utilTypes.isProxy(prototype)
+    utilTypePredicates.isProxy(prototype)
   ) {
     return null;
   }
@@ -877,7 +892,7 @@ function isStructuredCloneProbeSafe(
   if (
     value === null ||
     typeof value !== "object" ||
-    utilTypes.isProxy(value)
+    utilTypePredicates.isProxy(value)
   ) {
     return false;
   }
@@ -959,36 +974,44 @@ function isUnsupportedRuntimeObject(
   value
 ) {
   return (
-    utilTypes.isAnyArrayBuffer(value) ||
-    utilTypes.isArrayBufferView(value) ||
-    utilTypes.isArgumentsObject(value) ||
-    utilTypes.isBoxedPrimitive(value) ||
-    utilTypes.isDate(value) ||
-    utilTypes.isGeneratorObject(value) ||
-    utilTypes.isMap(value) ||
-    utilTypes.isMapIterator(value) ||
-    utilTypes.isModuleNamespaceObject(value) ||
-    utilTypes.isNativeError(value) ||
-    utilTypes.isPromise(value) ||
-    utilTypes.isRegExp(value) ||
-    utilTypes.isSet(value) ||
-    utilTypes.isSetIterator(value) ||
-    utilTypes.isWeakMap(value) ||
-    utilTypes.isWeakSet(value) ||
     (
-      typeof utilTypes.isCryptoKey ===
+      vmIsContext !== null &&
+      reflectApply(
+        vmIsContext,
+        vm,
+        [value]
+      )
+    ) ||
+    utilTypePredicates.isAnyArrayBuffer(value) ||
+    utilTypePredicates.isArrayBufferView(value) ||
+    utilTypePredicates.isArgumentsObject(value) ||
+    utilTypePredicates.isBoxedPrimitive(value) ||
+    utilTypePredicates.isDate(value) ||
+    utilTypePredicates.isGeneratorObject(value) ||
+    utilTypePredicates.isMap(value) ||
+    utilTypePredicates.isMapIterator(value) ||
+    utilTypePredicates.isModuleNamespaceObject(value) ||
+    utilTypePredicates.isNativeError(value) ||
+    utilTypePredicates.isPromise(value) ||
+    utilTypePredicates.isRegExp(value) ||
+    utilTypePredicates.isSet(value) ||
+    utilTypePredicates.isSetIterator(value) ||
+    utilTypePredicates.isWeakMap(value) ||
+    utilTypePredicates.isWeakSet(value) ||
+    (
+      typeof utilTypePredicates.isCryptoKey ===
         "function" &&
-      utilTypes.isCryptoKey(value)
+      utilTypePredicates.isCryptoKey(value)
     ) ||
     (
-      typeof utilTypes.isKeyObject ===
+      typeof utilTypePredicates.isKeyObject ===
         "function" &&
-      utilTypes.isKeyObject(value)
+      utilTypePredicates.isKeyObject(value)
     ) ||
     (
-      typeof utilTypes.isExternal ===
+      typeof utilTypePredicates.isExternal ===
         "function" &&
-      utilTypes.isExternal(value)
+      utilTypePredicates.isExternal(value)
     ) ||
     hasUnsupportedPerformanceObserverBrand(
       value
@@ -1248,7 +1271,7 @@ function prepareAiDataValue(
     );
   }
 
-  if (utilTypes.isProxy(value)) {
+  if (utilTypePredicates.isProxy(value)) {
     throw new Error(
       `${label} must not be a Proxy.`
     );
@@ -1432,7 +1455,7 @@ function freezeAiData(
       continue;
     }
 
-    if (utilTypes.isProxy(current)) {
+    if (utilTypePredicates.isProxy(current)) {
       throw new Error(
         `${frame.label} must not be a Proxy.`
       );
