@@ -33,6 +33,12 @@ const defineProperty =
 const functionToString =
   Function.prototype.toString;
 
+const structuredCloneFunction =
+  typeof globalThis.structuredClone ===
+    "function"
+    ? globalThis.structuredClone
+    : null;
+
 const objectConstructorSource =
   reflectApply(
     functionToString,
@@ -99,7 +105,8 @@ function requireFiniteNumber(
 
 function isNativeConstructorDescriptor(
   descriptor,
-  expectedSource
+  expectedSource,
+  expectedPrototype
 ) {
   if (
     descriptor === undefined ||
@@ -114,17 +121,35 @@ function isNativeConstructorDescriptor(
     return false;
   }
 
+  let source;
+  let prototypeDescriptor;
+
   try {
-    return (
+    source =
       reflectApply(
         functionToString,
         descriptor.value,
         []
-      ) === expectedSource
-    );
+      );
+
+    prototypeDescriptor =
+      getOwnPropertyDescriptor(
+        descriptor.value,
+        "prototype"
+      );
   } catch {
     return false;
   }
+
+  return (
+    source === expectedSource &&
+    prototypeDescriptor !==
+      undefined &&
+    !("get" in prototypeDescriptor) &&
+    !("set" in prototypeDescriptor) &&
+    prototypeDescriptor.value ===
+      expectedPrototype
+  );
 }
 
 function isOrdinaryObjectPrototype(
@@ -142,21 +167,12 @@ function isOrdinaryObjectPrototype(
   }
 
   let parent;
+  let constructorDescriptor;
 
   try {
     parent =
       getPrototypeOf(prototype);
-  } catch {
-    return false;
-  }
 
-  if (parent !== null) {
-    return false;
-  }
-
-  let constructorDescriptor;
-
-  try {
     constructorDescriptor =
       getOwnPropertyDescriptor(
         prototype,
@@ -166,9 +182,14 @@ function isOrdinaryObjectPrototype(
     return false;
   }
 
+  if (parent !== null) {
+    return false;
+  }
+
   return isNativeConstructorDescriptor(
     constructorDescriptor,
-    objectConstructorSource
+    objectConstructorSource,
+    prototype
   );
 }
 
@@ -184,10 +205,17 @@ function isOrdinaryArrayPrototype(
   }
 
   let parent;
+  let constructorDescriptor;
 
   try {
     parent =
       getPrototypeOf(prototype);
+
+    constructorDescriptor =
+      getOwnPropertyDescriptor(
+        prototype,
+        "constructor"
+      );
   } catch {
     return false;
   }
@@ -200,21 +228,10 @@ function isOrdinaryArrayPrototype(
     return false;
   }
 
-  let constructorDescriptor;
-
-  try {
-    constructorDescriptor =
-      getOwnPropertyDescriptor(
-        prototype,
-        "constructor"
-      );
-  } catch {
-    return false;
-  }
-
   return isNativeConstructorDescriptor(
     constructorDescriptor,
-    arrayConstructorSource
+    arrayConstructorSource,
+    prototype
   );
 }
 
@@ -535,6 +552,27 @@ const intlLocaleBaseNameGetter =
     "baseName"
   );
 
+const webAssemblyModuleExports =
+  typeof WebAssembly === "object" &&
+  WebAssembly !== null &&
+  typeof WebAssembly.Module ===
+    "function" &&
+  typeof WebAssembly.Module.exports ===
+    "function"
+    ? WebAssembly.Module.exports
+    : null;
+
+const webAssemblyInstanceExportsGetter =
+  typeof WebAssembly === "object" &&
+  WebAssembly !== null &&
+  typeof WebAssembly.Instance ===
+    "function"
+    ? capturePrototypeGetter(
+        WebAssembly.Instance,
+        "exports"
+      )
+    : null;
+
 function hasUnsupportedHostBrand(
   value
 ) {
@@ -617,7 +655,69 @@ function hasUnsupportedAdditionalBrand(
     } catch {}
   }
 
+  if (webAssemblyModuleExports !== null) {
+    try {
+      reflectApply(
+        webAssemblyModuleExports,
+        WebAssembly.Module,
+        [value]
+      );
+
+      return true;
+    } catch {}
+  }
+
+  if (
+    webAssemblyInstanceExportsGetter !==
+      null
+  ) {
+    try {
+      reflectApply(
+        webAssemblyInstanceExportsGetter,
+        value,
+        []
+      );
+
+      return true;
+    } catch {}
+  }
+
   return false;
+}
+
+function hasUncloneableZeroOwnKeyBrand(
+  value
+) {
+  if (structuredCloneFunction === null) {
+    return false;
+  }
+
+  let descriptors;
+
+  try {
+    descriptors =
+      getOwnPropertyDescriptors(value);
+  } catch {
+    return false;
+  }
+
+  if (
+    ownKeys(descriptors).length !== 0
+  ) {
+    return false;
+  }
+
+  try {
+    reflectApply(
+      structuredCloneFunction,
+      globalThis,
+      [value]
+    );
+
+    return false;
+  } catch {
+    return true;
+  }
 }
 
 function isUnsupportedRuntimeObject(
@@ -660,7 +760,8 @@ function isUnsupportedRuntimeObject(
     ) ||
     hasUnsupportedHostSingleton(value) ||
     hasUnsupportedHostBrand(value) ||
-    hasUnsupportedAdditionalBrand(value)
+    hasUnsupportedAdditionalBrand(value) ||
+    hasUncloneableZeroOwnKeyBrand(value)
   );
 }
 
