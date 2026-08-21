@@ -1,0 +1,63 @@
+name: M8 round 4 patch
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.0
+
+      - name: Apply round 4 patch
+        run: python3 scripts/m8-round4-patch.py
+
+      - name: Syntax
+        run: |
+          node --check src/ai-data.js
+          node --check src/contract-attacks.js
+          node --check test/m8-codex-round4.test.js
+
+      - name: Round 4 regressions
+        run: node --test test/m8-codex-round4.test.js
+
+      - name: Existing M8 focused regressions
+        run: |
+          node --test test/m8-codex-remediation.test.js
+          node --test test/m8-codex-round3.test.js
+          node --test test/contract-attacks.test.js
+          node --test test/ai-data.test.js
+
+      - name: Full repository
+        run: node --test
+
+      - name: Diff hygiene
+        run: |
+          git diff --check
+          test -z "$(git diff origin/main...HEAD -- src/engine.js)"
+
+      - name: Commit round 4 source if changed
+        run: |
+          if git diff --quiet -- src/ai-data.js src/contract-attacks.js test/m8-codex-round4.test.js; then
+            echo "Round 4 source already applied."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/ai-data.js src/contract-attacks.js test/m8-codex-round4.test.js
+          git diff --cached --check
+          git commit -m "fix: harden M8 callback boundaries round 4"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
