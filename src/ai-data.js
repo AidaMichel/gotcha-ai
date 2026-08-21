@@ -785,6 +785,15 @@ const asyncLocalStorageGetStore =
     "getStore"
   );
 
+const messagePortHasRef =
+  typeof workerThreads.MessagePort ===
+    "function"
+    ? capturePrototypeMethod(
+        workerThreads.MessagePort,
+        "hasRef"
+      )
+    : null;
+
 function hasUnsupportedHostBrand(
   value
 ) {
@@ -974,6 +983,18 @@ function hasUnsupportedAdditionalBrand(
     try {
       reflectApply(
         vmScriptCreateCachedData,
+        value,
+        []
+      );
+
+      return true;
+    } catch {}
+  }
+
+  if (messagePortHasRef !== null) {
+    try {
+      reflectApply(
+        messagePortHasRef,
         value,
         []
       );

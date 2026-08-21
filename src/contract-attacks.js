@@ -710,6 +710,17 @@ function captureEvaluatorInstanceSemantics(
   return semantics;
 }
 
+function canInstallEvaluatorInstanceSemantic(
+  constructor,
+  previousDescriptor
+) {
+  if (previousDescriptor === undefined) {
+    return isExtensible(constructor);
+  }
+
+  return previousDescriptor.configurable === true;
+}
+
 function withSafeEvaluatorInstanceSemantics(
   semantics,
   callback
@@ -731,6 +742,15 @@ function withSafeEvaluatorInstanceSemantics(
           constructor,
           arrayHasInstanceSymbol
         );
+
+      if (
+        !canInstallEvaluatorInstanceSemantic(
+          constructor,
+          previousDescriptor
+        )
+      ) {
+        continue;
+      }
 
       defineProperty(
         constructor,
@@ -965,12 +985,6 @@ function captureCallbackIntrinsicSurfaces() {
       sharedIteratorPrototype
     ),
     captureIntrinsicSurface(
-      ObjectConstructor
-    ),
-    captureIntrinsicSurface(
-      ArrayConstructor
-    ),
-    captureIntrinsicSurface(
       NumberConstructor
     )
   ];
@@ -1053,13 +1067,79 @@ function restoreCallbackIntrinsicSurfaces(
   }
 }
 
+let callbackIntrinsicScopeBaseline = null;
+let callbackIntrinsicScopeCount = 0;
+
+function enterCallbackIntrinsicScope() {
+  if (callbackIntrinsicScopeCount === 0) {
+    callbackIntrinsicScopeBaseline =
+      captureCallbackIntrinsicSurfaces();
+  } else {
+    restoreCallbackIntrinsicSurfaces(
+      callbackIntrinsicScopeBaseline
+    );
+  }
+
+  callbackIntrinsicScopeCount += 1;
+
+  return {
+    closed: false
+  };
+}
+
+function closeCallbackIntrinsicScope(
+  scope
+) {
+  if (
+    scope === null ||
+    typeof scope !== "object" ||
+    scope.closed === true
+  ) {
+    return;
+  }
+
+  const baseline =
+    callbackIntrinsicScopeBaseline;
+
+  if (
+    baseline === null ||
+    callbackIntrinsicScopeCount <= 0
+  ) {
+    scope.closed = true;
+    throw new Error(
+      "Callback intrinsic scope is not active."
+    );
+  }
+
+  let restoreError = null;
+
+  try {
+    restoreCallbackIntrinsicSurfaces(
+      baseline
+    );
+  } catch (error) {
+    restoreError = error;
+  }
+
+  scope.closed = true;
+  callbackIntrinsicScopeCount -= 1;
+
+  if (callbackIntrinsicScopeCount === 0) {
+    callbackIntrinsicScopeBaseline = null;
+  }
+
+  if (restoreError !== null) {
+    throw restoreError;
+  }
+}
+
 function withRestoredCallbackIntrinsicSurfaces(
   callback,
   thisArg,
   args
 ) {
-  const surfaces =
-    captureCallbackIntrinsicSurfaces();
+  const scope =
+    enterCallbackIntrinsicScope();
 
   try {
     return reflectApply(
@@ -1068,8 +1148,8 @@ function withRestoredCallbackIntrinsicSurfaces(
       args
     );
   } finally {
-    restoreCallbackIntrinsicSurfaces(
-      surfaces
+    closeCallbackIntrinsicScope(
+      scope
     );
   }
 }
@@ -1617,6 +1697,9 @@ function withSafePromiseConstructor(
       "constructor"
     );
 
+  const prototype =
+    getPrototypeOf(value);
+
   if (
     canInstallSafePromiseConstructor(
       value,
@@ -1638,7 +1721,11 @@ function withSafePromiseConstructor(
         ownConstructor.value ===
           promiseConstructor ||
         ownConstructor.value ===
-          undefined
+          undefined ||
+        isAuthenticatedStandardPromisePrototype(
+          prototype,
+          ownConstructor
+        )
       )
     ) {
       requirePromiseIntrinsicIntegrity();
@@ -1649,9 +1736,6 @@ function withSafePromiseConstructor(
       "Native Promise cannot be observed safely."
     );
   }
-
-  const prototype =
-    getPrototypeOf(value);
 
   if (
     prototype === null ||
@@ -1835,14 +1919,19 @@ function createSafeEvaluator(
       );
 
     const result =
-      withSafeEvaluatorInstanceSemantics(
-        instanceSemantics,
+      withRestoredCallbackIntrinsicSurfaces(
         () =>
-          withRestoredCallbackIntrinsicSurfaces(
-            evaluator,
-            undefined,
-            [evaluatorOutput]
-          )
+          withSafeEvaluatorInstanceSemantics(
+            instanceSemantics,
+            () =>
+              reflectApply(
+                evaluator,
+                undefined,
+                [evaluatorOutput]
+              )
+          ),
+        undefined,
+        []
       );
 
     if (utilIsPromise(result)) {
@@ -2000,8 +2089,8 @@ function invokeGenerator(
   generator,
   argumentsObject
 ) {
-  const surfaces =
-    captureCallbackIntrinsicSurfaces();
+  const scope =
+    enterCallbackIntrinsicScope();
 
   let returned;
 
@@ -2013,8 +2102,8 @@ function invokeGenerator(
         [argumentsObject]
       );
   } catch (error) {
-    restoreCallbackIntrinsicSurfaces(
-      surfaces
+    closeCallbackIntrinsicScope(
+      scope
     );
     throw error;
   }
@@ -2023,8 +2112,8 @@ function invokeGenerator(
     utilIsPromise(returned);
 
   if (!isNativePromise) {
-    restoreCallbackIntrinsicSurfaces(
-      surfaces
+    closeCallbackIntrinsicScope(
+      scope
     );
     requirePromiseIntrinsicIntegrity();
 
@@ -2042,8 +2131,8 @@ function invokeGenerator(
         returned
       );
   } catch (error) {
-    restoreCallbackIntrinsicSurfaces(
-      surfaces
+    closeCallbackIntrinsicScope(
+      scope
     );
     throw error;
   }
@@ -2059,7 +2148,7 @@ function invokeGenerator(
   return {
     isNativePromise: true,
     returned: bridged,
-    surfaces,
+    scope,
     integrityError
   };
 }
@@ -2747,8 +2836,8 @@ async function runContractAttacks(
       settlementError = error;
     }
 
-    restoreCallbackIntrinsicSurfaces(
-      generatorInvocation.surfaces
+    closeCallbackIntrinsicScope(
+      generatorInvocation.scope
     );
 
     if (
