@@ -27,6 +27,29 @@ jobs:
       - name: Apply Round 8 patch
         run: python3 .github/scripts/m8_round8_patch.py
 
+      - name: Keep Array/Object constructors under nesting-safe evaluator bridge
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          path = Path("src/contract-attacks.js")
+          text = path.read_text()
+          old = '''    captureIntrinsicSurface(
+              ObjectConstructor
+            ),
+            captureIntrinsicSurface(
+              ArrayConstructor
+            ),
+            captureIntrinsicSurface(
+              NumberConstructor
+            )'''
+          new = '''    captureIntrinsicSurface(
+              NumberConstructor
+            )'''
+          if old not in text:
+              raise SystemExit("Could not find Array/Object constructor surface block")
+          path.write_text(text.replace(old, new, 1))
+          PY
+
       - name: Fix generated foreign Promise regression quoting
         run: |
           python3 <<'PY'
