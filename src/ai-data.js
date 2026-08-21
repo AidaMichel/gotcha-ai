@@ -9,9 +9,8 @@ const {
   PerformanceObserver
 } = require("node:perf_hooks");
 
-const {
-  locks: workerThreadLocks
-} = require("node:worker_threads");
+const workerThreads =
+  require("node:worker_threads");
 
 const getOwnPropertyDescriptors =
   Object.getOwnPropertyDescriptors;
@@ -25,8 +24,28 @@ const getPrototypeOf =
 const ownKeys =
   Reflect.ownKeys;
 
+const reflectApply =
+  Reflect.apply;
+
 const defineProperty =
   Object.defineProperty;
+
+const functionToString =
+  Function.prototype.toString;
+
+const objectConstructorSource =
+  reflectApply(
+    functionToString,
+    Object,
+    []
+  );
+
+const arrayConstructorSource =
+  reflectApply(
+    functionToString,
+    Array,
+    []
+  );
 
 const MAX_ARRAY_INDEX =
   2 ** 32 - 1;
@@ -38,33 +57,25 @@ function failUnsupportedType(
   const type =
     typeof value;
 
-  if (
-    type === "undefined"
-  ) {
+  if (type === "undefined") {
     throw new Error(
       `${label} must not contain undefined.`
     );
   }
 
-  if (
-    type === "function"
-  ) {
+  if (type === "function") {
     throw new Error(
       `${label} must not contain functions.`
     );
   }
 
-  if (
-    type === "symbol"
-  ) {
+  if (type === "symbol") {
     throw new Error(
       `${label} must not contain symbols.`
     );
   }
 
-  if (
-    type === "bigint"
-  ) {
+  if (type === "bigint") {
     throw new Error(
       `${label} must not contain bigint values.`
     );
@@ -79,22 +90,131 @@ function requireFiniteNumber(
   value,
   label
 ) {
-  if (
-    !Number.isFinite(value)
-  ) {
+  if (!Number.isFinite(value)) {
     throw new Error(
       `${label} must be a finite number.`
     );
   }
 }
 
-function isPlainObjectPrototype(
+function isNativeConstructorDescriptor(
+  descriptor,
+  expectedSource
+) {
+  if (
+    descriptor === undefined ||
+    "get" in descriptor ||
+    "set" in descriptor ||
+    typeof descriptor.value !==
+      "function" ||
+    utilTypes.isProxy(
+      descriptor.value
+    )
+  ) {
+    return false;
+  }
+
+  try {
+    return (
+      reflectApply(
+        functionToString,
+        descriptor.value,
+        []
+      ) === expectedSource
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isOrdinaryObjectPrototype(
   prototype
 ) {
-  return (
-    prototype ===
-      Object.prototype ||
-    prototype === null
+  if (prototype === null) {
+    return true;
+  }
+
+  if (
+    typeof prototype !== "object" ||
+    utilTypes.isProxy(prototype)
+  ) {
+    return false;
+  }
+
+  let parent;
+
+  try {
+    parent =
+      getPrototypeOf(prototype);
+  } catch {
+    return false;
+  }
+
+  if (parent !== null) {
+    return false;
+  }
+
+  let constructorDescriptor;
+
+  try {
+    constructorDescriptor =
+      getOwnPropertyDescriptor(
+        prototype,
+        "constructor"
+      );
+  } catch {
+    return false;
+  }
+
+  return isNativeConstructorDescriptor(
+    constructorDescriptor,
+    objectConstructorSource
+  );
+}
+
+function isOrdinaryArrayPrototype(
+  prototype
+) {
+  if (
+    prototype === null ||
+    typeof prototype !== "object" ||
+    utilTypes.isProxy(prototype)
+  ) {
+    return false;
+  }
+
+  let parent;
+
+  try {
+    parent =
+      getPrototypeOf(prototype);
+  } catch {
+    return false;
+  }
+
+  if (
+    !isOrdinaryObjectPrototype(
+      parent
+    )
+  ) {
+    return false;
+  }
+
+  let constructorDescriptor;
+
+  try {
+    constructorDescriptor =
+      getOwnPropertyDescriptor(
+        prototype,
+        "constructor"
+      );
+  } catch {
+    return false;
+  }
+
+  return isNativeConstructorDescriptor(
+    constructorDescriptor,
+    arrayConstructorSource
   );
 }
 
@@ -114,18 +234,17 @@ function isArrayIndexKey(
   return (
     Number.isInteger(numeric) &&
     numeric >= 0 &&
-    numeric <
-      MAX_ARRAY_INDEX &&
+    numeric < MAX_ARRAY_INDEX &&
     String(numeric) === key
   );
 }
+
 function captureNavigatorLocks() {
   try {
     if (
       globalThis.navigator ===
         undefined ||
-      globalThis.navigator ===
-        null
+      globalThis.navigator === null
     ) {
       return null;
     }
@@ -150,14 +269,13 @@ const navigatorLocks =
 const unsupportedHostSingletons =
   Object.freeze(
     [
-      workerThreadLocks,
+      workerThreads.locks,
       navigatorLocks
     ].filter(
       (value, index, values) =>
         value !== undefined &&
         value !== null &&
-        values.indexOf(value) ===
-          index
+        values.indexOf(value) === index
     )
   );
 
@@ -171,18 +289,13 @@ function hasUnsupportedHostSingleton(
     );
 }
 
-function captureHostBrandGetter(
-  constructorName,
+function capturePrototypeGetter(
+  constructor,
   propertyName
 ) {
-  const constructor =
-    globalThis[constructorName];
-
   if (
-    typeof constructor !==
-      "function" ||
-    constructor.prototype ===
-      null ||
+    typeof constructor !== "function" ||
+    constructor.prototype === null ||
     typeof constructor.prototype !==
       "object"
   ) {
@@ -190,24 +303,80 @@ function captureHostBrandGetter(
   }
 
   const descriptor =
-    Reflect.apply(
-      getOwnPropertyDescriptor,
-      Object,
-      [
-        constructor.prototype,
-        propertyName
-      ]
+    getOwnPropertyDescriptor(
+      constructor.prototype,
+      propertyName
     );
 
-  if (
-    descriptor === undefined ||
-    typeof descriptor.get !==
+  return (
+    descriptor !== undefined &&
+    typeof descriptor.get ===
       "function"
+  )
+    ? descriptor.get
+    : null;
+}
+
+function capturePrototypeMethod(
+  constructor,
+  propertyName
+) {
+  if (
+    typeof constructor !== "function" ||
+    constructor.prototype === null ||
+    typeof constructor.prototype !==
+      "object"
   ) {
     return null;
   }
 
-  return descriptor.get;
+  const descriptor =
+    getOwnPropertyDescriptor(
+      constructor.prototype,
+      propertyName
+    );
+
+  return (
+    descriptor !== undefined &&
+    "value" in descriptor &&
+    typeof descriptor.value ===
+      "function"
+  )
+    ? descriptor.value
+    : null;
+}
+
+function captureGlobalConstructor(
+  name
+) {
+  const value =
+    globalThis[name];
+
+  return (
+    typeof value === "function"
+  )
+    ? value
+    : null;
+}
+
+function captureIntlConstructor(
+  name
+) {
+  if (
+    typeof Intl !== "object" ||
+    Intl === null
+  ) {
+    return null;
+  }
+
+  const value =
+    Intl[name];
+
+  return (
+    typeof value === "function"
+  )
+    ? value
+    : null;
 }
 
 function capturePerformanceObserverBrandProbe() {
@@ -216,31 +385,25 @@ function capturePerformanceObserverBrandProbe() {
       "function" ||
     PerformanceObserver.prototype ===
       null ||
-    typeof PerformanceObserver
-      .prototype !== "object"
+    typeof PerformanceObserver.prototype !==
+      "object"
   ) {
     return null;
   }
 
   const descriptor =
-    Reflect.apply(
-      getOwnPropertyDescriptor,
-      Object,
-      [
-        PerformanceObserver.prototype,
-        inspect.custom
-      ]
+    getOwnPropertyDescriptor(
+      PerformanceObserver.prototype,
+      inspect.custom
     );
 
-  if (
-    descriptor === undefined ||
-    typeof descriptor.value !==
+  return (
+    descriptor !== undefined &&
+    typeof descriptor.value ===
       "function"
-  ) {
-    return null;
-  }
-
-  return descriptor.value;
+  )
+    ? descriptor.value
+    : null;
 }
 
 const performanceObserverBrandProbe =
@@ -255,14 +418,13 @@ function hasUnsupportedPerformanceObserverBrand(
   value
 ) {
   if (
-    performanceObserverBrandProbe ===
-      null
+    performanceObserverBrandProbe === null
   ) {
     return false;
   }
 
   try {
-    Reflect.apply(
+    reflectApply(
       performanceObserverBrandProbe,
       value,
       [
@@ -280,102 +442,38 @@ function hasUnsupportedPerformanceObserverBrand(
 
 const HOST_BRAND_GETTER_SPECS =
   Object.freeze([
-    [
-      "Crypto",
-      "subtle"
-    ],
-    [
-      "Navigator",
-      "userAgent"
-    ],
-    [
-      "AbortController",
-      "signal"
-    ],
-    [
-      "AbortSignal",
-      "aborted"
-    ],
-    [
-      "TextEncoder",
-      "encoding"
-    ],
-    [
-      "TextDecoder",
-      "encoding"
-    ],
-    [
-      "URL",
-      "href"
-    ],
-    [
-      "URLSearchParams",
-      "size"
-    ],
-    [
-      "Blob",
-      "size"
-    ],
-    [
-      "File",
-      "name"
-    ],
-    [
-      "Request",
-      "url"
-    ],
-    [
-      "Response",
-      "status"
-    ],
-    [
-      "ReadableStream",
-      "locked"
-    ],
-    [
-      "WritableStream",
-      "locked"
-    ],
-    [
-      "TransformStream",
-      "readable"
-    ],
-    [
-      "TextEncoderStream",
-      "readable"
-    ],
-    [
-      "TextDecoderStream",
-      "readable"
-    ],
-    [
-      "CompressionStream",
-      "readable"
-    ],
-    [
-      "DecompressionStream",
-      "readable"
-    ],
-    [
-      "CountQueuingStrategy",
-      "highWaterMark"
-    ],
-    [
-      "ByteLengthQueuingStrategy",
-      "highWaterMark"
-    ]
+    ["Crypto", "subtle"],
+    ["Navigator", "userAgent"],
+    ["AbortController", "signal"],
+    ["AbortSignal", "aborted"],
+    ["TextEncoder", "encoding"],
+    ["TextDecoder", "encoding"],
+    ["URL", "href"],
+    ["URLSearchParams", "size"],
+    ["Blob", "size"],
+    ["File", "name"],
+    ["Request", "url"],
+    ["Response", "status"],
+    ["ReadableStream", "locked"],
+    ["WritableStream", "locked"],
+    ["TransformStream", "readable"],
+    ["TextEncoderStream", "readable"],
+    ["TextDecoderStream", "readable"],
+    ["CompressionStream", "readable"],
+    ["DecompressionStream", "readable"],
+    ["CountQueuingStrategy", "highWaterMark"],
+    ["ByteLengthQueuingStrategy", "highWaterMark"]
   ]);
 
 const unsupportedHostBrandGetters =
   Object.freeze(
     HOST_BRAND_GETTER_SPECS
       .map(
-        ([
-          constructorName,
-          propertyName
-        ]) =>
-          captureHostBrandGetter(
-            constructorName,
+        ([constructorName, propertyName]) =>
+          capturePrototypeGetter(
+            captureGlobalConstructor(
+              constructorName
+            ),
             propertyName
           )
       )
@@ -383,6 +481,58 @@ const unsupportedHostBrandGetters =
         (getter) =>
           getter !== null
       )
+  );
+
+const weakRefDeref =
+  capturePrototypeMethod(
+    captureGlobalConstructor(
+      "WeakRef"
+    ),
+    "deref"
+  );
+
+const finalizationRegistryUnregister =
+  capturePrototypeMethod(
+    captureGlobalConstructor(
+      "FinalizationRegistry"
+    ),
+    "unregister"
+  );
+
+const finalizationRegistryProbeToken =
+  Object.freeze({});
+
+const intlResolvedOptionMethods =
+  Object.freeze(
+    [
+      "Collator",
+      "DateTimeFormat",
+      "DisplayNames",
+      "ListFormat",
+      "NumberFormat",
+      "PluralRules",
+      "RelativeTimeFormat",
+      "Segmenter"
+    ]
+      .map(
+        (name) =>
+          capturePrototypeMethod(
+            captureIntlConstructor(name),
+            "resolvedOptions"
+          )
+      )
+      .filter(
+        (method) =>
+          method !== null
+      )
+  );
+
+const intlLocaleBaseNameGetter =
+  capturePrototypeGetter(
+    captureIntlConstructor(
+      "Locale"
+    ),
+    "baseName"
   );
 
 function hasUnsupportedHostBrand(
@@ -393,18 +543,78 @@ function hasUnsupportedHostBrand(
       unsupportedHostBrandGetters
   ) {
     try {
-      Reflect.apply(
+      reflectApply(
         getter,
         value,
         []
       );
 
       return true;
-    } catch {
-      // Wrong receivers fail native
-      // brand checks without being
-      // accepted as runtime objects.
-    }
+    } catch {}
+  }
+
+  return false;
+}
+
+function hasUnsupportedAdditionalBrand(
+  value
+) {
+  if (weakRefDeref !== null) {
+    try {
+      reflectApply(
+        weakRefDeref,
+        value,
+        []
+      );
+
+      return true;
+    } catch {}
+  }
+
+  if (
+    finalizationRegistryUnregister !==
+      null
+  ) {
+    try {
+      reflectApply(
+        finalizationRegistryUnregister,
+        value,
+        [
+          finalizationRegistryProbeToken
+        ]
+      );
+
+      return true;
+    } catch {}
+  }
+
+  for (
+    const method of
+      intlResolvedOptionMethods
+  ) {
+    try {
+      reflectApply(
+        method,
+        value,
+        []
+      );
+
+      return true;
+    } catch {}
+  }
+
+  if (
+    intlLocaleBaseNameGetter !== null
+  ) {
+    try {
+      reflectApply(
+        intlLocaleBaseNameGetter,
+        value,
+        []
+      );
+
+      return true;
+    } catch {}
   }
 
   return false;
@@ -414,86 +624,46 @@ function isUnsupportedRuntimeObject(
   value
 ) {
   return (
-    utilTypes.isAnyArrayBuffer(
-      value
-    ) ||
-    utilTypes.isArrayBufferView(
-      value
-    ) ||
-    utilTypes.isArgumentsObject(
-      value
-    ) ||
-    utilTypes.isBoxedPrimitive(
-      value
-    ) ||
-    utilTypes.isDate(
-      value
-    ) ||
-    utilTypes.isGeneratorObject(
-      value
-    ) ||
-    utilTypes.isMap(
-      value
-    ) ||
-    utilTypes.isMapIterator(
-      value
-    ) ||
-    utilTypes.isModuleNamespaceObject(
-      value
-    ) ||
-    utilTypes.isNativeError(
-      value
-    ) ||
-    utilTypes.isPromise(
-      value
-    ) ||
-    utilTypes.isRegExp(
-      value
-    ) ||
-    utilTypes.isSet(
-      value
-    ) ||
-    utilTypes.isSetIterator(
-      value
-    ) ||
-    utilTypes.isWeakMap(
-      value
-    ) ||
-    utilTypes.isWeakSet(
-      value
-    ) ||
+    utilTypes.isAnyArrayBuffer(value) ||
+    utilTypes.isArrayBufferView(value) ||
+    utilTypes.isArgumentsObject(value) ||
+    utilTypes.isBoxedPrimitive(value) ||
+    utilTypes.isDate(value) ||
+    utilTypes.isGeneratorObject(value) ||
+    utilTypes.isMap(value) ||
+    utilTypes.isMapIterator(value) ||
+    utilTypes.isModuleNamespaceObject(value) ||
+    utilTypes.isNativeError(value) ||
+    utilTypes.isPromise(value) ||
+    utilTypes.isRegExp(value) ||
+    utilTypes.isSet(value) ||
+    utilTypes.isSetIterator(value) ||
+    utilTypes.isWeakMap(value) ||
+    utilTypes.isWeakSet(value) ||
     (
       typeof utilTypes.isCryptoKey ===
         "function" &&
-      utilTypes.isCryptoKey(
-        value
-      )
+      utilTypes.isCryptoKey(value)
     ) ||
     (
       typeof utilTypes.isKeyObject ===
         "function" &&
-      utilTypes.isKeyObject(
-        value
-      )
+      utilTypes.isKeyObject(value)
     ) ||
     (
       typeof utilTypes.isExternal ===
         "function" &&
-      utilTypes.isExternal(
-        value
-      )
+      utilTypes.isExternal(value)
     ) ||
     hasUnsupportedPerformanceObserverBrand(
       value
     ) ||
-    hasUnsupportedHostSingleton(
-      value
-    ) ||
-    hasUnsupportedHostBrand(
-      value
-    )
+    hasUnsupportedHostSingleton(value) ||
+    hasUnsupportedHostBrand(value) ||
+    hasUnsupportedAdditionalBrand(value)
   );
 }
+
 function capturePlainObjectEntries(
   value,
   label
@@ -502,7 +672,7 @@ function capturePlainObjectEntries(
     getPrototypeOf(value);
 
   if (
-    !isPlainObjectPrototype(
+    !isOrdinaryObjectPrototype(
       prototype
     )
   ) {
@@ -512,20 +682,14 @@ function capturePlainObjectEntries(
   }
 
   const descriptors =
-    getOwnPropertyDescriptors(
-      value
-    );
+    getOwnPropertyDescriptors(value);
 
   const entries = [];
 
   for (
-    const key of
-      ownKeys(descriptors)
+    const key of ownKeys(descriptors)
   ) {
-    if (
-      typeof key ===
-        "symbol"
-    ) {
+    if (typeof key === "symbol") {
       throw new Error(
         `${label} must not contain symbol-keyed properties.`
       );
@@ -543,9 +707,7 @@ function capturePlainObjectEntries(
       );
     }
 
-    if (
-      !descriptor.enumerable
-    ) {
+    if (!descriptor.enumerable) {
       throw new Error(
         `${label} must not contain non-enumerable own properties.`
       );
@@ -571,8 +733,9 @@ function captureArrayEntries(
     getPrototypeOf(value);
 
   if (
-    prototype !==
-      Array.prototype
+    !isOrdinaryArrayPrototype(
+      prototype
+    )
   ) {
     throw new Error(
       `${label} must be an ordinary array.`
@@ -580,22 +743,17 @@ function captureArrayEntries(
   }
 
   const descriptors =
-    getOwnPropertyDescriptors(
-      value
-    );
+    getOwnPropertyDescriptors(value);
 
   const lengthDescriptor =
     descriptors.length;
 
   if (
-    lengthDescriptor ===
-      undefined ||
-    "get" in
-      lengthDescriptor ||
-    "set" in
-      lengthDescriptor ||
-    typeof lengthDescriptor
-      .value !== "number" ||
+    lengthDescriptor === undefined ||
+    "get" in lengthDescriptor ||
+    "set" in lengthDescriptor ||
+    typeof lengthDescriptor.value !==
+      "number" ||
     !Number.isInteger(
       lengthDescriptor.value
     ) ||
@@ -612,27 +770,19 @@ function captureArrayEntries(
   const indexedEntries = [];
 
   for (
-    const key of
-      ownKeys(descriptors)
+    const key of ownKeys(descriptors)
   ) {
-    if (
-      key === "length"
-    ) {
+    if (key === "length") {
       continue;
     }
 
-    if (
-      typeof key ===
-        "symbol"
-    ) {
+    if (typeof key === "symbol") {
       throw new Error(
         `${label} must not contain symbol-keyed properties.`
       );
     }
 
-    if (
-      !isArrayIndexKey(key)
-    ) {
+    if (!isArrayIndexKey(key)) {
       throw new Error(
         `${label} must contain indexed elements only.`
       );
@@ -641,9 +791,7 @@ function captureArrayEntries(
     const index =
       Number(key);
 
-    if (
-      index >= length
-    ) {
+    if (index >= length) {
       throw new Error(
         `${label} contains an invalid array index.`
       );
@@ -661,9 +809,7 @@ function captureArrayEntries(
       );
     }
 
-    if (
-      !descriptor.enumerable
-    ) {
+    if (!descriptor.enumerable) {
       throw new Error(
         `${label} must not contain non-enumerable array elements.`
       );
@@ -677,8 +823,7 @@ function captureArrayEntries(
   }
 
   if (
-    indexedEntries.length !==
-      length
+    indexedEntries.length !== length
   ) {
     throw new Error(
       `${label} must not be sparse.`
@@ -687,8 +832,7 @@ function captureArrayEntries(
 
   indexedEntries.sort(
     (left, right) =>
-      left.index -
-      right.index
+      left.index - right.index
   );
 
   for (
@@ -700,8 +844,7 @@ function captureArrayEntries(
     if (
       indexedEntries[
         expectedIndex
-      ].index !==
-        expectedIndex
+      ].index !== expectedIndex
     ) {
       throw new Error(
         `${label} must not be sparse.`
@@ -712,13 +855,9 @@ function captureArrayEntries(
   return indexedEntries.map(
     (entry) => ({
       key:
-        String(
-          entry.index
-        ),
-
+        String(entry.index),
       value:
         entry.value,
-
       label:
         `${label}[${entry.index}]`
     })
@@ -731,9 +870,7 @@ function prepareAiDataValue(
   active,
   memo
 ) {
-  if (
-    value === null
-  ) {
+  if (value === null) {
     return {
       value: null,
       frame: null
@@ -753,9 +890,7 @@ function prepareAiDataValue(
     };
   }
 
-  if (
-    type === "number"
-  ) {
+  if (type === "number") {
     requireFiniteNumber(
       value,
       label
@@ -763,55 +898,41 @@ function prepareAiDataValue(
 
     return {
       value:
-        Object.is(
-          value,
-          -0
-        )
+        Object.is(value, -0)
           ? 0
           : value,
-
       frame: null
     };
   }
 
-  if (
-    type !== "object"
-  ) {
+  if (type !== "object") {
     failUnsupportedType(
       value,
       label
     );
   }
 
-  if (
-    utilTypes.isProxy(value)
-  ) {
+  if (utilTypes.isProxy(value)) {
     throw new Error(
       `${label} must not be a Proxy.`
     );
   }
 
   if (
-    isUnsupportedRuntimeObject(
-      value
-    )
+    isUnsupportedRuntimeObject(value)
   ) {
     throw new Error(
       `${label} contains an unsupported runtime object.`
     );
   }
 
-  if (
-    active.has(value)
-  ) {
+  if (active.has(value)) {
     throw new Error(
       `${label} must not contain cyclic references.`
     );
   }
 
-  if (
-    memo.has(value)
-  ) {
+  if (memo.has(value)) {
     return {
       value:
         memo.get(value),
@@ -835,9 +956,7 @@ function prepareAiDataValue(
 
   const target =
     isArray
-      ? new Array(
-          entries.length
-        )
+      ? new Array(entries.length)
       : {};
 
   memo.set(
@@ -848,21 +967,13 @@ function prepareAiDataValue(
   active.add(value);
 
   return {
-    value:
-      target,
-
+    value: target,
     frame: {
-      source:
-        value,
-
+      source: value,
       target,
-
       entries,
-
       index: 0,
-
       active,
-
       memo
     }
   };
@@ -886,9 +997,7 @@ function cloneAiData(
       memo
     );
 
-  if (
-    root.frame === null
-  ) {
+  if (root.frame === null) {
     return root.value;
   }
 
@@ -896,9 +1005,7 @@ function cloneAiData(
     root.frame
   ];
 
-  while (
-    stack.length > 0
-  ) {
+  while (stack.length > 0) {
     const frame =
       stack[
         stack.length - 1
@@ -913,7 +1020,6 @@ function cloneAiData(
       );
 
       stack.pop();
-
       continue;
     }
 
@@ -938,18 +1044,13 @@ function cloneAiData(
       {
         value:
           child.value,
-
         enumerable: true,
-
         configurable: true,
-
         writable: true
       }
     );
 
-    if (
-      child.frame !== null
-    ) {
+    if (child.frame !== null) {
       stack.push(
         child.frame
       );
@@ -965,8 +1066,7 @@ function freezeAiData(
 ) {
   if (
     value === null ||
-    typeof value !==
-      "object"
+    typeof value !== "object"
   ) {
     return value;
   }
@@ -981,9 +1081,7 @@ function freezeAiData(
     }
   ];
 
-  while (
-    stack.length > 0
-  ) {
+  while (stack.length > 0) {
     const frame =
       stack.pop();
 
@@ -992,27 +1090,20 @@ function freezeAiData(
 
     if (
       current === null ||
-      typeof current !==
-        "object" ||
+      typeof current !== "object" ||
       seen.has(current)
     ) {
       continue;
     }
 
-    if (
-      utilTypes.isProxy(
-        current
-      )
-    ) {
+    if (utilTypes.isProxy(current)) {
       throw new Error(
         `${frame.label} must not be a Proxy.`
       );
     }
 
     if (
-      isUnsupportedRuntimeObject(
-        current
-      )
+      isUnsupportedRuntimeObject(current)
     ) {
       throw new Error(
         `${frame.label} contains an unsupported runtime object.`
@@ -1035,31 +1126,24 @@ function freezeAiData(
 
     seen.add(current);
 
-    for (
-      const entry of entries
-    ) {
+    for (const entry of entries) {
       const child =
         entry.value;
 
       if (
         child !== null &&
-        typeof child ===
-          "object" &&
+        typeof child === "object" &&
         !seen.has(child)
       ) {
         stack.push({
-          value:
-            child,
-
+          value: child,
           label:
             entry.label
         });
       }
     }
 
-    Object.freeze(
-      current
-    );
+    Object.freeze(current);
   }
 
   return value;
