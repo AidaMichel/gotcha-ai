@@ -286,7 +286,7 @@ test(
 );
 
 test(
-  "identical generated outputs are deduplicated across rule IDs",
+  "identical generated outputs for the same rule are deduplicated",
   async () => {
     const contract =
       makeContract([
@@ -295,13 +295,6 @@ test(
           statement:
             "Time must be 3 PM.",
           kind: "required",
-          severity: "major"
-        },
-        {
-          id: "rule-b",
-          statement:
-            "Do not change the approved time.",
-          kind: "forbidden",
           severity: "major"
         }
       ]);
@@ -316,6 +309,7 @@ test(
           return {
             version: 1,
             task: contract.task,
+
             attacks: [
               makeAttack({
                 id: "attack-a",
@@ -324,7 +318,7 @@ test(
 
               makeAttack({
                 id: "attack-b",
-                ruleId: "rule-b"
+                ruleId: "rule-a"
               })
             ]
           };
@@ -342,13 +336,97 @@ test(
       [
         {
           id: "attack-b",
-          ruleId: "rule-b",
+          ruleId: "rule-a",
           reason:
             "duplicate-attack",
           duplicateOf:
             "attack-a"
         }
       ]
+    );
+  }
+);
+
+test(
+  "identical outputs across different rules preserve rule attribution and severity ranking",
+  async () => {
+    const contract =
+      makeContract([
+        {
+          id: "rule-minor",
+          statement:
+            "Preserve the approved time.",
+          kind: "required",
+          severity: "minor"
+        },
+
+        {
+          id: "rule-critical",
+          statement:
+            "The scheduled time must match the explicitly requested time.",
+          kind: "required",
+          severity: "critical"
+        }
+      ]);
+
+    const result =
+      await runContractAttacks({
+        ...baseOptions({
+          contract
+        }),
+
+        evaluator() {
+          return true;
+        },
+
+        generator() {
+          return {
+            version: 1,
+            task: contract.task,
+
+            attacks: [
+              makeAttack({
+                id: "minor-attack",
+                ruleId:
+                  "rule-minor"
+              }),
+
+              makeAttack({
+                id: "critical-attack",
+                ruleId:
+                  "rule-critical"
+              })
+            ]
+          };
+        }
+      });
+
+    assert.equal(
+      result.generatedAttacks
+        .length,
+      2
+    );
+
+    assert.deepEqual(
+      result.discardedAttacks,
+      []
+    );
+
+    assert.equal(
+      result.attack
+        .survivors.length,
+      2
+    );
+
+    assert.equal(
+      result.topFinding.ruleId,
+      "rule-critical"
+    );
+
+    assert.equal(
+      result.topFinding
+        .rule.severity,
+      "critical"
     );
   }
 );

@@ -1016,6 +1016,8 @@ function findDuplicateAttack(
 ) {
   return retained.find(
     (existing) =>
+      existing.ruleId ===
+        candidate.ruleId &&
       isDeepStrictEqual(
         existing.mutatedOutput,
         candidate.mutatedOutput
