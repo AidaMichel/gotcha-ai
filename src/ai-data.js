@@ -500,6 +500,39 @@ const unsupportedHostBrandGetters =
       )
   );
 
+const additionalHostBrandMethodProbes =
+  Object.freeze(
+    [
+      {
+        method:
+          capturePrototypeMethod(
+            captureGlobalConstructor(
+              "Headers"
+            ),
+            "get"
+          ),
+        args: [
+          "__gotcha_brand_probe__"
+        ]
+      },
+      {
+        method:
+          capturePrototypeMethod(
+            captureGlobalConstructor(
+              "FormData"
+            ),
+            "get"
+          ),
+        args: [
+          "__gotcha_brand_probe__"
+        ]
+      }
+    ].filter(
+      (probe) =>
+        probe.method !== null
+    )
+  );
+
 const weakRefDeref =
   capturePrototypeMethod(
     captureGlobalConstructor(
@@ -573,6 +606,39 @@ const webAssemblyInstanceExportsGetter =
       )
     : null;
 
+const webAssemblyMemoryBufferGetter =
+  typeof WebAssembly === "object" &&
+  WebAssembly !== null &&
+  typeof WebAssembly.Memory ===
+    "function"
+    ? capturePrototypeGetter(
+        WebAssembly.Memory,
+        "buffer"
+      )
+    : null;
+
+const webAssemblyTableLengthGetter =
+  typeof WebAssembly === "object" &&
+  WebAssembly !== null &&
+  typeof WebAssembly.Table ===
+    "function"
+    ? capturePrototypeGetter(
+        WebAssembly.Table,
+        "length"
+      )
+    : null;
+
+const webAssemblyGlobalValueGetter =
+  typeof WebAssembly === "object" &&
+  WebAssembly !== null &&
+  typeof WebAssembly.Global ===
+    "function"
+    ? capturePrototypeGetter(
+        WebAssembly.Global,
+        "value"
+      )
+    : null;
+
 function hasUnsupportedHostBrand(
   value
 ) {
@@ -597,6 +663,43 @@ function hasUnsupportedHostBrand(
 function hasUnsupportedAdditionalBrand(
   value
 ) {
+  for (
+    const probe of
+      additionalHostBrandMethodProbes
+  ) {
+    try {
+      reflectApply(
+        probe.method,
+        value,
+        probe.args
+      );
+
+      return true;
+    } catch {}
+  }
+
+  for (
+    const getter of [
+      webAssemblyMemoryBufferGetter,
+      webAssemblyTableLengthGetter,
+      webAssemblyGlobalValueGetter
+    ]
+  ) {
+    if (getter === null) {
+      continue;
+    }
+
+    try {
+      reflectApply(
+        getter,
+        value,
+        []
+      );
+
+      return true;
+    } catch {}
+  }
+
   if (weakRefDeref !== null) {
     try {
       reflectApply(
@@ -685,24 +788,88 @@ function hasUnsupportedAdditionalBrand(
   return false;
 }
 
-function hasUncloneableZeroOwnKeyBrand(
+function isStructuredCloneProbeSafe(
   value
 ) {
-  if (structuredCloneFunction === null) {
-    return false;
+  const seen =
+    new WeakSet();
+
+  const stack = [value];
+
+  while (stack.length > 0) {
+    const current =
+      stack.pop();
+
+    if (
+      current === null ||
+      typeof current !== "object" ||
+      seen.has(current)
+    ) {
+      continue;
+    }
+
+    if (utilTypes.isProxy(current)) {
+      return false;
+    }
+
+    seen.add(current);
+
+    let descriptors;
+
+    try {
+      descriptors =
+        getOwnPropertyDescriptors(
+          current
+        );
+    } catch {
+      return false;
+    }
+
+    for (
+      const key of ownKeys(descriptors)
+    ) {
+      if (typeof key === "symbol") {
+        return false;
+      }
+
+      const descriptor =
+        descriptors[key];
+
+      if (
+        "get" in descriptor ||
+        "set" in descriptor
+      ) {
+        return false;
+      }
+
+      const child =
+        descriptor.value;
+
+      if (
+        typeof child === "function" ||
+        typeof child === "symbol"
+      ) {
+        return false;
+      }
+
+      if (
+        child !== null &&
+        typeof child === "object"
+      ) {
+        stack.push(child);
+      }
+    }
   }
 
-  let descriptors;
+  return true;
+}
 
-  try {
-    descriptors =
-      getOwnPropertyDescriptors(value);
-  } catch {
-    return false;
-  }
-
+function hasUncloneableStructuredCloneBrand(
+  value
+) {
   if (
-    ownKeys(descriptors).length !== 0
+    structuredCloneFunction === null ||
+    !isStructuredCloneProbeSafe(value)
   ) {
     return false;
   }
@@ -761,7 +928,7 @@ function isUnsupportedRuntimeObject(
     hasUnsupportedHostSingleton(value) ||
     hasUnsupportedHostBrand(value) ||
     hasUnsupportedAdditionalBrand(value) ||
-    hasUncloneableZeroOwnKeyBrand(value)
+    hasUncloneableStructuredCloneBrand(value)
   );
 }
 

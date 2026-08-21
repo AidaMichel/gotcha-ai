@@ -26,6 +26,9 @@ const getPrototypeOf =
 const defineProperty =
   Object.defineProperty;
 
+const setPrototypeOf =
+  Object.setPrototypeOf;
+
 const isExtensible =
   Object.isExtensible;
 
@@ -40,6 +43,12 @@ const reflectApply =
 
 const objectFreeze =
   Object.freeze;
+
+const arrayMap =
+  Array.prototype.map;
+
+const arrayFind =
+  Array.prototype.find;
 
 const promisePrototype =
   Promise.prototype;
@@ -64,6 +73,24 @@ const promiseSpeciesDescriptor =
     promiseConstructor,
     promiseSpecies
   );
+
+const safePromiseSpeciesContainer = {};
+
+defineProperty(
+  safePromiseSpeciesContainer,
+  promiseSpecies,
+  {
+    value:
+      promiseConstructor,
+    writable: false,
+    enumerable: false,
+    configurable: false
+  }
+);
+
+objectFreeze(
+  safePromiseSpeciesContainer
+);
 
 const hasOwnProperty =
   Object.prototype.hasOwnProperty;
@@ -483,12 +510,12 @@ function requireTrustedCallbacks(
 }
 
 function restorePromiseConstructor(
-  value,
+  holder,
   descriptor
 ) {
   if (descriptor === undefined) {
     deleteProperty(
-      value,
+      holder,
       "constructor"
     );
 
@@ -496,18 +523,102 @@ function restorePromiseConstructor(
   }
 
   defineProperty(
-    value,
+    holder,
     "constructor",
     descriptor
   );
+}
+
+function canInstallSafePromiseConstructor(
+  holder,
+  descriptor
+) {
+  if (descriptor === undefined) {
+    return isExtensible(holder);
+  }
+
+  if (descriptor.configurable) {
+    return true;
+  }
+
+  return (
+    !("get" in descriptor) &&
+    !("set" in descriptor) &&
+    descriptor.writable
+  );
+}
+
+function installSafePromiseConstructor(
+  holder,
+  descriptor
+) {
+  if (descriptor === undefined) {
+    defineProperty(
+      holder,
+      "constructor",
+      {
+        value:
+          safePromiseSpeciesContainer,
+        writable: true,
+        enumerable: false,
+        configurable: true
+      }
+    );
+
+    return;
+  }
+
+  if (descriptor.configurable) {
+    defineProperty(
+      holder,
+      "constructor",
+      {
+        value:
+          safePromiseSpeciesContainer,
+        writable: true,
+        enumerable:
+          descriptor.enumerable,
+        configurable: true
+      }
+    );
+
+    return;
+  }
+
+  defineProperty(
+    holder,
+    "constructor",
+    {
+      value:
+        safePromiseSpeciesContainer
+    }
+  );
+}
+
+function withTemporarySafePromiseConstructor(
+  holder,
+  descriptor,
+  callback
+) {
+  installSafePromiseConstructor(
+    holder,
+    descriptor
+  );
+
+  try {
+    return callback();
+  } finally {
+    restorePromiseConstructor(
+      holder,
+      descriptor
+    );
+  }
 }
 
 function withSafePromiseConstructor(
   value,
   callback
 ) {
-  requirePromiseIntrinsicIntegrity();
-
   if (
     !utilTypes.isPromise(value) ||
     utilTypes.isProxy(value)
@@ -517,90 +628,66 @@ function withSafePromiseConstructor(
     );
   }
 
-  const prototype =
-    getPrototypeOf(value);
-
   const ownConstructor =
     getOwnPropertyDescriptor(
       value,
       "constructor"
     );
 
-  const alreadySafe =
-    (
-      ownConstructor === undefined &&
-      prototype === promisePrototype
-    ) ||
-    (
-      ownConstructor !== undefined &&
-      !("get" in ownConstructor) &&
-      !("set" in ownConstructor) &&
-      ownConstructor.value ===
-        promiseConstructor
+  if (
+    canInstallSafePromiseConstructor(
+      value,
+      ownConstructor
+    )
+  ) {
+    return withTemporarySafePromiseConstructor(
+      value,
+      ownConstructor,
+      callback
     );
-
-  if (alreadySafe) {
-    return callback();
   }
 
-  if (ownConstructor === undefined) {
-    if (!isExtensible(value)) {
-      throw new Error(
-        "Native Promise cannot be observed safely."
-      );
-    }
-
-    defineProperty(
-      value,
-      "constructor",
-      {
-        value:
-          promiseConstructor,
-        writable: true,
-        enumerable: false,
-        configurable: true
-      }
-    );
-  } else if (ownConstructor.configurable) {
-    defineProperty(
-      value,
-      "constructor",
-      {
-        value:
-          promiseConstructor,
-        writable: true,
-        enumerable:
-          ownConstructor.enumerable,
-        configurable: true
-      }
-    );
-  } else if (
-    !("get" in ownConstructor) &&
-    !("set" in ownConstructor) &&
-    ownConstructor.writable
-  ) {
-    defineProperty(
-      value,
-      "constructor",
-      {
-        value:
-          promiseConstructor
-      }
-    );
-  } else {
+  if (ownConstructor !== undefined) {
     throw new Error(
       "Native Promise cannot be observed safely."
     );
   }
 
-  try {
-    return callback();
-  } finally {
-    restorePromiseConstructor(
-      value,
-      ownConstructor
+  const prototype =
+    getPrototypeOf(value);
+
+  if (
+    prototype === null ||
+    typeof prototype !== "object" ||
+    utilTypes.isProxy(prototype)
+  ) {
+    throw new Error(
+      "Native Promise cannot be observed safely."
     );
   }
+
+  const prototypeConstructor =
+    getOwnPropertyDescriptor(
+      prototype,
+      "constructor"
+    );
+
+  if (
+    !canInstallSafePromiseConstructor(
+      prototype,
+      prototypeConstructor
+    )
+  ) {
+    throw new Error(
+      "Native Promise cannot be observed safely."
+    );
+  }
+
+  return withTemporarySafePromiseConstructor(
+    prototype,
+    prototypeConstructor,
+    callback
+  );
 }
 
 function passPromiseValue(
@@ -622,17 +709,21 @@ function ignoreRejectedPromise() {
 function bridgeNativePromise(
   value
 ) {
-  return withSafePromiseConstructor(
-    value,
-    () =>
-      reflectApply(
-        promiseThen,
+  return new promiseConstructor(
+    (resolve, reject) => {
+      withSafePromiseConstructor(
         value,
-        [
-          passPromiseValue,
-          rethrowPromiseReason
-        ]
-      )
+        () =>
+          reflectApply(
+            promiseThen,
+            value,
+            [
+              resolve,
+              reject
+            ]
+          )
+      );
+    }
   );
 }
 
@@ -668,11 +759,14 @@ function createSafeEvaluator(
 
     if (utilTypes.isPromise(result)) {
       observeNativePromise(result);
+      requirePromiseIntrinsicIntegrity();
 
       throw new Error(
         "Async checks are not supported by this deterministic engine."
       );
     }
+
+    requirePromiseIntrinsicIntegrity();
 
     if (typeof result !== "boolean") {
       throw new Error(
@@ -731,12 +825,67 @@ function runPositiveControl(
   return true;
 }
 
+function isolateGeneratorData(
+  value
+) {
+  const seen =
+    new WeakSet();
+
+  const stack = [value];
+
+  while (stack.length > 0) {
+    const current =
+      stack.pop();
+
+    if (
+      current === null ||
+      typeof current !== "object" ||
+      seen.has(current)
+    ) {
+      continue;
+    }
+
+    seen.add(current);
+
+    const descriptors =
+      getOwnPropertyDescriptors(
+        current
+      );
+
+    for (
+      const key of ownKeys(descriptors)
+    ) {
+      const descriptor =
+        descriptors[key];
+
+      if (
+        descriptor !== undefined &&
+        "value" in descriptor &&
+        descriptor.value !== null &&
+        typeof descriptor.value ===
+          "object"
+      ) {
+        stack.push(
+          descriptor.value
+        );
+      }
+    }
+
+    setPrototypeOf(
+      current,
+      null
+    );
+  }
+
+  return value;
+}
+
 function buildGeneratorArguments(
   contract,
   input,
   expectedOutput
 ) {
-  return {
+  return isolateGeneratorData({
     contract:
       cloneAiData(
         contract,
@@ -754,7 +903,7 @@ function buildGeneratorArguments(
       ),
     instructions:
       GENERATOR_INSTRUCTIONS
-  };
+  });
 }
 
 function invokeGenerator(
@@ -771,13 +920,27 @@ function invokeGenerator(
   const isNativePromise =
     utilTypes.isPromise(returned);
 
+  const bridged =
+    isNativePromise
+      ? bridgeNativePromise(
+          returned
+        )
+      : returned;
+
+  try {
+    requirePromiseIntrinsicIntegrity();
+  } catch (error) {
+    if (isNativePromise) {
+      observeNativePromise(
+        bridged
+      );
+    }
+
+    throw error;
+  }
+
   return objectFreeze({
-    returned:
-      isNativePromise
-        ? bridgeNativePromise(
-            returned
-          )
-        : returned,
+    returned: bridged,
     isNativePromise
   });
 }
@@ -953,10 +1116,14 @@ function validateGeneratorOutput(
 
   const ruleById =
     new Map(
-      contract.rules.map(
-        (rule) => [
-          rule.id,
-          rule
+      reflectApply(
+        arrayMap,
+        contract.rules,
+        [
+          (rule) => [
+            rule.id,
+            rule
+          ]
         ]
       )
     );
@@ -965,14 +1132,18 @@ function validateGeneratorOutput(
     new Set();
 
   const attacks =
-    snapshot.attacks.map(
-      (attackCandidate, index) =>
-        normalizeGeneratorAttack(
-          attackCandidate,
-          index,
-          attackIds,
-          ruleById
-        )
+    reflectApply(
+      arrayMap,
+      snapshot.attacks,
+      [
+        (attackCandidate, index) =>
+          normalizeGeneratorAttack(
+            attackCandidate,
+            index,
+            attackIds,
+            ruleById
+          )
+      ]
     );
 
   return objectFreeze({
@@ -1042,14 +1213,18 @@ function findDuplicateAttack(
   retained,
   candidate
 ) {
-  return retained.find(
-    (existing) =>
-      existing.ruleId ===
-        candidate.ruleId &&
-      isDeepStrictEqual(
-        existing.mutatedOutput,
-        candidate.mutatedOutput
-      )
+  return reflectApply(
+    arrayFind,
+    retained,
+    [
+      (existing) =>
+        existing.ruleId ===
+          candidate.ruleId &&
+        isDeepStrictEqual(
+          existing.mutatedOutput,
+          candidate.mutatedOutput
+        )
+    ]
   );
 }
 
@@ -1118,9 +1293,15 @@ function filterGeneratedAttacks(
 function compileAllGeneratedAttacks(
   retained
 ) {
-  return retained.map(
-    (candidate) =>
-      compileGeneratedAttack(candidate)
+  return reflectApply(
+    arrayMap,
+    retained,
+    [
+      (candidate) =>
+        compileGeneratedAttack(
+          candidate
+        )
+    ]
   );
 }
 
