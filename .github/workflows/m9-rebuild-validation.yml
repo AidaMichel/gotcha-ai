@@ -37,11 +37,7 @@ jobs:
       - name: Contract attack example on Node 22
         run: |
           output="$(node examples/contract-attacks.js)"
-          expected='TEACH: examples accepted
-CONTRACT: 1 rule proposed
-CONFIRM: confirmed
-ATTACK: 1 candidate generated
-GOTCHA: wrong-time survived'
+          expected=$'TEACH: examples accepted\nCONTRACT: 1 rule proposed\nCONFIRM: confirmed\nATTACK: 1 candidate generated\nGOTCHA: wrong-time survived'
           test "$output" = "$expected"
           printf '%s\n' "$output"
 
@@ -71,11 +67,7 @@ GOTCHA: wrong-time survived'
         run: |
           node --check examples/contract-attacks.js
           output="$(node examples/contract-attacks.js)"
-          expected='TEACH: examples accepted
-CONTRACT: 1 rule proposed
-CONFIRM: confirmed
-ATTACK: 1 candidate generated
-GOTCHA: wrong-time survived'
+          expected=$'TEACH: examples accepted\nCONTRACT: 1 rule proposed\nCONFIRM: confirmed\nATTACK: 1 candidate generated\nGOTCHA: wrong-time survived'
           test "$output" = "$expected"
           printf '%s\n' "$output"
 
