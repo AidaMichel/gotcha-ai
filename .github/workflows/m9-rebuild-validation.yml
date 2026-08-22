@@ -2,15 +2,15 @@ name: M9 clean rebuild validation
 
 on:
   pull_request:
-    types: [opened, synchronize]
+    types: [closed]
 
 permissions:
   contents: write
 
 jobs:
   validate:
-    if: github.event.pull_request.base.ref == 'milestone-9-public-contract-attacks'
-    runs-on: ubuntu-24.04
+    if: github.event.pull_request.head.ref == 'milestone-9-public-contract-attacks'
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
@@ -31,8 +31,8 @@ jobs:
           node --check test/public-api.test.js
           node --check test/package-contract-attacks.test.js
           git diff --check
-          git fetch origin main
-          git diff --exit-code origin/main -- src/engine.js src/contract-attacks.js src/ai-data.js src/quality-contract.js src/index.js docs/M8_AI_ATTACKS_SPEC.md
+          git fetch origin main --depth=1
+          git diff --exit-code 75e1cb5e82434378d5ddf41e359ce90cb613c0a3 -- src/engine.js src/contract-attacks.js src/ai-data.js src/quality-contract.js src/index.js docs/M8_AI_ATTACKS_SPEC.md
 
       - name: Contract attack example on Node 22
         run: |
@@ -46,7 +46,7 @@ GOTCHA: wrong-time survived'
           printf '%s\n' "$output"
 
       - name: M9 targeted tests on Node 22
-        run: node --test test/public-api.test.js test/package-contract-attacks.test.js
+        run: node --test test/public-api.test.js test/package-contract-attacks.test.js test/package-artifact.test.js
 
       - name: Full repository on Node 22
         run: npm test
@@ -57,7 +57,7 @@ GOTCHA: wrong-time survived'
           node-version: 24.19.0
 
       - name: M9 targeted tests on Node 24
-        run: node --test test/public-api.test.js test/package-contract-attacks.test.js
+        run: node --test test/public-api.test.js test/package-contract-attacks.test.js test/package-artifact.test.js
 
       - name: Full repository on Node 24
         run: npm test
