@@ -3194,3 +3194,13 @@ M8 preserves cross-realm evaluator semantics without installing broad foreign `S
 Foreign intrinsic prototype authentication uses native source matching plus controlled native-behavior probes on fresh internal receivers. This closes same-named native-function substitution collisions while avoiding execution of caller/model data. Authenticated foreign prototype surfaces are still restored around trusted evaluator execution.
 
 `Promise.prototype` is part of the coordinated callback intrinsic surface. Its captured `then` descriptor participates in Promise integrity checks, and reversible synchronous or post-`await` callback mutations are restored before later M8/integration code observes them.
+
+## Round 12 — detached foreign behavior surfaces and exact local provenance
+
+M8 no longer exposes foreign intrinsic callable graphs as the ordinary evaluator-facing prototype surface. Cross-realm Object/Array prototype identities may remain behind a frozen detached shadow solely so native `instanceof` continues to work for hardened constructors, but all standard Object/Array property names resolve first to Gotcha-owned local safe members (or inert shadow values). Foreign method function objects and their foreign `Function.prototype` chain therefore do not become the normal structured-data behavior surface.
+
+Local `Array` / `Object` `Symbol.hasInstance` compatibility is now exact per evaluator snapshot. M8 tracks which canonical snapshot nodes originated as local arrays/ordinary objects and returns the original positive or negative local `instanceof` result for those nodes; foreign nodes are no longer broadly classified as local merely because they are array/object shaped. Foreign positive/negative semantics continue through per-node realm identity provenance.
+
+Foreign intrinsic authentication retains native-source comparison but also exercises callback-taking methods with a successful internal callback probe, closing native-source collisions such as substituting `Map.prototype.forEach` for `Array.prototype.forEach`. This is defense in depth because evaluator-visible ordinary methods come from the detached local shadow rather than the foreign callable object itself.
+
+Callback intrinsic restoration now snapshots nested mutable descriptor values and callable own surfaces in addition to holder descriptors and prototypes. Reversible in-place changes to values such as `Array.prototype[Symbol.unscopables]`, or added properties on shared intrinsic method functions, are restored across synchronous, asynchronous, nested, and overlapping callback lifetimes. `Function.prototype` is also part of the coordinated local surface baseline.
