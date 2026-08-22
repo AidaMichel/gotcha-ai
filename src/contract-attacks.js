@@ -360,6 +360,116 @@ function safeArrayEntries() {
   );
 }
 
+let activeEvaluatorInstanceState = null;
+
+function withActiveEvaluatorInstanceState(
+  instanceState,
+  callback
+) {
+  const previous =
+    activeEvaluatorInstanceState;
+
+  activeEvaluatorInstanceState =
+    instanceState;
+
+  try {
+    return callback();
+  } finally {
+    activeEvaluatorInstanceState =
+      previous;
+  }
+}
+
+function registerDerivedArrayResult(
+  receiver,
+  result
+) {
+  if (!arrayIsArray(result)) {
+    return result;
+  }
+
+  const instanceState =
+    activeEvaluatorInstanceState;
+
+  if (instanceState === null) {
+    return result;
+  }
+
+  const receiverPrototype =
+    getPrototypeOf(receiver);
+
+  setPrototypeOf(
+    result,
+    receiverPrototype
+  );
+
+  reflectApply(
+    weakSetAdd,
+    instanceState.snapshotNodes,
+    [result]
+  );
+
+  {
+
+    if (
+      reflectApply(
+        weakSetHas,
+        instanceState.localArrayInstances,
+        [receiver]
+      )
+    ) {
+      reflectApply(
+        weakSetAdd,
+        instanceState.localArrayInstances,
+        [result]
+      );
+      reflectApply(
+        weakSetAdd,
+        instanceState.localObjectInstances,
+        [result]
+      );
+    }
+  }
+
+  return result;
+}
+
+function buildSafeArrayResultMethod(
+  method
+) {
+  return function safeArrayResultMethod(
+    ...args
+  ) {
+    const result =
+      reflectApply(
+        method,
+        this,
+        args
+      );
+
+    return registerDerivedArrayResult(
+      this,
+      result
+    );
+  };
+}
+
+function arrayMethodReturnsArray(key) {
+  return (
+    key === "concat" ||
+    key === "filter" ||
+    key === "flat" ||
+    key === "flatMap" ||
+    key === "map" ||
+    key === "slice" ||
+    key === "splice" ||
+    key === "toReversed" ||
+    key === "toSorted" ||
+    key === "toSpliced" ||
+    key === "with"
+  );
+}
+
 function safeArrayPrototypeMethod(
   key,
   fallback
@@ -377,6 +487,12 @@ function safeArrayPrototypeMethod(
 
   if (key === "entries") {
     return safeArrayEntries;
+  }
+
+  if (arrayMethodReturnsArray(key)) {
+    return buildSafeArrayResultMethod(
+      fallback
+    );
   }
 
   return fallback;
@@ -1434,6 +1550,82 @@ function getForeignIdentityShadow(
   return shadow;
 }
 
+function deriveForeignArrayPrototype(
+  fallback,
+  foreignObjectPrototype
+) {
+  const foreignObjectConstructor =
+    captureNativeRealmConstructor(
+      foreignObjectPrototype,
+      objectConstructorSource
+    );
+
+  if (foreignObjectConstructor === null) {
+    return null;
+  }
+
+  const keysDescriptor =
+    getOwnPropertyDescriptor(
+      foreignObjectConstructor,
+      "keys"
+    );
+
+  if (
+    keysDescriptor === undefined ||
+    "get" in keysDescriptor ||
+    "set" in keysDescriptor ||
+    typeof keysDescriptor.value !== "function" ||
+    utilIsProxy(keysDescriptor.value) ||
+    !sameIntrinsicCallable(
+      keysDescriptor.value,
+      objectKeys
+    )
+  ) {
+    return null;
+  }
+
+  let sampleArray;
+
+  try {
+    sampleArray =
+      reflectApply(
+        keysDescriptor.value,
+        foreignObjectConstructor,
+        [objectCreate(null)]
+      );
+  } catch {
+    return null;
+  }
+
+  if (!arrayIsArray(sampleArray)) {
+    return null;
+  }
+
+  const foreignArrayPrototype =
+    getPrototypeOf(sampleArray);
+
+  if (
+    foreignArrayPrototype === null ||
+    utilIsProxy(foreignArrayPrototype) ||
+    getPrototypeOf(foreignArrayPrototype) !==
+      foreignObjectPrototype ||
+    captureNativeRealmConstructor(
+      foreignArrayPrototype,
+      arrayConstructorSource
+    ) === null
+  ) {
+    return null;
+  }
+
+  addForeignPrototypeSurface(
+    fallback,
+    foreignArrayPrototype,
+    arrayPrototype
+  );
+
+  return foreignArrayPrototype;
+}
+
 function buildEvaluatorPrototypePlan(
   fallback,
   sourceRoot,
@@ -1608,6 +1800,24 @@ function buildEvaluatorPrototypePlan(
             candidateObjectPrototype =
               identityShadow;
             candidateObjectIsLocal = false;
+
+            const siblingForeignArrayPrototype =
+              deriveForeignArrayPrototype(
+                fallback,
+                foreignPrototype
+              );
+
+            if (
+              siblingForeignArrayPrototype !== null
+            ) {
+              candidateArrayPrototype =
+                getForeignIdentityShadow(
+                  identityShadows,
+                  siblingForeignArrayPrototype,
+                  true
+                );
+              candidateArrayIsLocal = false;
+            }
           }
         } else if (
           sourceIsArray &&
@@ -3233,10 +3443,14 @@ function createSafeEvaluator(
             withSafeEvaluatorInstanceSemantics(
               instanceSemantics,
               () =>
-                reflectApply(
-                  evaluator,
-                  undefined,
-                  [evaluatorOutput]
+                withActiveEvaluatorInstanceState(
+                  evaluatorSnapshot.instanceState,
+                  () =>
+                    reflectApply(
+                      evaluator,
+                      undefined,
+                      [evaluatorOutput]
+                    )
                 )
             ),
           undefined,
