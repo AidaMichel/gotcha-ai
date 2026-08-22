@@ -1,6 +1,6 @@
 # M10 — Contract Remediation & Re-Attack
 
-Status: Architecture Locked — Revision 7
+Status: Architecture Locked — Revision 8
 Milestone: 10
 Branch: `milestone-10-contract-remediation`
 Base: `main@286c9fccc1d3a6107a1b16511aedef5f6265aa3f`
@@ -139,9 +139,9 @@ A value is eligible only when all applicable rules below pass:
    - `Array.isArray(value) === true`;
    - `Object.getPrototypeOf(value) === Array.prototype` from Gotcha's local realm;
    - all own keys are exactly ordinary array index string keys plus `"length"`;
-   - every present indexed element is an own data property;
-   - sparse holes are allowed and remain holes;
-   - every present indexed element recursively passes this predicate;
+   - for every integer index `i` where `0 <= i < value.length`, index `String(i)` exists as an own data property;
+   - therefore sparse arrays / holes are ineligible in V1, matching the existing M8 AI-data boundary;
+   - every indexed element recursively passes this predicate;
    - no symbol or extra named property exists.
 4. A plain object is eligible only when:
    - `Object.getPrototypeOf(value) === Object.prototype` from Gotcha's local realm OR `Object.getPrototypeOf(value) === null`;
@@ -157,7 +157,7 @@ This predicate is deliberately conservative. A valid M8 run may be non-replayabl
 
 ### 4.2 Replay construction
 
-For `replayable: true`, M8 stores independently owned canonical AI-safe snapshots of `input` and `expectedOutput`. Verification reconstructs fresh canonical clones from those snapshots. Because eligibility is limited to the exact local-plain-data subset above, no realm/prototype/aliasing behavior excluded by the predicate is claimed to survive replay.
+For `replayable: true`, M8 stores independently owned canonical AI-safe snapshots of `input` and `expectedOutput`. Verification reconstructs fresh canonical clones from those snapshots. Because eligibility is limited to the exact dense local-plain-data subset above, no realm/prototype/aliasing/sparse-array behavior excluded by the predicate is claimed to survive replay.
 
 ---
 
@@ -451,6 +451,24 @@ Accept/edit returns the exact draft schema with `status: "confirmed"` and result
 
 Rejected artifacts cannot verify.
 
+### 11.4 Normative cross-field binding invariants
+
+Every draft, confirmed artifact, and rejected artifact MUST satisfy all of the following from data, not object identity:
+
+- `task === experiment.task === experiment.contract.task`;
+- `experiment` is an exact replayable v1 experiment for draft/confirmed artifacts; rejected artifacts preserve the same validated embedded experiment from their draft;
+- `source.attackId` identifies exactly one attack in `experiment.attacks`;
+- that attack has exactly one bound `experiment.baseline.outcomes` entry with `survived === true`;
+- `source.ruleId === selectedAttack.ruleId`;
+- `rule.id === source.ruleId === selectedAttack.rule.id`;
+- `rule.statement === selectedAttack.rule.statement`;
+- `rule.kind === selectedAttack.rule.kind`;
+- `rule.severity === selectedAttack.rule.severity`;
+- the rule snapshot equals the active confirmed rule with the same ID inside `experiment.contract` across `id`, `statement`, `kind`, and `severity`;
+- the artifact's `protection` contains only the authorized draft/confirmed/rejected protection text; it cannot alter task/source/rule/experiment authority.
+
+`confirmContractProtection()` fully revalidates these invariants before applying the decision. `verifyContractProtection()` fully revalidates them again before invoking either evaluator. Any edited/reloaded artifact that changes task, source, rule, experiment authority, or survivor binding rejects at the public boundary.
+
 Serialized/reloaded artifacts are fully revalidated from data at each public boundary. Object identity is never authority.
 
 ---
@@ -558,7 +576,7 @@ If M8 returns a complete baseline replay but classification/order/top finding di
 state = baseline-mismatch
 baselinePositiveControlPassed = true
 improvedPositiveControlPassed = null
-baseline = complete replay projection
+baseline = exact replay-result snapshot from Section 17.1
 after = null
 ```
 
@@ -580,7 +598,7 @@ Phase B runs only after Phase A exact identity PASS.
 state = improved-positive-control-failed
 baselinePositiveControlPassed = true
 improvedPositiveControlPassed = false
-baseline = complete baseline
+baseline = exact replay-result snapshot from Section 17.1
 after = null
 ```
 
@@ -590,7 +608,7 @@ after = null
 state = improved-execution-failed
 baselinePositiveControlPassed = true
 improvedPositiveControlPassed = null
-baseline = complete baseline
+baseline = exact replay-result snapshot from Section 17.1
 after = null
 ```
 
@@ -602,7 +620,7 @@ If improved positive control passed and a later improved attack evaluation abort
 state = improved-execution-failed
 baselinePositiveControlPassed = true
 improvedPositiveControlPassed = true
-baseline = complete baseline
+baseline = exact replay-result snapshot from Section 17.1
 after = null
 ```
 
@@ -611,13 +629,15 @@ after = null
 ```text
 baselinePositiveControlPassed = true
 improvedPositiveControlPassed = true
+baseline = exact replay-result snapshot from Section 17.1
+after = exact replay-result snapshot from Section 17.1
 ```
 
 Then source closure/regression semantics apply.
 
 ---
 
-## 17. Verification Result `protection` Payload
+## 17. Verification Result Payload Ownership
 
 The result field `protection` is never the full confirmed artifact.
 
@@ -631,6 +651,37 @@ It is an independently owned exact snapshot:
 ```
 
 copied from the fully revalidated confirmed artifact.
+
+### 17.1 Exact non-null `baseline` / `after` replay-result schema
+
+Whenever `baseline` or `after` is non-null, it is an independently owned normalized snapshot with exactly these own keys:
+
+```js
+{
+  outcomes: [
+    {
+      attackId,
+      evaluatorResult: "PASS" | "FAIL",
+      survived: true | false
+    }
+  ],
+  survivorOrderIds: [],
+  topFindingId: null
+}
+```
+
+Nested outcome own keys are exactly `attackId`, `evaluatorResult`, `survived`.
+
+Normative construction and validation:
+
+- `outcomes` contains exactly one entry for every bound `experiment.attacks` ID and no extras, in bound experiment attack order;
+- `evaluatorResult === "PASS"` iff `survived === true`;
+- `survivorOrderIds` is the duplicate-free deterministic M8 survivor rank order for that completed replay;
+- `topFindingId` is the first `survivorOrderIds` element or `null` when no survivor exists;
+- no `runContractAttacks()` result object, attack object, experiment object, callback, stack/error object, or mutable legacy result reference is exposed through `baseline` or `after`;
+- both payloads are deep independent snapshots; mutating the underlying M8 replay result after normalization cannot change the returned verification result.
+
+A completed baseline replay always normalizes to this schema before identity comparison. A completed improved replay always normalizes to the same schema before source/regression comparison.
 
 ---
 
@@ -783,9 +834,11 @@ For complete baseline + after replays only:
 
 ```js
 improvement =
-  baselineReplay.attack.survivors.length -
-  afterReplay.attack.survivors.length;
+  baseline.survivorOrderIds.length -
+  after.survivorOrderIds.length;
 ```
+
+Because `baseline` and `after` are the exact normalized completed-replay snapshots from Section 17.1, this formula is public-payload deterministic and does not depend on exposing internal M8 result objects.
 
 The metric is descriptive only.
 
@@ -845,13 +898,14 @@ sourceFindingReproduced = true
 
 1. options container and confirmed artifact fully validate;
 2. embedded experiment is exact replayable v1;
-3. baseline positive control passes;
-4. baseline replay completes;
-5. baseline classifications/order/top finding exactly match bound history;
-6. improved positive control passes;
-7. improved replay completes;
-8. selected source changes survived -> caught;
-9. no baseline-caught attack regresses to survived.
+3. all artifact cross-field binding invariants in Section 11.4 pass;
+4. baseline positive control passes;
+5. baseline replay completes and normalizes to the exact Section 17.1 payload;
+6. baseline classifications/order/top finding exactly match bound history;
+7. improved positive control passes;
+8. improved replay completes and normalizes to the exact Section 17.1 payload;
+9. selected source changes survived -> caught;
+10. no baseline-caught attack regresses to survived.
 
 Unrelated baseline survivors may remain.
 
@@ -871,9 +925,9 @@ It does not prove universal correctness, production behavior, future-attack cove
 
 ### Replay eligibility
 
-- same-realm primitive/plain-object/local-array trees -> replayable;
+- same-realm primitive/plain-object/dense-local-array trees -> replayable;
 - local null-prototype plain objects -> replayable;
-- sparse local arrays retain holes -> replayable;
+- sparse local arrays -> non-replayable and never produce a replayable experiment;
 - cross-realm Array/Object prototype -> non-replayable;
 - custom prototype -> non-replayable;
 - Date/Map/Set/RegExp/typed array/Promise/Proxy/function/accessor -> non-replayable;
@@ -910,7 +964,12 @@ It does not prove universal correctness, production behavior, future-attack cove
 - missing type/description/rationale rejected;
 - unchanged/duplicate retained attacks rejected;
 - legacy result mutation cannot alter experiment;
-- serialized/reloaded draft/confirmed artifacts revalidate.
+- serialized/reloaded draft/confirmed artifacts revalidate;
+- task mismatch rejects at confirmation and verification;
+- source attack must resolve to the selected bound original survivor;
+- source rule ID mismatch rejects;
+- rule snapshot mismatch against selected attack or embedded contract rejects;
+- editing protection text cannot mutate experiment/source/rule authority.
 
 ### Verification
 
@@ -922,6 +981,10 @@ It does not prove universal correctness, production behavior, future-attack cove
 - improved control abort -> improved control fact null;
 - improved attack abort after passed control -> improved control fact true;
 - stable M8 failure classification is used, never message parsing;
+- completed baseline payload has exact Section 17.1 keys and bound-order outcomes;
+- completed after payload has exact Section 17.1 keys and bound-order outcomes;
+- baseline/after never expose full M8 result or mutable aliases;
+- mutating internal replay results after normalization cannot change verification output;
 - all diagnostic ID arrays use bound attack order;
 - simultaneous regression + source survival uses fixed precedence;
 - every semantic result has exact uniform top-level keys.
@@ -957,13 +1020,15 @@ Temporary/dead validation code introduced during implementation must be removed 
 
 M10 is implementation-ready only after a fresh exact-head review finds no concrete contradiction or under-specification in:
 
-- deterministic replay eligibility;
+- deterministic replay eligibility aligned with M8 AI-data constraints;
 - exact replayable/non-replayable artifact schemas;
 - full M8 replay-schema equivalence;
 - options-object validation;
 - generator sync/native-Promise/thenable semantics;
 - AI/human authority transitions;
+- artifact cross-field task/source/rule/survivor binding;
 - serialized artifact revalidation;
+- exact normalized baseline/after replay-result payloads and ownership;
 - baseline-before-improved ordering;
 - phase-aware positive-control facts;
 - exact partial-state outputs;
