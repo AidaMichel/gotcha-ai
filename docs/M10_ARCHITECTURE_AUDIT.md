@@ -1,226 +1,51 @@
 # M10 — Contract Remediation Architecture Audit
 
-Status: Complete — Revision 3
+Status: Complete — Revision 4
 Milestone: 10
 Audit base: `main@286c9fccc1d3a6107a1b16511aedef5f6265aa3f`
 Companion spec: `docs/M10_CONTRACT_REMEDIATION_SPEC.md`
 
 ## 1. Audit Question
 
-What is the smallest safe architecture that can move the confirmed-contract path from `GOTCHA` to measurable remediation without weakening M8's data/code boundary, allowing the original experiment to be rebound, or allowing a later evaluator to redefine baseline history?
+What is the smallest safe architecture that can move the confirmed-contract path from `GOTCHA` to measurable remediation without weakening M8's data/code boundary, losing evaluator-facing replay semantics, allowing the original experiment to be rebound, or allowing a later evaluator to redefine baseline history?
 
 ---
 
-## 2. Current Repository Facts
+## 2. Existing Boundaries Preserved
 
-### Deterministic Mutation Pack path
+The deterministic Mutation Pack path may use developer-authored trusted executable protection callbacks.
 
-`src/mutation-pack.js` requires developer-authored trusted executable `protection.check()` callbacks. `src/engine.js#runImprovementLoop()` can therefore compose that trusted check with the evaluator and re-attack.
+The confirmed-contract path remains different: M8 model-produced attacks and M10 model-produced protection intent are declarative data only. M10 does not execute AI-generated JavaScript, auto-apply code, or manufacture executable evaluator policy.
 
-### Confirmed-contract path
-
-`src/contract-attacks.js` deliberately compiles model-produced attacks as declarative data only.
-
-A successful `runContractAttacks()` invocation already owns, at one trusted execution boundary:
-
-- the validated confirmed contract snapshot
-- canonical input
-- canonical expected output
-- complete retained `generatedAttacks`
-- deterministic `attack.results`
-- caught/survived classifications
-- ranked survivor order
-- `topFinding`
-
-This means M8 is also the only natural place to bind the original remediation experiment as one unit.
+The caller supplies the actual improved evaluator. Gotcha verifies observable behavior through the existing M8 attack/evaluator boundary.
 
 ---
 
-## 3. Decision: No Direct `runImprovementLoop()` Bridge
+## 3. Core M10 Architecture
 
-A direct contract-attack -> `runImprovementLoop()` bridge would require manufacturing an executable `protectionCheck` from model-produced remediation data.
-
-Rejected options:
-
-- execute AI-generated JavaScript
-- evaluate code-like strings
-- automatically apply generated patches
-- fake remediation by blacklisting exactly one bad output
-- weaken the existing M8 data/code boundary
-
-M10 therefore uses declarative remediation intent + human confirmation + caller-supplied improved evaluator.
-
----
-
-## 4. Decision: Human Confirmation Is Mandatory
-
-M8 attack candidates are temporary probes and do not change policy.
-
-A remediation intent changes what the evaluator should reject if implemented. Therefore it needs explicit `accept`, `edit`, or `reject` authority before verification.
-
-Only the protection statement is editable in V1. Experiment/rule provenance remains immutable.
-
----
-
-## 5. Decision: Verify the Actual Improved Evaluator
-
-M10 verifies a full caller-supplied `improvedEvaluator`, not a temporary Gotcha wrapper around `evaluator + protectionCheck`.
-
-Reasons:
-
-- a real evaluator change may update parsers, thresholds, rules, or structure
-- verification should exercise the actual intended post-change behavior
-- old and improved evaluators can each run independently through the established M8 evaluator boundary
-- Gotcha does not need to own executable remediation composition
-
----
-
-## 6. Adversarial Architecture Review History
-
-### Revision 1 findings
-
-Codex identified two experiment-rebinding flaws:
-
-1. verification could accept a partial/substituted attack set
-2. verification could accept a different case from the one used to choose the finding
-
-Revision 2 moved contract/case/attacks into the protection artifact and removed verification-time replacements.
-
-### Revision 2 findings
-
-Fresh exact-head review found that this was still one boundary too late:
-
-1. drafting still accepted a bare caller-labelled `generatedAttacks` array, so a sliced set could be labelled complete
-2. contract/input/expectedOutput/attacks were still independently assembled before drafting, so case-to-attack provenance was not bound at the M8 run boundary
-3. original baseline outcomes were not bound, so a substituted old evaluator could redefine which attacks were historically caught/survived
-4. the public `improvement` field no longer had a normative formula
-
-These are valid architecture findings. Revision 3 treats them as one missing concept rather than four local patches: **a self-contained M8 contract-attack experiment artifact**.
-
----
-
-## 7. Decision: M8 Emits the Experiment Artifact
-
-M10 implementation may add one result field to `runContractAttacks()`:
+The flow is:
 
 ```text
-experiment
+M8 successful contract-attack run
+  ↓
+M8 emits one self-contained replayable experiment
+  ↓
+AI drafts declarative protection intent
+  ↓
+Human accept / edit / reject
+  ↓
+Caller implements trusted improved evaluator
+  ↓
+M10 replays baseline only
+  ↓
+Exact historical identity gate
+  ↓
+Only if gate passes, replay improved evaluator
+  ↓
+Positive control + source closure + regression verification
 ```
 
-This is additive. M8 attack generation, validation, evaluator behavior, ranking, and all existing public result fields remain unchanged.
-
-The experiment is constructed inside the same successful M8 invocation from values M8 already owns:
-
-```text
-validated confirmed contract
-canonical input
-canonical expected output
-complete retained generatedAttacks
-original per-attack evaluator outcomes
-ranked survivor order
-top finding identity
-```
-
-This moves completeness/case/outcome binding to the correct authority boundary.
-
----
-
-## 8. Experiment Artifact Invariants
-
-Minimum conceptual shape:
-
-```text
-contract-attack-experiment v1
-  contract
-  case
-    input
-    expectedOutput
-  attacks[]
-  baseline
-    outcomes[]
-    survivorOrderIds[]
-    topFindingId
-```
-
-Validation requires a bijection between attacks and outcomes:
-
-```text
-one attack ID <-> one baseline outcome
-```
-
-No omitted outcomes, no extra outcomes, no duplicate IDs.
-
-The survivor order must equal exactly the survived ID set in deterministic original rank order, and `topFindingId` must equal the first survivor or null.
-
-This gives M10 a self-contained structural experiment rather than a loose bag of caller-labelled pieces.
-
----
-
-## 9. Threat/Claim Boundary of the Artifact
-
-The artifact is a canonical structural binding, not cryptographic attestation.
-
-It is intended to prevent:
-
-- accidental slicing/subsetting
-- stale outcome arrays
-- mixing one case with another run's attacks
-- verification-time experiment replacement
-- ordinary serialized-data inconsistencies
-
-It does not claim to prove historical authenticity against a caller who deliberately fabricates an entirely new self-consistent experiment object and presents it as old history.
-
-That stronger provenance property would require a signing/attestation system and is outside M10 V1.
-
----
-
-## 10. Revised Draft Boundary
-
-`draftContractProtection()` receives only:
-
-```text
-experiment
-sourceAttackId
-protection generator
-```
-
-It does not accept independent:
-
-```text
-contract
-input
-expectedOutput
-attacks
-baseline outcomes
-finding payload
-```
-
-The source ID must resolve to an original survived attack in the bound experiment.
-
-The draft snapshots and carries the experiment unchanged.
-
----
-
-## 11. Revised Confirmation Artifact
-
-Accepted/edited confirmation preserves:
-
-```text
-entire original M8 experiment
-selected source attack ID/rule ID
-confirmed rule snapshot
-human-authorized protection intent
-```
-
-Only the protection statement may be edited in V1.
-
-This makes the confirmed protection artifact self-contained for replay verification.
-
----
-
-## 12. Revised Verification Boundary
-
-`verifyContractProtection()` accepts only:
+Verification accepts only:
 
 ```js
 {
@@ -230,336 +55,310 @@ This makes the confirmed protection artifact self-contained for replay verificat
 }
 ```
 
-It cannot accept replacement:
-
-- contract
-- input
-- expected output
-- attack set
-- original outcomes
-- source identity
-
-All replay data comes from `protection.experiment`.
+No replacement contract, case, expected output, attack set, outcome history, source finding, or task identity can be supplied at verification time.
 
 ---
 
-## 13. Decision: Original Baseline Outcomes Are Authority
+## 4. Revision History
 
-A key Revision 3 correction is that the caller-supplied old evaluator is not historical authority.
+### Revision 1
 
-The historical classifications are the outcomes produced and bound by the original M8 experiment.
+Codex found that verification could accept a substituted/partial attack set and a different evaluation case.
 
-At verification time, the supplied old evaluator is used only to prove that the current integration reproduces that history.
+Revision 2 moved attack/case data into the confirmed artifact.
 
-Therefore M10 first requires:
+### Revision 2
+
+Codex found that the binding still happened too late: drafting accepted a caller-labelled bare attack array, case/attacks were independently assembled, baseline outcomes were not historical authority, and `improvement` lacked a normative formula.
+
+Revision 3 introduced an M8-emitted self-contained experiment, bound original outcomes/order/top finding, exact baseline identity, and locked the net-survivor metric.
+
+### Revision 3 current-head review
+
+Codex identified eight remaining architecture gaps. Revision 4 closes all eight as one coherent replay/verification contract rather than as isolated patches.
+
+---
+
+## 5. Revision 4 Closure: Evaluator Realm Provenance
+
+### Finding
+
+Canonicalizing `expectedOutput` can erase source-realm prototype/identity semantics that M8-supported evaluators may legitimately observe. Replaying only canonical data can therefore make the unchanged evaluator behave differently.
+
+### Decision
+
+The experiment now distinguishes serializable canonical case data from evaluator-facing replay semantics.
+
+`case.input` and `case.expectedOutput` remain canonical AI-safe snapshots.
+
+A Gotcha-owned `case.evaluatorCase` representation preserves the evaluator-facing semantics required to reproduce the original M8 invocation, including supported cross-realm provenance where relevant.
+
+Replay reconstructs from that bound evaluator case rather than silently feeding canonical-only data back to the evaluator.
+
+If M8 cannot safely preserve/reconstruct a supported case, that experiment is explicitly non-replayable for M10. M10 may not claim exact replay by degrading semantics.
+
+This closes the P1 provenance gap without expanding M10 into a generic serializer or sandbox.
+
+---
+
+## 6. Revision 4 Closure: Baseline Must Gate Improved Execution
+
+### Finding
+
+Revision 3 described both M8 calls before requiring a return on baseline mismatch. An invalid improved evaluator could therefore throw before M10 returned the historically correct `baseline-mismatch` state.
+
+### Decision
+
+Verification is now normatively two-phase:
+
+1. run baseline replay only
+2. compare positive control, every attack classification, survivor order, and top finding against the bound experiment
+3. immediately return on baseline failure
+4. invoke `improvedEvaluator` only after exact baseline identity passes
+
+The improved evaluator is therefore never executed before historical identity is established.
+
+---
+
+## 7. Revision 4 Closure: Independent Immutable Experiment Ownership
+
+### Finding
+
+A naive implementation could let `result.experiment.attacks` alias mutable legacy result objects such as `result.generatedAttacks`. Later mutation of the legacy field could silently mutate the bound experiment.
+
+### Decision
+
+M8 experiment emission must create a deeply independently owned immutable snapshot. Nested arrays/records cannot alias mutable legacy result fields.
+
+Required test: mutate `generatedAttacks`, attack records, result arrays, and related public legacy fields after M8 returns; the experiment must remain unchanged.
+
+The binding is therefore structural and independently owned at emission time.
+
+---
+
+## 8. Revision 4 Closure: Improved Positive-Control Failure
+
+### Finding
+
+M8 fails before producing attack results when an evaluator rejects the known-good expected output. Revision 3 nevertheless required complete `after.attack`/metric fields for an `improved-positive-control-failed` state.
+
+### Decision
+
+The state is now explicitly partial:
 
 ```text
-baseline replay classifications == bound original classifications
-baseline survivor order == bound original survivor order
-baseline top finding == bound original top finding
+after = null
+positiveControlPassed = false
+improvement = null
+eliminatedAttackIds = []
+regressionAttackIds = []
+verificationPassed = false
+state = improved-positive-control-failed
 ```
 
-If not, verification returns `baseline-mismatch` and stops before claiming remediation success.
+Baseline remains complete and identity-matched.
 
-This prevents a substituted/stale old evaluator from changing what counts as a pre-existing survivor or regression baseline.
+M10 recognizes the specific M8 positive-control failure. Arbitrary improved callback failures are not mislabeled as positive-control failures.
+
+No parallel positive-control implementation is introduced.
 
 ---
 
-## 14. Replay Architecture
+## 9. Revision 4 Closure: Deterministic Multi-Failure Semantics
 
-M10 reconstructs a Gotcha-owned deterministic generator from the experiment's bound attacks and calls `runContractAttacks()` twice:
+### Finding
+
+A complete improved replay can simultaneously leave the source surviving and create a regression, while Revision 3 exposed only one scalar `state` with no precedence rule.
+
+### Decision
+
+Verification now exposes ordered `failureReasons` plus a deterministic primary `state`.
+
+Normative precedence:
 
 ```text
-BOUND EXPERIMENT + OLD EVALUATOR
-BOUND EXPERIMENT + IMPROVED EVALUATOR
+baseline-execution-failed
+baseline-mismatch
+improved-positive-control-failed
+regression-detected
+source-finding-still-survives
+verified
 ```
 
-Replay mapping preserves generator-owned metadata while M8 re-derives severity from the confirmed contract rule.
+For simultaneous regression + source survival:
 
-No model call occurs during verification.
+```js
+failureReasons = [
+  "regression-detected",
+  "source-finding-still-survives"
+];
+state = "regression-detected";
+```
 
----
-
-## 15. Why Reuse `runContractAttacks()`
-
-Directly calling `engine.attack()` would bypass or duplicate M8 behavior around:
-
-- positive control
-- canonical AI-data boundary
-- generator attack schema
-- contract-derived severity
-- evaluator snapshot semantics
-- async/non-boolean evaluator rejection
-- intrinsic restoration
-- cross-realm compatibility
-
-M10 therefore treats `runContractAttacks()` as the replay execution boundary and does not create a second evaluator-safety implementation.
+Detailed booleans and ID sets remain authoritative for diagnosis.
 
 ---
 
-## 16. Source-Finding Reproducibility and Closure
+## 10. Revision 4 Closure: Task Identity
 
-The source must be an original bound survivor.
+### Finding
 
-Verification requires:
+The artifact contains both `experiment.task` and `experiment.contract.task`, but Revision 3 did not require equality.
+
+### Decision
+
+Experiment validation now requires:
 
 ```text
-bound original: source SURVIVED
-baseline replay: source SURVIVED
-after replay: source CAUGHT
+experiment.task === experiment.contract.task
 ```
 
-If the baseline replay does not reproduce the original bound experiment, the correct state is `baseline-mismatch`.
+Mismatch rejects atomically before the protection generator runs.
 
-If baseline identity passes but the source still survives after remediation, the fix is not verified.
+Task identity cannot be separately replaced at verification.
 
 ---
 
-## 17. Regression Detection
+## 11. Revision 4 Closure: Replay-Retained Attack Invariants
 
-Because a whole improved evaluator is supplied, it may accidentally loosen an unrelated old check.
+### Finding
 
-A regression is identity-based:
+An artifact could contain an attack M8 would remove during replay because it deep-equals the expected output or duplicates a same-rule retained output. Drafting would accept it, but baseline replay would later filter it and fail identity.
+
+### Decision
+
+Experiment validation now requires the same retained-set invariants M8 applies before attack evaluation:
+
+- every bound attack differs from expected output under M8 deep-equality semantics
+- no same-rule/deep-equal retained duplicates exist
+
+A valid bound experiment is therefore already a post-filter/post-dedupe replay set. M10 rejects malformed/reconstructed artifacts before generator execution rather than relying on a later synthetic baseline mismatch.
+
+---
+
+## 12. Revision 4 Closure: Baseline Evaluator Abort Semantics
+
+### Finding
+
+A stale baseline evaluator can throw or return non-boolean before M8 produces complete results. Revision 3 required `baseline-mismatch` plus mismatched attack IDs even when no complete comparison was possible.
+
+### Decision
+
+Completed historical difference and evaluator execution failure are now separate states.
+
+`baseline-mismatch` means: baseline replay completed and its observable classifications/order/top finding differ from bound history.
+
+`baseline-execution-failed` means: M8 could not complete baseline replay because the baseline evaluator violated/exited the callback contract.
+
+For execution failure:
 
 ```text
-baseline CAUGHT
-after same attack SURVIVED
+verificationPassed = false
+baselineIdentityPassed = false
+after = null
+improvedEvaluator is not called
 ```
 
-M10 reports all such IDs.
-
-Because the baseline must first reproduce original M8 classifications, a caller cannot hide a historical catch by supplying a different old evaluator.
+No attack IDs are fabricated for unevaluated attacks. A structured execution classification/code may be exposed; arbitrary stack data is not semantic authority.
 
 ---
 
-## 18. Positive Control
+## 13. Experiment Authority After Revision 4
 
-Both replays use the exact bound original `expectedOutput` through M8.
+A replayable experiment is emitted by M8 from one successful invocation and binds:
 
-If the improved evaluator catches the selected bad output only by rejecting the known-good output too, verification fails.
+- validated confirmed contract
+- exact task identity
+- canonical AI-safe case snapshots
+- evaluator-facing replay provenance needed for exact semantics
+- complete retained post-filter/post-dedupe attack set
+- original per-attack outcomes
+- deterministic survivor order
+- top-finding identity
 
-No second positive-control implementation is needed.
+The experiment is deeply independently owned from legacy result fields.
+
+M10 validates the artifact as one unit before drafting.
+
+This remains structural/canonical binding, not cryptographic historical attestation against a caller fabricating an entirely new self-consistent artifact.
 
 ---
 
-## 19. Decision: Lock `improvement`
+## 14. Verification Authority After Revision 4
 
-The public metric is descriptive only.
+The caller-supplied old evaluator is not historical authority. It is a compatibility witness: it must reproduce bound history exactly.
 
-Normative definition:
+The improved evaluator is not run until that witness passes.
+
+For complete after replay, success requires:
+
+- improved positive control passes
+- source finding changes from survived to caught
+- no baseline-caught attack becomes survived
+
+Not every unrelated survivor must disappear.
+
+`improvement` remains:
 
 ```text
-improvement = baseline survivor count - after survivor count
+baseline survivor count - after survivor count
 ```
 
-This is net survivor reduction.
-
-Separate identity sets report:
-
-```text
-eliminatedAttackIds: baseline SURVIVED -> after CAUGHT
-regressionAttackIds: baseline CAUGHT -> after SURVIVED
-```
-
-A positive improvement can coexist with a regression, so the metric never determines verification success by itself.
-
-Any regression still forces `verificationPassed: false`.
+It is descriptive only and is `null` when no complete after replay exists.
 
 ---
 
-## 20. Verification Success Gate
+## 15. Files and Scope
 
-Success requires all of:
-
-```text
-confirmed/valid protection artifact
-old evaluator positive control passes
-baseline replay exactly matches original M8 outcomes/order/top finding
-improved evaluator positive control passes
-source is original/reproduced baseline survivor
-source becomes caught after remediation
-zero baseline-caught -> after-survived regressions
-```
-
-Unrelated survivors may remain.
-
----
-
-## 21. Claim Boundary
-
-Safe claim:
-
-> On the exact M8-bound original case and complete retained validated attack set, the supplied baseline evaluator reproduced the original M8 classifications, and the supplied improved evaluator preserved the known-good output, caught the selected source finding, and introduced no replay-set regressions.
-
-Unsafe claims:
-
-- universal evaluator correctness
-- semantic equivalence of code and natural-language protection
-- production-model safety
-- every future attack is covered
-- no unseen regressions exist
-- cryptographic proof that a hostile caller did not fabricate history
-
----
-
-## 22. Recommended Public Surface
-
-Exactly three new M10 APIs:
+This architecture PR remains documentation-only:
 
 ```text
-draftContractProtection
-confirmContractProtection
-verifyContractProtection
+docs/M10_CONTRACT_REMEDIATION_SPEC.md
+docs/M10_ARCHITECTURE_AUDIT.md
 ```
 
-M8 keeps the existing `runContractAttacks()` API and adds the experiment field to its successful result.
-
-The phase split remains:
-
-```text
-M8 experiment evidence
-AI proposal
-human authority
-software implementation
-deterministic verification
-```
-
----
-
-## 23. Preferred Implementation Files
-
-M10 core:
+Implementation is expected later in:
 
 ```text
 src/contract-remediation.js
 src/index.js
+src/contract-attacks.js
 test/contract-remediation.test.js
 ```
 
-Additive M8 artifact emission:
-
-```text
-src/contract-attacks.js
-```
-
-After core validation:
-
-```text
-examples/contract-remediation.js
-README.md
-package.json
-public/package consumer tests
-```
-
-Default no-change surfaces:
-
-```text
-src/engine.js
-src/mutation-pack.js
-```
+`src/engine.js` and `src/mutation-pack.js` remain unchanged by default. Any genuine need to change either requires an explicit architecture amendment first.
 
 ---
 
-## 24. Implementation Risk Register
+## 16. Required Revision 4 Proofs
 
-### Risk: caller supplies only a subset of attacks
+Implementation must prove:
 
-Mitigation: M10 does not accept a bare attack array; it consumes the self-contained M8 experiment and validates attack/outcome/survivor-order completeness as one unit.
-
-### Risk: different case paired with original attacks
-
-Mitigation: case and attacks are bound inside the same M8 invocation; M10 accepts no independent case fields.
-
-### Risk: different contract changes authority
-
-Mitigation: confirmed contract is bound inside the M8 experiment and replayed unchanged.
-
-### Risk: stale/substituted baseline evaluator rewrites history
-
-Mitigation: original M8 outcomes/order/top finding are bound; baseline replay must match them exactly before comparison.
-
-### Risk: AI remediation becomes executable policy
-
-Mitigation: declarative schema only + mandatory human confirmation + caller-owned evaluator code.
-
-### Risk: one fix breaks another attack
-
-Mitigation: identity-level caught->survived regression detection over the complete bound set.
-
-### Risk: metric hides a regression
-
-Mitigation: improvement is only net survivor-count delta; regression IDs are independent and any regression fails verification.
-
-### Risk: exact-output overfit
-
-Mitigation: generator instructions require narrow rule-level intent; docs avoid generalization claims.
-
-### Risk: duplicated M8 safety logic
-
-Mitigation: replay through existing `runContractAttacks()` boundary.
-
-### Risk: architecture expands into provenance security
-
-Mitigation: explicitly state that structural canonical binding is not cryptographic attestation against a deliberately fabricated historical artifact.
+- experiment is independent from mutable legacy result fields
+- cross-realm/evaluator-facing replay semantics are preserved or explicitly declared non-replayable
+- task identity matches contract task
+- bound attacks already satisfy M8 unchanged-output and retained-set dedupe rules
+- baseline mismatch returns before improved evaluator execution
+- baseline callback abort uses `baseline-execution-failed` without fabricated mismatch IDs
+- improved positive-control failure returns the documented partial shape
+- simultaneous regression/source-survival emits deterministic ordered failure reasons
+- net-survivor metric is only produced for complete baseline+after results
+- existing M8 public behavior remains unchanged
 
 ---
 
-## 25. Architecture Decision Record
+## 17. Acceptance / Stopping Rule
 
-**A.** No AI-generated executable evaluator code.
+M10 architecture is ready for implementation only after a fresh exact-head review finds no concrete contradiction in:
 
-**B.** Human confirmation required before verification.
+- experiment completeness/independent ownership
+- evaluator-facing replay fidelity
+- case/task/attack/outcome authority
+- baseline-first execution ordering
+- human/AI authority transitions
+- positive-control and callback-failure semantics
+- deterministic failure-state semantics
+- regression/source-closure correctness
+- locked metric behavior
 
-**C.** Caller supplies the real improved evaluator.
-
-**D.** M8 emits a self-contained experiment artifact from the same successful run that owns contract/case/attacks/outcomes.
-
-**E.** M10 drafting consumes that experiment rather than independently assembled contract/case/attack inputs.
-
-**F.** Confirmed remediation carries the complete experiment unchanged.
-
-**G.** Verification accepts no substitute experiment data.
-
-**H.** Original M8 baseline outcomes/order/top finding are historical authority; the supplied old evaluator must reproduce them exactly.
-
-**I.** Replay exact bound candidates through `runContractAttacks()` old vs improved.
-
-**J.** Severity remains confirmed-contract authority.
-
-**K.** Success requires positive controls + baseline identity + source closure + zero identity-level regressions.
-
-**L.** `improvement = baseline survivors - after survivors`; metric does not override correctness gates.
-
-**M.** `src/engine.js` and `src/mutation-pack.js` remain unchanged by default.
-
-**N.** Structural experiment binding is not a claim of cryptographic historical attestation.
-
----
-
-## 26. Audit Conclusion
-
-The smallest coherent Revision 3 architecture is:
-
-```text
-RUN M8 ONCE
-  ↓
-M8 BINDS CONTRACT + CASE + COMPLETE ATTACKS + ORIGINAL OUTCOMES
-  ↓
-SELF-CONTAINED CONTRACT-ATTACK EXPERIMENT
-  ↓
-AI DRAFTS DECLARATIVE PROTECTION INTENT
-  ↓
-HUMAN CONFIRMATION
-  ↓
-CALLER IMPLEMENTS IMPROVED EVALUATOR
-  ↓
-REPLAY OLD EVALUATOR
-  ↓
-REQUIRE EXACT ORIGINAL BASELINE IDENTITY
-  ↓
-REPLAY IMPROVED EVALUATOR
-  ↓
-POSITIVE CONTROL + SOURCE CLOSURE + IDENTITY REGRESSION CHECK
-```
-
-This closes the experiment-authority gaps identified across both Codex architecture reviews without weakening the M8 data/code boundary or turning M10 into a provenance-attestation system.
+Out of scope remains cryptographic attestation, provider adapters, dashboards, production-model attack execution, AI-generated executable evaluator code, automatic source patching, universal future-attack proof, and a generic sandbox.
