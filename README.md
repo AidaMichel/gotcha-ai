@@ -352,7 +352,8 @@ The public package currently exposes:
 const {
   runGotcha,
   draftQualityContract,
-  confirmQualityContract
+  confirmQualityContract,
+  runContractAttacks
 } = require("gotcha-ai");
 ```
 
@@ -384,6 +385,53 @@ A new use case should normally change only:
 - `mutationPack`
 
 Not the Gotcha core.
+
+## Attack from a confirmed Quality Contract
+
+`runContractAttacks()` connects the confirmed contract to AI-assisted attack generation without coupling Gotcha to a model provider.
+
+You provide:
+
+- a confirmed Quality Contract
+- the real input and known-good `expectedOutput`
+- your synchronous boolean evaluator
+- an injected generator that calls the model/provider you choose
+
+```js
+const {
+  runContractAttacks
+} = require("gotcha-ai");
+
+const result = await runContractAttacks({
+  contract: confirmed,
+  input,
+  expectedOutput,
+
+  evaluator(output) {
+    return currentEvaluator(output);
+  },
+
+  async generator({
+    contract,
+    input,
+    expectedOutput,
+    instructions
+  }) {
+    // Call the provider/model you choose, then return
+    // the validated contract-attack schema.
+    return providerGenerateAttacks({
+      contract,
+      input,
+      expectedOutput,
+      instructions
+    });
+  }
+});
+```
+
+Gotcha owns the contract authority, generator instructions, schema validation, rule attribution, deterministic attack execution, survivor ranking, and data boundary. The caller still owns model credentials, provider selection, and provider-specific infrastructure.
+
+The generator proposes declarative mutated outputs; it does **not** provide executable mutation code. Confirmed rule severity remains authoritative and is not delegated back to the generator.
 
 ## Bring your own business idea
 
@@ -599,7 +647,7 @@ RE-ATTACK
 
 This layer attacks the current definition of quality and looks for meaningful failures that still escape.
 
-The long-term product connects those two halves into one continuous quality-improvement loop.
+`runContractAttacks()` now connects a confirmed Quality Contract to provider-independent AI-assisted attack generation, while the deterministic engine remains responsible for executing and ranking the attacks.
 
 ## Current scope
 
@@ -611,6 +659,7 @@ Gotcha currently supports:
 - evidence-backed Quality Contract drafts
 - injected AI generators
 - explicit human confirmation
+- confirmed-contract AI-assisted attack generation through an injected provider-independent generator
 - deterministic attacks
 - survivor ranking
 - concrete protections
@@ -622,7 +671,6 @@ Gotcha currently supports:
 
 Gotcha intentionally does **not** yet try to be:
 
-- an AI-generated mutation system
 - a production observability platform
 - a dataset-management platform
 - a dashboard
@@ -636,39 +684,13 @@ Those are separate product layers.
 
 ## What comes next
 
-The Quality Contract layer answers:
+The confirmed-contract attack bridge is implemented.
 
-> **What does this user mean by good?**
+The current loop can now move from human-confirmed quality rules to provider-independent AI-assisted attack proposals, then hand those validated proposals back to Gotcha's deterministic engine for execution and ranking.
 
-The deterministic attack engine answers:
+Future layers can focus on product integrations around that core — for example hosted provider adapters, production workflows, richer remediation, and collaboration — without moving model credentials or provider-specific logic into the deterministic engine.
 
-> **What bad output can still pass the current checks?**
-
-The next major bridge is to let confirmed Quality Contracts help generate and prioritize attacks.
-
-That moves Gotcha closer to the full loop:
-
-```text
-TEACH
-  ↓
-CONTRACT
-  ↓
-CONFIRM
-  ↓
-ATTACK
-  ↓
-RANK
-  ↓
-GOTCHA
-  ↓
-CATCH THIS
-  ↓
-RE-ATTACK
-```
-
-The aim is not another dashboard full of evaluation scores.
-
-The aim is a system that keeps asking:
+The aim remains a system that keeps asking:
 
 > **“What important failure are we still allowing through?”**
 
@@ -696,8 +718,9 @@ Current implemented milestones include:
 - `npx gotcha-ai demo`
 - AI-assisted Quality Contract drafting
 - human Quality Contract confirmation
+- confirmed Quality Contracts connected to provider-independent AI-assisted attack generation via `runContractAttacks()`
 
-The next product layer connects confirmed contracts to AI-assisted attack generation.
+The contract-to-attack bridge is implemented; future milestones can build integrations and workflows around this stable core.
 
 ## License
 

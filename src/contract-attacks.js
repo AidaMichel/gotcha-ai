@@ -1441,8 +1441,59 @@ function buildEvaluatorPrototypePlan(
 ) {
   const byNode =
     new WeakMapConstructor();
+  const expectedNodes =
+    new WeakSetConstructor();
+  const localIdentityNodes =
+    new WeakSetConstructor();
   const identityShadows =
     new WeakMapConstructor();
+
+  const localArrayCanBridge =
+    canInstallEvaluatorInstanceSemantic(
+      ArrayConstructor,
+      getOwnPropertyDescriptor(
+        ArrayConstructor,
+        arrayHasInstanceSymbol
+      )
+    );
+  const localObjectCanBridge =
+    canInstallEvaluatorInstanceSemantic(
+      ObjectConstructor,
+      getOwnPropertyDescriptor(
+        ObjectConstructor,
+        arrayHasInstanceSymbol
+      )
+    );
+
+  const localObjectIdentityShadow =
+    localObjectCanBridge
+      ? undefined
+      : getForeignIdentityShadow(
+          identityShadows,
+          objectPrototype,
+          false
+        );
+  const localArrayIdentityShadow =
+    localArrayCanBridge &&
+    localObjectCanBridge
+      ? undefined
+      : getForeignIdentityShadow(
+          identityShadows,
+          arrayPrototype,
+          true
+        );
+
+  let candidateObjectPrototype =
+    localObjectIdentityShadow !== undefined
+      ? localObjectIdentityShadow
+      : safeCallbackObjectPrototype;
+  let candidateArrayPrototype =
+    localArrayIdentityShadow !== undefined
+      ? localArrayIdentityShadow
+      : safeCallbackArrayPrototype;
+  let candidateObjectIsLocal = true;
+  let candidateArrayIsLocal = true;
+  let candidateForeignObjectPrototype = null;
 
   if (
     sourceRoot !== null &&
@@ -1484,6 +1535,11 @@ function buildEvaluatorPrototypePlan(
         seen,
         [pair.source]
       );
+      reflectApply(
+        weakSetAdd,
+        expectedNodes,
+        [pair.canonical]
+      );
 
       const foreignPrototype =
         reflectApply(
@@ -1493,11 +1549,13 @@ function buildEvaluatorPrototypePlan(
         );
 
       if (foreignPrototype !== undefined) {
+        const sourceIsArray =
+          arrayIsArray(pair.source);
         const identityShadow =
           getForeignIdentityShadow(
             identityShadows,
             foreignPrototype,
-            arrayIsArray(pair.source)
+            sourceIsArray
           );
 
         reflectApply(
@@ -1508,6 +1566,95 @@ function buildEvaluatorPrototypePlan(
             identityShadow
           ]
         );
+
+        if (pair.source === sourceRoot) {
+          if (sourceIsArray) {
+            candidateArrayPrototype =
+              identityShadow;
+            candidateArrayIsLocal = false;
+
+            const parentForeignObjectPrototype =
+              getPrototypeOf(
+                foreignPrototype
+              );
+
+            if (
+              parentForeignObjectPrototype !== null &&
+              !utilIsProxy(
+                parentForeignObjectPrototype
+              ) &&
+              captureNativeRealmConstructor(
+                parentForeignObjectPrototype,
+                objectConstructorSource
+              ) !== null &&
+              isPristineIntrinsicPrototype(
+                parentForeignObjectPrototype,
+                objectPrototype
+              )
+            ) {
+              candidateForeignObjectPrototype =
+                parentForeignObjectPrototype;
+              candidateObjectPrototype =
+                getForeignIdentityShadow(
+                  identityShadows,
+                  parentForeignObjectPrototype,
+                  false
+                );
+              candidateObjectIsLocal = false;
+            }
+          } else {
+            candidateForeignObjectPrototype =
+              foreignPrototype;
+            candidateObjectPrototype =
+              identityShadow;
+            candidateObjectIsLocal = false;
+          }
+        } else if (
+          sourceIsArray &&
+          candidateForeignObjectPrototype !== null &&
+          getPrototypeOf(foreignPrototype) ===
+            candidateForeignObjectPrototype
+        ) {
+          candidateArrayPrototype =
+            identityShadow;
+          candidateArrayIsLocal = false;
+        }
+      } else {
+        const sourcePrototype =
+          getPrototypeOf(pair.source);
+        const sourceIsArray =
+          arrayIsArray(pair.source);
+        let localIdentityShadow;
+
+        if (
+          sourceIsArray &&
+          sourcePrototype === arrayPrototype
+        ) {
+          localIdentityShadow =
+            localArrayIdentityShadow;
+        } else if (
+          !sourceIsArray &&
+          sourcePrototype === objectPrototype
+        ) {
+          localIdentityShadow =
+            localObjectIdentityShadow;
+        }
+
+        if (localIdentityShadow !== undefined) {
+          reflectApply(
+            weakMapSet,
+            byNode,
+            [
+              pair.canonical,
+              localIdentityShadow
+            ]
+          );
+          reflectApply(
+            weakSetAdd,
+            localIdentityNodes,
+            [pair.canonical]
+          );
+        }
       }
 
       const sourceDescriptors =
@@ -1558,10 +1705,16 @@ function buildEvaluatorPrototypePlan(
 
   return {
     byNode,
+    expectedNodes,
+    localIdentityNodes,
     objectPrototype:
       safeCallbackObjectPrototype,
     arrayPrototype:
       safeCallbackArrayPrototype,
+    candidateObjectPrototype,
+    candidateArrayPrototype,
+    candidateObjectIsLocal,
+    candidateArrayIsLocal,
     foreignSurfaces:
       fallback.foreignSurfaces
   };
@@ -2959,8 +3112,43 @@ function createEvaluatorSnapshot(
       );
     const currentIsArray =
       arrayIsArray(current);
+    const isExpectedNode =
+      reflectApply(
+        weakSetHas,
+        prototypePlan.expectedNodes,
+        [source]
+      );
+    const usesLocalIdentity =
+      isExpectedNode &&
+      reflectApply(
+        weakSetHas,
+        prototypePlan.localIdentityNodes,
+        [source]
+      );
 
-    if (plannedPrototype === undefined) {
+    let effectivePrototype =
+      plannedPrototype;
+    let treatAsLocal = false;
+
+    if (isExpectedNode) {
+      treatAsLocal =
+        plannedPrototype === undefined ||
+        usesLocalIdentity;
+    } else if (sourcePrototype !== null) {
+      if (currentIsArray) {
+        effectivePrototype =
+          prototypePlan.candidateArrayPrototype;
+        treatAsLocal =
+          prototypePlan.candidateArrayIsLocal;
+      } else {
+        effectivePrototype =
+          prototypePlan.candidateObjectPrototype;
+        treatAsLocal =
+          prototypePlan.candidateObjectIsLocal;
+      }
+    }
+
+    if (treatAsLocal) {
       if (currentIsArray) {
         reflectApply(
           weakSetAdd,
@@ -2983,8 +3171,8 @@ function createEvaluatorSnapshot(
 
     setPrototypeOf(
       current,
-      plannedPrototype !== undefined
-        ? plannedPrototype
+      effectivePrototype !== undefined
+        ? effectivePrototype
         : currentIsArray
           ? prototypePlan.arrayPrototype
           : sourcePrototype === null
