@@ -1,0 +1,71 @@
+name: M8 Final Closure Validation
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-commit:
+    if: github.event.pull_request.number == 10 && github.event.pull_request.head.ref == 'milestone-8-ai-attacks'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout M8 branch
+        uses: actions/checkout@v4
+        with:
+          ref: milestone-8-ai-attacks
+          fetch-depth: 0
+
+      - name: Set up Node 22.23.0
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.0
+
+      - name: Apply final closure candidate
+        run: python3 .github/scripts/m8_final_closure_patch.py
+
+      - name: Static checks
+        run: |
+          node --check src/contract-attacks.js
+          node --check test/m8-final-closure.test.js
+          git diff --check
+          test -z "$(git diff main -- src/engine.js)"
+
+      - name: Final closure regressions on Node 22
+        run: node --test test/m8-final-closure.test.js
+
+      - name: Focused M8 suite on Node 22
+        run: node --test test/ai-data.test.js test/contract-attacks.test.js test/m8-codex-remediation.test.js test/m8-codex-round3.test.js test/m8-codex-round4.test.js test/m8-codex-round5.test.js test/m8-codex-round6.test.js test/m8-codex-round7.test.js test/m8-codex-round8.test.js test/m8-codex-round9.test.js test/m8-codex-round10.test.js test/m8-codex-round11.test.js test/m8-codex-round12.test.js test/m8-final-closure.test.js
+
+      - name: Full repository on Node 22
+        run: npm test
+
+      - name: Set up Node 24.19.0
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+
+      - name: Final and adversarial suites on Node 24
+        run: |
+          node --test test/m8-codex-round9.test.js test/m8-codex-round10.test.js test/m8-codex-round11.test.js test/m8-codex-round12.test.js test/m8-final-closure.test.js
+          npm test
+
+      - name: Set up Node 14.18.0
+        uses: actions/setup-node@v4
+        with:
+          node-version: 14.18.0
+
+      - name: Minimum-runtime final closure smoke
+        run: node .github/scripts/m8_final_closure_node14_smoke.js
+
+      - name: Commit validated closure source
+        run: |
+          git config user.name "AidaMichel"
+          git config user.email "126730924+AidaMichel@users.noreply.github.com"
+          git add README.md src/contract-attacks.js test/m8-final-closure.test.js
+          git diff --cached --check
+          git commit -m "fix: close M8 review compatibility gaps"
+          git push origin HEAD:milestone-8-ai-attacks
