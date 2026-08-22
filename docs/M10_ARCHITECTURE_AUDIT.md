@@ -1,6 +1,6 @@
 # M10 — Contract Remediation Architecture Audit
 
-Status: Complete — Revision 7
+Status: Complete — Revision 8
 Milestone: 10
 Audit base: `main@286c9fccc1d3a6107a1b16511aedef5f6265aa3f`
 Companion spec: `docs/M10_CONTRACT_REMEDIATION_SPEC.md`
@@ -27,30 +27,25 @@ M10 accepts no verification-time replacement contract, case, attack set, task, o
 - Revision 4: closed replay provenance, experiment ownership, baseline gating, task identity, retained-set, and failure-state gaps.
 - Revision 5: locked replay-schema parity, artifact schemas, exact partial outputs, and ID ordering.
 - Revision 6: locked required experiment variants, generator input, positive-control separation, and verification protection payload.
-- Revision 7: closes the final exact-head Revision 6 findings with a structural replay-eligibility algorithm, exact async-generator contract, exact public-options validation, and phase-aware positive-control truth.
+- Revision 7: closed deterministic replay eligibility, async-generator behavior, public-options validation, and phase-aware positive-control truth.
+- Revision 8: closes the three exact-head Revision 7 findings: artifact cross-field binding, exact normalized baseline/after payloads, and sparse-array alignment with the existing M8 AI-data boundary.
 
 ---
 
-## 4. Revision 7 P1 Closure — Deterministic Replay Eligibility
+## 4. Deterministic Replay Eligibility
 
-Revision 6 still described replayability in observational terms: canonical replay had to preserve every evaluator-observable semantic. That was not an implementable predicate.
+Replayability is selected structurally at the M8 boundary from the original pre-canonicalization `input` and `expectedOutput` values. It never depends on evaluator observation or heuristic equivalence.
 
-Revision 7 removes evaluator observation from eligibility entirely.
-
-M8 now classifies a successful run by applying one exact structural predicate to the original pre-canonicalization `input` and `expectedOutput` values.
-
-Replayable V1 is intentionally restricted to a conservative local-plain-data tree:
+Replayable V1 is restricted to a conservative local-plain-data tree:
 
 - null / string / boolean / finite number;
-- local-realm Arrays with exact local `Array.prototype`, index data properties only, recursively eligible contents, and no extra/symbol keys;
+- dense local-realm Arrays with exact local `Array.prototype`, every index `0..length-1` present as an own data property, recursively eligible contents, and no extra/symbol keys;
 - local-realm plain Objects with exact local `Object.prototype` or null prototype, string data properties only, recursively eligible contents;
 - no repeated object identity or cycles.
 
-Everything else is deterministically non-replayable, including cross-realm prototypes, custom prototypes, Date/Map/Set/RegExp/typed arrays, Promise, Proxy, functions, accessors, and other exotics.
+Everything else is deterministically non-replayable, including sparse arrays, cross-realm prototypes, custom prototypes, Date/Map/Set/RegExp/typed arrays, Promise, Proxy, functions, accessors, and other exotics.
 
-The same structure therefore always produces the same experiment variant without executing an evaluator or getter.
-
-This is deliberately conservative: M8 validity is broader than M10 V1 replayability.
+Revision 8 explicitly removes sparse arrays from replayable eligibility because the current M8 AI-data boundary already rejects them before successful experiment emission. Architecture and implementation can no longer disagree on an impossible replayable sparse-array case.
 
 ---
 
@@ -86,11 +81,11 @@ M10 may not knowingly remain weaker than M8 if that schema evolves before implem
 
 ---
 
-## 7. Revision 7 P2 Closure — Generator Async Contract
+## 7. Generator Async Contract
 
 The protection generator is called exactly once after all pre-generator validation.
 
-Allowed completion forms are now exact:
+Allowed completion forms are exact:
 
 - direct value;
 - genuine native Promise recognized by a captured side-effect-free Promise brand check.
@@ -99,13 +94,11 @@ Synchronous throws and native Promise rejections propagate unchanged.
 
 Arbitrary thenables are never awaited or assimilated; M10 does not call `.then`. They remain untrusted return data and fail generator-output / AI-data validation.
 
-This preserves async model-provider adapters without introducing untrusted thenable execution.
-
 ---
 
-## 8. Revision 7 P2 Closure — Public Options Objects
+## 8. Public Options Objects
 
-All three public API options containers now have exact V1 boundary rules before semantic property reads.
+All three public API options containers have exact V1 boundary rules before semantic property reads.
 
 Each must:
 
@@ -115,9 +108,7 @@ Each must:
 - expose each required option as an enumerable own data property;
 - contain no accessors, extras, or hidden non-enumerable fields.
 
-Values are taken from validated descriptors so accessors cannot execute during destructuring/property reads.
-
-Malformed call shapes cause zero callback executions.
+Values are taken from validated descriptors so accessors cannot execute during destructuring/property reads. Malformed call shapes cause zero callback executions.
 
 ---
 
@@ -133,11 +124,31 @@ Human edit may change only the protection statement.
 
 ---
 
-## 10. Revision 7 P2 Closure — Positive-Control Truth
+## 10. Revision 8 Closure — Artifact Cross-Field Binding
 
-Revision 6 could erase a successful positive control when a later attack evaluation aborted.
+Revision 7 locked exact artifact keys but did not normatively lock every relationship between those fields.
 
-Revision 7 makes positive-control fields phase-aware:
+Revision 8 requires every draft/confirmed/rejected artifact to satisfy, from data:
+
+```text
+task === experiment.task === experiment.contract.task
+source.attackId -> exactly one bound attack
+selected bound attack -> original baseline survivor
+source.ruleId === selectedAttack.ruleId
+rule.id === source.ruleId === selectedAttack.rule.id
+rule statement/kind/severity === selected attack rule snapshot
+rule snapshot === active confirmed rule inside experiment.contract
+```
+
+The embedded experiment/source/rule authority is immutable across confirmation. Accept/edit/reject may not rebind it.
+
+These invariants are revalidated before confirmation and again before verification. A serialized artifact edited to another task, source, rule, or non-survivor attack rejects before callbacks execute.
+
+---
+
+## 11. Positive-Control Truth
+
+Positive-control fields are phase-aware:
 
 ```text
 true  = control returned true, even if a later attack aborted
@@ -151,22 +162,62 @@ M10 requires stable M8 failure classification sufficient to distinguish `positiv
 
 ---
 
-## 11. Strict Verification Ordering
+## 12. Strict Verification Ordering
 
 Verification remains strictly sequential:
 
-1. exact options/artifact revalidation;
+1. exact options/artifact/cross-field revalidation;
 2. baseline positive control + replay;
-3. exact bound-history identity comparison;
-4. immediate terminal return on any baseline failure;
-5. only then improved positive control + replay;
-6. source closure + regression comparison.
+3. normalize completed baseline replay to the exact public replay-result payload;
+4. exact bound-history identity comparison;
+5. immediate terminal return on any baseline failure;
+6. only then improved positive control + replay;
+7. normalize completed improved replay to the same exact public payload;
+8. source closure + regression comparison.
 
 The improved evaluator is never executed before baseline identity passes.
 
 ---
 
-## 12. Deterministic Semantic States
+## 13. Revision 8 Closure — Exact Baseline / After Payloads
+
+Revision 7 required a uniform result object but left the non-null values of `baseline` and `after` open to interpretation.
+
+Revision 8 defines one exact normalized completed-replay payload for both fields:
+
+```js
+{
+  outcomes: [
+    {
+      attackId,
+      evaluatorResult: "PASS" | "FAIL",
+      survived: true | false
+    }
+  ],
+  survivorOrderIds: [],
+  topFindingId: null
+}
+```
+
+Rules are exact:
+
+- outcome entries cover every bound attack exactly once and use bound attack order;
+- survivor IDs remain deterministic M8 rank order;
+- top finding is first survivor or null;
+- payloads are independent deep snapshots;
+- no full `runContractAttacks()` result, mutable attack object, embedded experiment, callback, or error/stack object is exposed.
+
+The public `improvement` formula is consequently defined from these normalized snapshots:
+
+```text
+baseline.survivorOrderIds.length - after.survivorOrderIds.length
+```
+
+This removes both schema ambiguity and accidental recursive/mutable result exposure.
+
+---
+
+## 14. Deterministic Semantic States
 
 Baseline terminal states:
 
@@ -196,23 +247,19 @@ Every semantic state emits the same exact top-level result field set.
 
 ---
 
-## 13. Result Determinism
+## 15. Result Determinism
 
 The verification result `protection` field is exactly an independent `{ statement, rationale }` snapshot, never the recursively large confirmed artifact.
 
 All diagnostic attack-ID arrays use bound experiment attack order. Survivor order alone uses M8 deterministic rank order.
 
-`improvement` remains exactly:
+`baseline` and `after` use the exact normalized Revision 8 replay-result schema when non-null.
 
-```text
-baseline survivor count - after survivor count
-```
-
-and is `null` for incomplete replay pairs.
+`improvement` is `null` for incomplete replay pairs and otherwise uses the exact normalized survivor-order lengths.
 
 ---
 
-## 14. Implementation Scope
+## 16. Implementation Scope
 
 Expected implementation touches:
 
@@ -229,13 +276,14 @@ Implementation must remove temporary/dead validation code before merge.
 
 ---
 
-## 15. Required Revision 7 Proofs
+## 17. Required Revision 8 Proofs
 
 Implementation must prove:
 
-- replay eligibility is structural, conservative, getter-free, evaluator-free, and deterministic;
+- replay eligibility is structural, conservative, getter-free, evaluator-free, deterministic, and aligned with the current M8 AI-data boundary;
+- sparse arrays are not replayable V1 cases;
 - cross-realm/custom/exotic/aliased/cyclic cases emit non-replayable experiment;
-- local plain-data cases emit replayable experiment;
+- dense local plain-data cases emit replayable experiment;
 - every successful M8 run emits exactly one experiment variant;
 - exact public options schemas reject Proxies/accessors/symbols/extras without callback execution;
 - direct and native-Promise generator returns work;
@@ -243,21 +291,27 @@ Implementation must prove:
 - generator throw/rejection propagation is exact;
 - experiment remains independent from legacy result mutation;
 - full M8 replay schema validates before generator execution;
+- task/source/rule/survivor cross-field rebinding rejects at confirmation and verification;
+- source attack is necessarily a bound original survivor;
+- embedded rule snapshot necessarily matches selected attack and active contract rule;
 - baseline failure never executes improved evaluator;
 - positive-control `true` survives later attack aborts;
 - stable M8 phase/reason classification replaces message parsing;
-- partial results and ID ordering are deterministic;
+- completed baseline and after results normalize to exactly `{ outcomes, survivorOrderIds, topFindingId }`;
+- normalized outcome arrays use bound attack order and no mutable/full M8 result references escape;
+- partial results and diagnostic ID ordering are deterministic;
 - source closure/regression gates remain identity-based;
 - existing M8 successful public behavior is unchanged apart from additive required experiment emission.
 
 ---
 
-## 16. Acceptance / Stopping Rule
+## 18. Acceptance / Stopping Rule
 
 M10 is implementation-ready only after a fresh exact-head review finds no concrete contradiction or V1 implementation-choice ambiguity in:
 
-- replay eligibility and experiment variant selection;
+- replay eligibility and experiment variant selection aligned with M8;
 - exact artifact schemas and ownership;
+- artifact task/source/rule/survivor cross-field binding;
 - M8 replay-schema equivalence;
 - public-options validation;
 - generator async semantics;
@@ -265,6 +319,7 @@ M10 is implementation-ready only after a fresh exact-head review finds no concre
 - stable evaluator failure classification;
 - strict baseline-before-improved ordering;
 - phase-aware positive-control fields;
+- exact normalized baseline/after payload schemas and ownership;
 - exact partial results;
 - deterministic ID ordering/failure precedence;
 - source/regression/metric semantics.
