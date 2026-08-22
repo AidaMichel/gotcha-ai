@@ -1,55 +1,13 @@
 # M10 — Contract Remediation & Re-Attack
 
-Status: Architecture Locked — Implementation Not Started
+Status: Architecture Locked — Revision 2
 Milestone: 10
 Branch: `milestone-10-contract-remediation`
 Base: `main@286c9fccc1d3a6107a1b16511aedef5f6265aa3f`
 
 ## 1. Goal
 
-M10 closes the confirmed-contract quality loop without allowing AI-generated executable code to become evaluator policy.
-
-M7 implemented:
-
-```text
-TEACH
-  ↓
-CONTRACT
-  ↓
-CONFIRM
-```
-
-M8 and M9 implemented and exposed:
-
-```text
-CONFIRMED CONTRACT
-       ↓
-ATTACK
-       ↓
-RANK
-       ↓
-GOTCHA
-```
-
-The current contract-driven path intentionally stops at a ranked survivor.
-
-M10 adds the remediation handoff:
-
-```text
-GOTCHA
-  ↓
-AI DRAFTS PROTECTION INTENT
-  ↓
-HUMAN CONFIRMS
-  ↓
-CALLER IMPLEMENTS IMPROVED EVALUATOR
-  ↓
-GOTCHA REPLAYS THE SAME ATTACK SET
-  ↓
-VERIFY IMPROVEMENT / REGRESSION
-```
-
-The complete product story becomes:
+M10 closes the confirmed-contract loop after `GOTCHA` without turning model output directly into executable evaluator policy.
 
 ```text
 TEACH
@@ -64,53 +22,39 @@ RANK
   ↓
 GOTCHA
   ↓
-CATCH THIS
+AI DRAFTS DECLARATIVE PROTECTION INTENT
   ↓
-IMPLEMENT
+HUMAN ACCEPT / EDIT / REJECT
   ↓
-RE-ATTACK
+CALLER IMPLEMENTS TRUSTED IMPROVED EVALUATOR
+  ↓
+REPLAY THE SAME ORIGINAL ATTACK SET
+  ↓
+VERIFY SOURCE CLOSURE + POSITIVE CONTROL + REGRESSIONS
 ```
 
-M10 does not pretend that natural-language remediation can be compiled safely into arbitrary executable JavaScript by the AI generator.
-
-The AI proposes remediation intent as declarative data. A human confirms that intent. The caller owns the executable evaluator implementation. Gotcha owns deterministic replay and verification.
+The AI proposes what should be protected. A human confirms the intent. The caller owns executable evaluator implementation. Gotcha owns deterministic verification.
 
 ---
 
-## 2. Product Promise
+## 2. Critical Authority Boundary
 
-After Gotcha finds a contract-driven evaluator blind spot, the user should not be left with only:
+### AI may
 
-> `wrong-time survived`
+- propose one declarative protection statement
+- explain why the protection addresses the selected confirmed rule/finding
 
-Gotcha should be able to help answer:
+### AI may not
 
-1. What should the evaluator protect now?
-2. Does a human agree with that protection intent?
-3. After the evaluator is changed, does the known-good output still pass?
-4. Is the original blind spot now caught?
-5. Did the updated evaluator regress on attacks the old evaluator already caught?
-6. How many previously surviving attacks were eliminated?
+- generate executable JavaScript that Gotcha runs
+- generate callbacks, ASTs, shell commands, or auto-applied patches
+- alter the Quality Contract
+- change rule severity or kind
+- claim the protection has already been proven effective
 
-Example:
+### Human authority
 
-```text
-Confirmed rule:
-The scheduled time must match the requested time.
-
-Surviving attack:
-Sara was requested at 3 PM.
-The evaluator accepted 4 PM.
-```
-
-Gotcha may draft:
-
-```text
-Protection intent:
-Reject scheduled outputs whose actual time differs from the explicitly requested time.
-```
-
-The human may:
+A remediation proposal is policy-affecting. It must receive an explicit:
 
 ```text
 accept
@@ -118,157 +62,31 @@ edit
 reject
 ```
 
-If accepted or edited, the caller implements an improved evaluator.
+before verification.
 
-Gotcha then replays the exact validated attack set against:
+### Caller authority
 
-```text
-old evaluator
-vs
-improved evaluator
-```
+The caller supplies the actual trusted local synchronous `improvedEvaluator` after implementing the confirmed remediation intent.
 
-and reports measurable change.
+Gotcha verifies observable behavior. Gotcha does not claim to have authored or formally proven that evaluator implementation.
 
 ---
 
-## 3. Why M10 Exists
+## 3. Why M10 Does Not Use AI-Generated `protectionCheck`
 
-The repository currently has two different remediation realities.
+The deterministic Mutation Pack path can use `protectionCheck` because that callback is developer-authored trusted local code.
 
-The deterministic Mutation Pack path already has executable trusted protection checks. Therefore its improvement loop can compose the existing evaluator with a `protectionCheck` and re-attack immediately.
+M8 contract attacks are deliberately model-produced declarative data. Adding model-generated executable protection code would collapse the M8 data/code boundary.
 
-The confirmed-contract attack path is deliberately different. M8 attack candidates are model-produced declarative data and contain no executable protection callback.
+Therefore M10 V1 does not bridge contract attacks directly into `runImprovementLoop()`.
 
-That distinction is a safety property, not a missing implementation detail.
-
-M10 exists to close the loop while preserving that boundary.
-
-The correct bridge is not:
-
-```text
-AI survivor
-  ↓
-AI writes JavaScript protection
-  ↓
-Gotcha executes it
-```
-
-The correct bridge is:
-
-```text
-AI survivor
-  ↓
-AI proposes declarative protection intent
-  ↓
-human confirms intent
-  ↓
-caller supplies trusted improved evaluator
-  ↓
-Gotcha verifies behavior
-```
+A future finite protection DSL or code-generation workflow requires a separate milestone and contract.
 
 ---
 
-## 4. Critical Product Boundary
+## 4. Locked Public API
 
-### 4.1 AI proposes remediation intent, never executable evaluator code
-
-The protection generator may return only declarative structured data.
-
-It must not return or cause Gotcha to execute:
-
-- JavaScript functions
-- callback source
-- `eval(...)`
-- `new Function(...)`
-- AST intended for automatic execution
-- regex/code snippets that Gotcha evaluates as code
-- shell commands
-- patches that Gotcha automatically applies
-- provider tool calls that mutate the repository
-
-A generated string is always data.
-
-M10 never executes model-generated strings.
-
-### 4.2 The human is authoritative over protection intent
-
-Unlike M8 attack candidates, remediation changes what the evaluator should reject.
-
-That is policy-affecting behavior.
-
-Therefore a protection draft must receive explicit human confirmation before verification is allowed.
-
-Allowed decisions:
-
-```text
-accept
-edit
-reject
-```
-
-### 4.3 The caller is authoritative over executable implementation
-
-M10 V1 does not compile the protection statement into code.
-
-The caller provides the trusted local synchronous `improvedEvaluator` that represents the implemented change.
-
-Gotcha verifies that evaluator. Gotcha does not claim to have authored it.
-
-### 4.4 The confirmed Quality Contract remains authoritative
-
-A protection may reference one active confirmed contract rule.
-
-It may not:
-
-- add a rule
-- remove a rule
-- edit a rule
-- change rule kind
-- change rule severity
-- revive a rejected rule
-- silently change the task
-
-If the user wants to change the Quality Contract, that remains a Quality Contract workflow, not M10 remediation.
-
----
-
-## 5. Locked M10 Flow
-
-M10 operates on one survivor at a time.
-
-```text
-confirmed contract
-      +
-input
-      +
-known-good output
-      +
-selected surviving attack
-      ↓
-DRAFT PROTECTION
-      ↓
-HUMAN CONFIRM
-      ↓
-IMPLEMENT OUTSIDE GOTCHA CORE
-      ↓
-VERIFY PROTECTION
-      ↓
-BASELINE REPLAY
-      ↓
-IMPROVED-EVALUATOR REPLAY
-      ↓
-COMPARE
-```
-
-Batch remediation of several findings in one proposal is outside M10 V1.
-
----
-
-## 6. Public API
-
-M10 adds three public functions:
+M10 adds:
 
 ```js
 const {
@@ -278,54 +96,49 @@ const {
 } = require("gotcha-ai");
 ```
 
-The intended flow is:
+### Draft
 
 ```js
-const draft =
-  await draftContractProtection({
-    contract,
-    input,
-    expectedOutput,
-    finding:
-      contractAttackResult.topFinding,
-    generator:
-      protectionGenerator
-  });
-
-const confirmed =
-  confirmContractProtection({
-    draft,
-    decision: {
-      type: "accept"
-    }
-  });
-
-const verification =
-  await verifyContractProtection({
-    contract,
-    input,
-    expectedOutput,
-    attacks:
-      contractAttackResult.generatedAttacks,
-    sourceAttackId:
-      contractAttackResult.topFinding.id,
-    evaluator:
-      oldEvaluator,
-    improvedEvaluator,
-    protection:
-      confirmed
-  });
+const draft = await draftContractProtection({
+  contract,
+  input,
+  expectedOutput,
+  attacks:
+    contractAttackResult.generatedAttacks,
+  sourceAttackId:
+    contractAttackResult.topFinding.id,
+  generator:
+    protectionGenerator
+});
 ```
 
-`draftContractProtection()` is asynchronous because the injected protection generator may be asynchronous.
+### Confirm
 
-`confirmContractProtection()` is deterministic and synchronous.
+```js
+const confirmed = confirmContractProtection({
+  draft,
+  decision: {
+    type: "accept"
+  }
+});
+```
 
-`verifyContractProtection()` returns a Promise because it intentionally reuses the asynchronous M8 `runContractAttacks()` boundary internally, even though verification itself performs no model call.
+### Verify
+
+```js
+const verification = await verifyContractProtection({
+  protection: confirmed,
+  evaluator:
+    oldEvaluator,
+  improvedEvaluator
+});
+```
+
+**Normative binding rule:** `verifyContractProtection()` does not accept a new contract, case, attack set, or source attack ID. Those values are carried immutably through the protection artifact from drafting to confirmation. This prevents verification from silently switching to a different case or a partial/substituted attack set.
 
 ---
 
-## 7. `draftContractProtection()` Inputs
+## 5. Draft Inputs
 
 Required:
 
@@ -334,90 +147,139 @@ Required:
   contract,
   input,
   expectedOutput,
-  finding,
+  attacks,
+  sourceAttackId,
   generator
 }
 ```
 
 ### contract
 
-A valid confirmed Quality Contract.
+A valid confirmed Quality Contract. M10 independently validates it.
 
-M10 independently validates it at its own boundary.
+### input / expectedOutput
 
-### input
+The exact eval case that produced the attack set.
 
-The concrete eval input associated with the finding.
+### attacks
 
-### expectedOutput
+The complete `generatedAttacks` array from the original `runContractAttacks()` result.
 
-The known-good output associated with the finding.
+M10 V1 binds remediation to this complete replay set at draft time. It does not accept `attack.results`, `survivors` only, or a later caller-selected subset.
 
-### finding
+Every entry is independently validated against the confirmed contract.
 
-One surviving M8-style generated attack.
+### sourceAttackId
 
-Minimum semantic fields:
+Identifies the selected survivor within the complete original generated attack set.
+
+The selected source attack is resolved from `attacks` by ID; the caller does not supply a second independently mutable finding payload.
+
+### generator
+
+Injected provider-independent protection generator.
+
+The caller owns provider/model/credentials/networking/retries. Gotcha owns validation, instructions, provenance, and confirmation boundaries.
+
+---
+
+## 6. Canonical Draft Binding
+
+Before calling the protection generator, M10 snapshots and validates:
+
+```text
+contract
+input
+expectedOutput
+complete attack set
+source attack ID
+```
+
+The protection draft must carry the canonical frozen snapshot:
 
 ```js
 {
-  id,
-  ruleId,
+  version: 1,
+  status: "draft",
+  task,
+
+  contract: {
+    version,
+    status,
+    task,
+    rules
+  },
+
+  case: {
+    input,
+    expectedOutput
+  },
+
+  attacks: [
+    /* complete validated original generatedAttacks set */
+  ],
+
+  source: {
+    attackId,
+    ruleId
+  },
+
   rule: {
     id,
     statement,
     kind,
     severity
   },
-  type,
-  description,
-  rationale,
-  output,
-  severity,
-  realism,
-  subtlety,
-  novelty,
-  fixability
+
+  protection: {
+    statement,
+    rationale
+  }
 }
 ```
 
-M10 must validate the finding as data and verify that:
+The contract, case, attack set, source identity, and rule authority are not editable during confirmation.
 
-- `finding.ruleId` references an active confirmed contract rule
-- `finding.rule.id === finding.ruleId`
-- the finding's rule statement/kind/severity exactly match the confirmed contract rule
-- `finding.output` is valid AI-safe data
-- scoring metadata is structurally valid
+This binding is structural/canonical, consistent with existing Gotcha serialized-data authority. M10 does not claim cryptographic signing of user-supplied artifacts.
 
-M10 does not trust object identity or assume the finding came directly from the same process invocation.
+---
 
-### generator
+## 7. Attack-Set Validation
 
-An injected provider-independent protection generator.
+For every bound attack, M10 validates:
 
-The caller owns:
+```text
+id
+ruleId
+rule snapshot
+type
+description
+rationale
+output
+severity
+realism
+subtlety
+novelty
+fixability
+```
 
-- provider
-- model
-- credentials
-- networking
-- retries
-- provider-specific parsing
+Rules:
 
-Gotcha owns:
+- attack IDs must be unique
+- `ruleId` must reference an active confirmed rule
+- embedded rule ID/statement/kind/severity must exactly match the confirmed rule
+- attack output must satisfy the existing AI-safe data policy
+- generator-owned score dimensions must be finite numbers in `[0, 1]`
+- stored severity must equal the score derived from confirmed contract severity
+- sourceAttackId must identify one attack in this exact set
 
-- generator instructions
-- schema
-- validation
-- contract authority
-- provenance
-- human-confirmation boundary
+The selected source attack is the canonical attack-set entry, not a separate caller-provided object.
 
 ---
 
 ## 8. Protection Generator Arguments
 
-The generator receives only validated snapshots:
+The generator receives validated snapshots:
 
 ```js
 {
@@ -429,31 +291,25 @@ The generator receives only validated snapshots:
 }
 ```
 
-The generator must not receive mutable source identities that bypass the existing AI-data boundary.
+`finding` is resolved from the bound attack set using `sourceAttackId`.
 
-The generator instructions must explicitly state:
+Instructions must state:
 
 - the confirmed rule is authoritative
-- do not change the rule
-- propose one evaluator protection intent for the selected finding
+- propose one narrow evaluator protection intent
 - preserve unrelated correct behavior
-- do not write executable code
-- do not return functions
-- do not claim the protection is proven effective
-- do not claim the production model produced the finding
-- prefer the narrowest protection that addresses the confirmed rule without encoding the exact bad output as a one-off blacklist
+- prefer rule-level protection over exact-output blacklisting
+- return declarative data only
+- no functions or executable code
+- no contract edits
+- no claim of proven effectiveness
+- no claim that the production model produced the candidate
 
 ---
 
-## 9. Protection Draft Schema
+## 9. Protection Generator Output
 
-Generator output version:
-
-```text
-1
-```
-
-Required shape:
+Version 1 schema:
 
 ```js
 {
@@ -461,7 +317,6 @@ Required shape:
   task,
   sourceAttackId,
   ruleId,
-
   protection: {
     statement,
     rationale
@@ -469,98 +324,13 @@ Required shape:
 }
 ```
 
-Example:
+M10 rejects mismatched task/source/rule identity, empty statement/rationale, malformed metadata, or unsupported AI-safe data.
 
-```js
-{
-  version: 1,
-
-  task:
-    "Schedule meetings using the requested person and time.",
-
-  sourceAttackId:
-    "wrong-time",
-
-  ruleId:
-    "time-rule",
-
-  protection: {
-    statement:
-      "Reject a scheduled result when its actual meeting time differs from the explicitly requested time.",
-
-    rationale:
-      "The current evaluator accepted a candidate that preserved the person but changed the confirmed requested time."
-  }
-}
-```
-
-The draft is declarative only.
-
-No field in the V1 schema is executable.
+The generated protection remains `draft` until human confirmation.
 
 ---
 
-## 10. Draft Validation
-
-M10 must reject generator output when:
-
-- version is unsupported
-- task does not exactly match the confirmed contract task
-- source attack ID does not exactly match the selected finding
-- rule ID does not exactly match the finding and confirmed contract rule
-- protection statement is empty
-- rationale is empty
-- data contains unsupported AI-safe values
-- data contains executable own-property behavior
-- Proxy-backed or accessor-backed metadata crosses the boundary
-- the generator returns a malformed Promise/runtime object outside the supported M8-style callback boundary
-
-The generated protection is not authoritative merely because it passes schema validation.
-
-Its status is:
-
-```text
-draft
-```
-
-until a human decision is applied.
-
----
-
-## 11. `draftContractProtection()` Output
-
-Normalized output:
-
-```js
-{
-  version: 1,
-  status: "draft",
-  task,
-
-  source: {
-    attackId,
-    ruleId
-  },
-
-  rule: {
-    id,
-    statement,
-    kind,
-    severity
-  },
-
-  protection: {
-    statement,
-    rationale
-  }
-}
-```
-
-The rule snapshot comes from the confirmed contract, not from generator authority.
-
----
-
-## 12. `confirmContractProtection()`
+## 10. Human Confirmation
 
 Input:
 
@@ -571,354 +341,201 @@ Input:
 }
 ```
 
-Allowed decision shapes:
-
-### Accept
+Allowed decisions:
 
 ```js
-{
-  type: "accept"
-}
+{ type: "accept" }
 ```
-
-### Edit
 
 ```js
 {
   type: "edit",
-  statement:
-    "...human-authored protection statement..."
+  statement: "human-authored statement"
 }
 ```
 
-### Reject
-
 ```js
-{
-  type: "reject"
-}
+{ type: "reject" }
 ```
 
 Only the protection statement is editable in M10 V1.
 
-The human may not use the remediation decision to change:
+The following are immutable authority/provenance:
 
-- task
-- source attack ID
-- rule ID
-- contract rule statement
-- rule kind
-- rule severity
+```text
+contract
+case
+complete attack set
+task
+source attack ID
+rule ID
+rule statement
+rule kind
+rule severity
+```
 
-Those fields are provenance/authority, not editable remediation text.
+Accepted/edited output uses `status: "confirmed"`. Rejected output uses `status: "rejected"` and cannot verify.
+
+The confirmed artifact preserves the same canonical contract/case/attack-set snapshots from the draft.
 
 ---
 
-## 13. Confirmation Outputs
+## 11. Implementation Handoff
 
-### Accepted or edited
-
-```js
-{
-  version: 1,
-  status: "confirmed",
-  task,
-
-  source: {
-    attackId,
-    ruleId
-  },
-
-  rule: {
-    id,
-    statement,
-    kind,
-    severity
-  },
-
-  protection: {
-    statement,
-    rationale,
-    decision:
-      "accept" | "edit"
-  }
-}
-```
-
-For an edit, `statement` is the human-authored value.
-
-Generator rationale may remain as non-authoritative provenance/context.
-
-### Rejected
-
-```js
-{
-  version: 1,
-  status: "rejected",
-  ...provenance
-}
-```
-
-A rejected protection cannot be passed to verification.
-
----
-
-## 14. Why M10 Does Not Generate `protectionCheck`
-
-The existing deterministic Mutation Pack path can safely contain a trusted local `protection.check()` callback because the developer authored that callback as local code.
-
-M8 deliberately prevents the model from generating executable mutation code.
-
-M10 extends the same rule to remediation.
-
-Allowing a model to return:
-
-```js
-{
-  check(output) {
-    // model-produced executable code
-  }
-}
-```
-
-would collapse the data/code boundary M8 was designed to preserve.
-
-Therefore M10 V1 does not attempt universal natural-language-to-code compilation.
-
-A future milestone may define a finite declarative protection DSL or provider-specific implementation tooling, but that is explicitly outside M10.
-
----
-
-## 15. Implementation Handoff
-
-After confirmation, the caller implements the protection in its evaluator.
-
-The caller then provides:
+After human confirmation, the caller implements the protection in its evaluator and supplies:
 
 ```js
 improvedEvaluator(output) -> boolean
 ```
 
-The improved evaluator is a trusted local callback under the same trust model as the existing evaluator.
-
-It must be:
+The improved evaluator is a trusted local callback under the existing evaluator trust model:
 
 - synchronous
 - boolean-returning
-- deterministic for the same input state
+- deterministic for the same integration state
 - side-effect free by contract
 
-If the evaluator needs request/input context, the caller may close over it exactly as in M8.
+If input context is needed, the caller may close over it as in M8.
 
-M10 does not inspect evaluator source code to determine whether the confirmed protection was implemented “correctly.”
-
-It verifies observable behavior on the replayed attack set.
+M10 does not inspect evaluator source code for semantic equivalence with the protection statement.
 
 ---
 
-## 16. `verifyContractProtection()` Inputs
+## 12. Verification Inputs
 
-Required:
+Required and only allowed:
 
 ```js
 {
-  contract,
-  input,
-  expectedOutput,
-  attacks,
-  sourceAttackId,
+  protection,
   evaluator,
-  improvedEvaluator,
-  protection
+  improvedEvaluator
 }
 ```
-
-### attacks
-
-The full `generatedAttacks` set from the contract-attack run, not only the source survivor.
-
-M10 V1 verifies against the exact previously generated candidate set.
-
-Every attack must be independently validated against the confirmed contract before replay.
-
-### sourceAttackId
-
-Identifies the finding the confirmed protection intends to remediate.
-
-The source attack must be present in the replay set.
-
-### evaluator
-
-The pre-remediation evaluator.
-
-### improvedEvaluator
-
-The caller-supplied post-remediation evaluator.
 
 ### protection
 
-Must be a valid `status: "confirmed"` M10 protection tied to the same task, rule, and source attack.
+Must be a valid `status: "confirmed"` M10 artifact containing its bound confirmed contract, original case, complete original attack set, selected source, and rule provenance.
+
+### evaluator
+
+Current/pre-remediation trusted local evaluator.
+
+### improvedEvaluator
+
+Caller-supplied post-remediation trusted local evaluator.
+
+No new case or attack data may be substituted at verification time.
 
 ---
 
-## 17. Deterministic Replay Architecture
+## 13. Deterministic Replay Architecture
 
-M10 must reuse the existing M8 `runContractAttacks()` boundary rather than duplicating its evaluator/data hardening.
+Verification reconstructs a Gotcha-owned deterministic replay generator from `protection.attacks`.
 
-The implementation should construct an internal deterministic replay generator from the validated attack set.
-
-Conceptually:
-
-```js
-function replayGenerator() {
-  return {
-    version: 1,
-    task,
-    attacks: replayAttacks
-  };
-}
-```
-
-This is trusted Gotcha-owned replay data reconstructed from validated attacks. It performs no model call and introduces no new attack candidates.
-
-M10 then runs:
+Mapping for each attack:
 
 ```text
-BASELINE
-runContractAttacks({
-  contract,
-  input,
-  expectedOutput,
+id          -> id
+ruleId      -> ruleId
+type        -> type
+description -> description
+rationale   -> rationale
+output      -> mutatedOutput
+realism     -> scores.realism
+subtlety    -> scores.subtlety
+novelty     -> scores.novelty
+fixability  -> scores.fixability
+```
+
+Severity is not replay-generator authority. `runContractAttacks()` must re-derive it from `protection.contract` exactly as in M8.
+
+Verification then calls the existing M8 boundary twice using the artifact-bound values:
+
+```js
+await runContractAttacks({
+  contract: protection.contract,
+  input: protection.case.input,
+  expectedOutput:
+    protection.case.expectedOutput,
   evaluator,
   generator: replayGenerator
-})
+});
 ```
 
 and:
 
-```text
-AFTER
-runContractAttacks({
-  contract,
-  input,
-  expectedOutput,
+```js
+await runContractAttacks({
+  contract: protection.contract,
+  input: protection.case.input,
+  expectedOutput:
+    protection.case.expectedOutput,
   evaluator: improvedEvaluator,
   generator: replayGenerator
-})
+});
 ```
 
-This preserves:
+Verification performs no model/provider call.
 
-- M8 positive-control validation
-- M8 canonical AI-data validation
-- M8 generated-attack schema validation
-- M8 evaluator snapshot behavior
-- M8 Node cross-realm compatibility boundary
-- M8 callback/intrinsic restoration behavior
-- M8 deterministic attack ranking
-
-M10 must not create a second parallel evaluator-safety implementation.
+M10 must not create a parallel attack/evaluator safety implementation.
 
 ---
 
-## 18. Replay Identity
+## 14. Source Reproducibility
 
-The replay conversion must preserve the semantic attack identity necessary for M8 validation and ranking:
+M10 never trusts a historical `survived: true` flag.
 
-```text
-id
-ruleId
-type
-description
-rationale
-output -> mutatedOutput
-realism
-subtlety
-novelty
-fixability
-```
+At verification time it recomputes baseline behavior against the bound original replay set.
 
-Severity is not delegated to replay data.
-
-As in M8, severity remains derived from the confirmed contract rule.
-
-The replay generator must therefore reconstruct only the generator-owned score dimensions:
+The source finding is reproducible only when:
 
 ```text
-realism
-subtlety
-novelty
-fixability
+baseline replay: selected source attack SURVIVED
 ```
 
-and allow M8 to re-derive severity from the authoritative rule.
+If it is no longer a baseline survivor, verification returns an explicit:
+
+```text
+source-finding-not-reproducible
+```
+
+state and does not claim remediation success.
 
 ---
 
-## 19. Verification Semantics
+## 15. Regression Detection
 
-A verification result compares the baseline replay with the improved-evaluator replay.
-
-Required measurements:
+A replay regression is any bound attack that:
 
 ```text
-baseline survivors
-baseline caught
-after survivors
-after caught
-survivors eliminated
-source finding caught after remediation
-regressions
+baseline: CAUGHT
+after:    SURVIVED
 ```
 
-### Source finding resolved
+M10 reports all such IDs.
 
-The source finding is resolved when:
-
-```text
-baseline: source attack SURVIVED
-after:    source attack CAUGHT
-```
-
-If the source attack no longer survives the supplied baseline evaluator, M10 must not pretend it verified a remediation transition. It should return or fail with a clear `source-finding-not-reproducible` state.
-
-### Improvement
-
-```text
-improvement =
-baseline.survivors.length -
-after.survivors.length
-```
-
-Positive improvement is useful but is not, by itself, sufficient for success.
-
-### Regression
-
-A regression is any attack that was caught by the baseline evaluator but survives the improved evaluator.
-
-M10 must report these explicitly.
-
-Although a well-formed additive evaluator change should not create such regressions, M10 accepts a whole `improvedEvaluator`, so regression detection is required.
+Survivor-count improvement alone is insufficient because equal or lower survivor counts can hide identity-level regressions.
 
 ---
 
-## 20. Verification Success Gate
+## 16. Verification Success Gate
 
-`verificationPassed` is true only when all of the following hold:
+`verificationPassed` is true only when all are true:
 
-1. baseline evaluator passes `expectedOutput`
-2. improved evaluator passes `expectedOutput`
-3. source attack is reproducibly a baseline survivor
-4. source attack is caught by the improved evaluator
-5. no baseline-caught replay attack becomes an after survivor
+1. baseline evaluator passes the bound `expectedOutput`
+2. improved evaluator passes the same bound `expectedOutput`
+3. selected source attack reproducibly survives baseline
+4. selected source attack is caught after remediation
+5. no baseline-caught bound attack becomes an after survivor
 
-M10 may additionally report survivor reduction, but it must not require every survivor to disappear when the confirmed protection is scoped to one finding/rule.
+Not every unrelated survivor must disappear. A protection may correctly close one selected finding while other independent blind spots remain.
 
 ---
 
-## 21. Verification Output
+## 17. Verification Output
 
-Minimum normalized result:
+Minimum shape:
 
 ```js
 {
@@ -926,7 +543,6 @@ Minimum normalized result:
   task,
   sourceAttackId,
   ruleId,
-
   protection,
 
   baseline: {
@@ -939,307 +555,265 @@ Minimum normalized result:
     topFinding
   },
 
-  sourceFindingReproduced: true,
-  sourceFindingCaught: true,
-  positiveControlPassed: true,
+  sourceFindingReproduced,
+  sourceFindingCaught,
+  positiveControlPassed,
 
-  improvement: 1,
-  eliminatedAttackIds: ["wrong-time"],
-  regressionAttackIds: [],
+  improvement,
+  eliminatedAttackIds,
+  regressionAttackIds,
 
-  verificationPassed: true
+  verificationPassed,
+  state
 }
 ```
 
-Exact nested fields may reuse the normalized M8 result shape where useful, but the public M10 semantics above are locked.
+Expected states include:
+
+```text
+verified
+source-finding-not-reproducible
+source-finding-still-survives
+regression-detected
+improved-positive-control-failed
+```
 
 ---
 
-## 22. What Verification Proves
+## 18. What PASS Proves
 
 A passing M10 verification proves only:
 
-> On this known-good case and this exact replayed set of validated contract-attack candidates, the supplied improved evaluator preserved the positive control, caught the selected source finding, and introduced no replay-set regressions.
+> On the exact bound original case and complete bound original validated contract-attack set, the supplied improved evaluator preserved the known-good output, caught the selected source finding, and introduced no replay-set regressions.
 
 It does not prove:
 
-- the protection is universally correct
-- the protection covers every future paraphrase
-- the production model cannot fail differently
-- the production model was attacked
-- the natural-language protection statement has been formally proven equivalent to the improved evaluator
-- all contract rules are fully enforced
-- no unseen evaluator regression exists
+- universal protection correctness
+- coverage of every paraphrase/future attack
+- production-model behavior
+- formal equivalence between protection statement and evaluator code
+- enforcement of every contract rule
+- absence of unseen regressions
 
-M10 must keep this claim narrow in API docs and examples.
-
----
-
-## 23. Stale and Changed Evaluators
-
-M10 recomputes the baseline using the evaluator supplied at verification time.
-
-It does not trust historical `survived` booleans from an earlier M8 result.
-
-This means a previously reported finding may become non-reproducible if the evaluator has already changed.
-
-That is a valid state.
-
-M10 must report it honestly rather than manufacturing a before/after comparison from stale result metadata.
+README/API claims must stay within this boundary.
 
 ---
 
-## 24. Provider Independence
-
-M10 adds no direct model-provider dependency.
+## 19. Provider Independence
 
 Only `draftContractProtection()` may invoke an injected AI generator.
 
 `confirmContractProtection()` performs no model call.
 
-`verifyContractProtection()` performs no model call and must use Gotcha-owned deterministic replay data.
+`verifyContractProtection()` performs no model call.
 
 Provider adapters remain outside M10 core.
 
 ---
 
-## 25. Trust Model
+## 20. Trust Model
 
-### Untrusted / data-only boundary
+Untrusted structured data includes:
 
-The following remain untrusted structured data:
-
-- contract metadata crossing the public API
-- input
-- expected output
-- selected finding data
+- contracts crossing the public boundary
+- case input/expected output
+- attack-set data
 - protection-generator output
-- replay attack data
-- confirmed protection objects passed back after serialization/reload
+- serialized/reloaded protection artifacts
 
-These must be validated/canonicalized before authority is assigned.
-
-### Trusted local callbacks
-
-The following are trusted local integration callbacks:
+Trusted local executable callbacks:
 
 - original evaluator
 - improved evaluator
-- injected protection generator as executable caller code
+- injected protection generator callback itself
 
-The generator's returned model-produced data is untrusted even though the callback itself is trusted local integration code.
+Model-produced data returned by that callback remains untrusted.
 
-Gotcha is not a JavaScript sandbox.
-
-M10 should reuse the M8 callback/data boundary wherever possible rather than expanding the sandbox claim.
+Gotcha is not a generic JavaScript sandbox.
 
 ---
 
-## 26. No Direct `runImprovementLoop()` Bridge
+## 21. Preferred Implementation Shape
 
-M10 V1 must not attach an AI-generated `protectionCheck` to a contract attack merely to satisfy the existing deterministic `runImprovementLoop()` shape.
-
-That would create the wrong authority model.
-
-`runImprovementLoop()` remains appropriate for Mutation Packs whose executable protection callbacks are developer-authored trusted local code.
-
-M10 verification is a separate contract-remediation path that replays contract attacks through M8 with a caller-supplied improved evaluator.
-
----
-
-## 27. Expected Implementation Shape
-
-The preferred implementation is additive:
+Additive module:
 
 ```text
 src/contract-remediation.js
 ```
 
-Public exports are added in:
+Public exports:
 
 ```text
 src/index.js
 ```
 
-Expected dedicated tests:
+Focused tests:
 
 ```text
 test/contract-remediation.test.js
 ```
 
-Expected public/package coverage additions:
-
-```text
-test/public-api.test.js
-package artifact / external consumer test
-```
-
-Expected example after implementation:
+After core correctness:
 
 ```text
 examples/contract-remediation.js
+README.md
+package.json
+package/external-consumer tests
 ```
 
-M10 should not require modifying:
+M10 should not require changing:
 
 ```text
 src/engine.js
 src/mutation-pack.js
 ```
 
-If implementation discovers a genuine need to change either file, that is a spec-review event, not an automatic scope expansion.
+If implementation discovers a genuine need to change either file, the architecture spec must be explicitly amended first.
+
+Prefer consuming the existing `runContractAttacks()` contract unchanged.
 
 ---
 
-## 28. Required Test Matrix
+## 22. Required Test Matrix
 
-### Draft validation
+### Draft/binding
 
-- valid proposal
-- wrong task rejected
-- wrong source attack ID rejected
-- wrong rule ID rejected
-- unknown rule rejected
-- empty statement rejected
-- empty rationale rejected
-- executable/function data rejected
-- Proxy/accessor/custom-runtime data rejected consistently with AI-data policy
-- async generator supported only through the established safe native Promise boundary
-- malformed/unsafe Promise behavior fails closed
+- valid complete attack set is bound into draft
+- source ID resolves to canonical attack-set entry
+- unknown source ID rejected
+- duplicate attack IDs rejected
+- attack rule mismatch rejected
+- attack severity mismatch rejected
+- malformed/function/Proxy/accessor data rejected
+- generator task/source/rule mismatch rejected
+- async native-Promise generator supported within the chosen callback boundary
 
-### Human confirmation
+### Confirmation
 
 - accept
-- edit statement
+- edit statement only
 - reject
-- duplicate/malformed decision fields fail closed
-- rejected draft cannot verify
-- edit cannot change rule/source/task authority
+- authority fields cannot be edited
+- contract/case/attack-set snapshots remain unchanged through confirmation
+- rejected protection cannot verify
 
 ### Verification
 
-- baseline source survivor -> after caught = PASS
-- improved evaluator rejects known-good output = FAIL
-- source finding remains survivor = FAIL
-- baseline-caught attack becomes survivor = regression + FAIL
-- source finding not reproducible in baseline = explicit non-reproducible state
-- unrelated survivors may remain without failing a correctly scoped source remediation
-- severity/ranking remains contract-authoritative during replay
-- same-rule duplicate semantics remain M8-consistent
-- cross-rule identical outputs remain separate
+- no verification-time contract/case/attack-set substitution API exists
+- source survivor -> caught = success when no regressions
+- improved known-good rejection = fail
+- source remains survivor = fail
+- changed baseline no longer reproduces source = explicit non-reproducible
+- baseline-caught attack -> after survivor = regression + fail
+- unrelated survivors may remain
+- severity stays contract-derived during replay
+- M8 duplicate/ranking semantics remain intact
 
 ### Runtime/package
 
 - Node 14 minimum-runtime smoke
 - Node 22 full suite
 - Node 24 full suite
-- npm packed external consumer can access the public M10 API
-- repository example is deterministic and requires no external API key
+- deterministic no-key example
+- packed external consumer can import/use all three public M10 APIs
 
 ---
 
-## 29. M10 Acceptance Gates
+## 23. Acceptance Gates
 
-M10 is implementation-complete only when all are true:
+M10 is complete only when:
 
-1. the three public APIs exist and match this authority split
+1. all three public APIs match this authority model
 2. AI-generated output remains declarative only
-3. human confirmation is mandatory before verification
-4. improved evaluator is caller-supplied trusted code
-5. verification reuses M8 replay/evaluator boundary rather than duplicating it
-6. positive control is preserved
-7. source finding must be reproducible before it can count as fixed
-8. source finding must be caught after remediation
-9. regression attack IDs are reported
-10. no `src/engine.js` or `src/mutation-pack.js` change unless this spec is explicitly amended first
-11. Node 14/22/24 gates pass
-12. packed external-consumer test passes
-13. README claims remain narrower than or equal to actual implementation
-14. exact-head adversarial review finds no unresolved material M10 contract issue
+3. human confirmation is mandatory
+4. confirmed artifact binds contract + original case + complete original attack set + source identity
+5. verification accepts no substitute case/attack-set inputs
+6. caller supplies the executable improved evaluator
+7. verification reuses M8 replay/evaluator boundary
+8. source finding is recomputed, not trusted historically
+9. known-good is preserved after remediation
+10. source finding is caught after remediation
+11. replay regressions are identity-tracked and reported
+12. no silent engine/mutation-pack redesign occurs
+13. Node 14/22/24 + package gates pass
+14. README claims remain narrow
+15. exact-head adversarial review has no unresolved material M10 issue
 
 ---
 
-## 30. Not M10
+## 24. Not M10
 
-M10 explicitly does not include:
+M10 does not include:
 
-- AI-generated executable JavaScript protections
-- automatic source-code patches
-- automatically committing evaluator fixes
-- automatically modifying the user's repository
-- a generic JavaScript sandbox
-- provider-specific OpenAI/Anthropic/Google adapters
+- AI-generated executable protection code
+- automatic source-code patches/commits
+- generic JavaScript sandboxing
+- provider-specific adapters
 - hosted model execution
-- attacking the user's production AI model
-- production observability
-- dashboards
-- GitHub Actions as a product feature
-- collaboration/workspaces
+- attacks against the production AI model
+- dashboards/observability/collaboration
 - persistence/database state
 - automatic Quality Contract edits
 - batch multi-finding remediation
-- formal proof that a natural-language protection equals evaluator code
-- a universal semantic evaluator
-- a protection DSL
+- protection DSL
+- formal semantic proof
 - automatic deployment
-
-Those require separate milestones and separate contracts.
 
 ---
 
-## 31. Review Stopping Rule
+## 25. Review Stopping Rule
 
-M10 review must remain tied to this documented contract.
+A material M10 blocker must show a reproducible contract violation such as:
 
-A material blocker must demonstrate a reproducible violation such as:
+- model-produced executable behavior crossing the data boundary
+- human confirmation bypass
+- contract authority changed by remediation data
+- verification switching to a different case or incomplete/substituted attack set
+- success while source finding still survives
+- success while improved evaluator rejects known-good output
+- unreported replay regression
+- stale historical survivor metadata trusted instead of baseline replay
+- package/public behavior contradicting this contract
+- normal supported Node 14/22/24 regression caused by M10
 
-- AI/model-produced executable behavior crossing the data boundary
-- human confirmation being bypassed
-- contract authority being changed by remediation data
-- verification claiming success while the source finding still survives
-- known-good output being rejected while success is reported
-- a baseline-caught replay attack becoming an after survivor without regression reporting
-- stale historical result metadata being trusted instead of replaying the supplied baseline evaluator
-- package/public API behavior contradicting the documented M10 contract
-- normal supported Node 14/22/24 behavior regression caused by M10
+Not blockers without a concrete contract violation:
 
-The following are not M10 blockers unless they demonstrate a concrete violation of this contract:
-
-- requests for arbitrary hostile JavaScript sandboxing
-- requests for AI-written executable evaluator code
-- hosted provider integrations
-- production-model attack generation
+- arbitrary sandbox requests
+- AI-generated evaluator-code requests
+- provider integrations
+- production-model attacks
 - dashboards
-- automatic patch application
-- a future protection DSL
+- future DSL/codegen
 - unrelated engine redesign
 
 ---
 
-## 32. Final Locked Architecture Summary
-
-M10 V1 is intentionally conservative:
+## 26. Locked Architecture Summary
 
 ```text
-AI CAN:
-propose declarative protection intent
+AI:
+proposes declarative protection intent
 
-HUMAN CAN:
-accept / edit / reject that intent
+HUMAN:
+accepts / edits / rejects
 
-CALLER CAN:
-implement the improved evaluator
+CONFIRMED ARTIFACT:
+binds the confirmed contract,
+original case,
+complete original attack set,
+and selected source finding
 
-GOTCHA CAN:
-replay the validated attack set,
-protect the known-good control,
-measure source-finding closure,
-measure survivor reduction,
-and detect replay-set regressions
+CALLER:
+implements improved evaluator
+
+GOTCHA:
+replays that exact bound experiment
+and verifies positive control,
+source closure,
+and identity-level regressions
 ```
 
-The key rule is:
+The central rule is:
 
-> Gotcha may use AI to suggest what should be protected, but M10 does not turn model output directly into executable evaluator policy.
-
-That preserves the M8 safety boundary while finally giving the contract-driven path a measurable `CATCH THIS → RE-ATTACK` workflow.
+> Verification may not silently change the experiment that the human remediation decision was based on.
