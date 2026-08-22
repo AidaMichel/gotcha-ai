@@ -1,17 +1,15 @@
 name: M9 clean rebuild validation
 
 on:
-  push:
-    branches:
-      - milestone-9-public-contract-attacks
-    paths:
-      - .github/workflows/m9-rebuild-validation.yml
+  pull_request:
+    types: [opened, synchronize]
 
 permissions:
   contents: write
 
 jobs:
   validate:
+    if: github.event.pull_request.base.ref == 'milestone-9-public-contract-attacks'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
