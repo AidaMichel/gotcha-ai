@@ -71,31 +71,16 @@ Minimum conceptual shape:
   kind: "contract-attack-experiment",
   replayable: true,
   task,
-
-  contract: {
-    version,
-    status,
-    task,
-    rules
-  },
-
+  contract: { version, status, task, rules },
   case: {
     input,
     expectedOutput,
-    replay: {
-      kind: "m8-evaluator-case-v1"
-    }
+    replay: { kind: "m8-evaluator-case-v1" }
   },
-
   attacks: [/* complete retained attack set */],
-
   baseline: {
     outcomes: [
-      {
-        attackId,
-        evaluatorResult: "PASS" | "FAIL",
-        survived: true | false
-      }
+      { attackId, evaluatorResult: "PASS" | "FAIL", survived: true | false }
     ],
     survivorOrderIds: [],
     topFindingId: null
@@ -115,7 +100,7 @@ If M8 cannot safely capture/reconstruct those semantics for a successful run, th
 
 The experiment is built from the same invocation's validated contract, exact task, canonical case, evaluator-facing replay representation, complete retained post-filter/post-dedupe attack set, exact original per-attack results, survivor order, and top finding.
 
-Its structural data must be an **independently owned immutable snapshot**. Contract/canonical case/attack/baseline arrays and nested records must not alias mutable legacy result fields such as `generatedAttacks`, `attack.results`, or `topFinding`.
+Its structural data must be an independently owned immutable snapshot. Contract/canonical case/attack/baseline arrays and nested records must not alias mutable legacy result fields such as `generatedAttacks`, `attack.results`, or `topFinding`.
 
 Replay metadata required for evaluator semantics is owned exclusively by the experiment/replay subsystem and must not derive mutable behavior from legacy public result objects. Mutating any existing public M8 result field after return must not mutate experiment structural data or replay behavior.
 
@@ -150,8 +135,8 @@ An experiment is invalid unless all are true before any protection generator run
 - score dimensions are finite and within `[0, 1]`
 - stored severity equals contract-derived severity
 - every retained attack output differs from the bound expected output under the same deep-equality semantics M8 uses
-- no same-rule/deep-equal retained duplicates exist under M8's retained-set deduplication semantics
-- therefore replaying a valid artifact through M8 cannot silently remove a bound attack as unchanged or duplicate
+- no same-rule/deep-equal retained duplicates exist under M8 retained-set deduplication semantics
+- replaying a valid artifact through M8 cannot silently remove a bound attack as unchanged or duplicate
 
 ### Baseline
 
@@ -271,12 +256,7 @@ const baselineReplay = await runContractAttacks({
 });
 ```
 
-After baseline replay returns, M10 immediately checks:
-
-- positive control passed
-- every attack classification matches the bound original outcome
-- survivor order matches exactly
-- top finding matches exactly
+After baseline replay returns, M10 immediately checks the positive control, every attack classification, survivor order, and top finding against bound history.
 
 If baseline identity fails, return `baseline-mismatch` immediately. `improvedEvaluator` must not be called.
 
@@ -325,18 +305,15 @@ Therefore this is a partial semantic result:
 {
   baseline: { attack, topFinding },
   after: null,
-
   baselineIdentityPassed: true,
   baselineMismatchAttackIds: [],
   baselineExecutionError: null,
   sourceFindingReproduced: true,
   sourceFindingCaught: false,
   positiveControlPassed: false,
-
   improvement: null,
   eliminatedAttackIds: [],
   regressionAttackIds: [],
-
   verificationPassed: false,
   failureReasons: ["improved-positive-control-failed"],
   state: "improved-positive-control-failed"
@@ -357,13 +334,7 @@ baseline replay:         source SURVIVED
 after replay:            source CAUGHT
 ```
 
-A regression is identity-based:
-
-```text
-baseline CAUGHT -> after SURVIVED
-```
-
-All regression IDs are reported. Unrelated baseline survivors may remain.
+A regression is identity-based: baseline caught → after survived. All regression IDs are reported. Unrelated baseline survivors may remain.
 
 For complete baseline + after replays:
 
@@ -381,12 +352,7 @@ improvement =
 
 ## 11. Deterministic Failure Semantics
 
-Terminal baseline states are phase-ordered before any improved replay:
-
-```text
-baseline-execution-failed
-baseline-mismatch
-```
+Terminal baseline states are phase-ordered before improved replay: `baseline-execution-failed` or `baseline-mismatch` according to the actual Phase A outcome.
 
 If Phase A passes but the improved known-good output fails, return `improved-positive-control-failed`.
 
@@ -441,21 +407,17 @@ Full complete-replay shape:
   sourceAttackId,
   ruleId,
   protection,
-
   baseline: { attack, topFinding },
   after: { attack, topFinding },
-
   baselineIdentityPassed,
   baselineMismatchAttackIds,
   baselineExecutionError: null,
   sourceFindingReproduced,
   sourceFindingCaught,
   positiveControlPassed,
-
   improvement,
   eliminatedAttackIds,
   regressionAttackIds,
-
   verificationPassed,
   failureReasons,
   state
