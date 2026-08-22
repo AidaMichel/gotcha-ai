@@ -104,7 +104,10 @@ Minimum conceptual shape:
   case: {
     input,
     expectedOutput,
-    evaluatorCase
+    replay: {
+      kind: "m8-evaluator-case-v1",
+      /* Gotcha-owned evaluator-facing replay representation */
+    }
   },
 
   attacks: [/* complete retained attack set */],
@@ -125,9 +128,11 @@ Minimum conceptual shape:
 
 `case.input` and `case.expectedOutput` remain canonical AI-safe snapshots for serialization and generator use.
 
-`case.evaluatorCase` is a Gotcha-owned replay snapshot that preserves every evaluator-facing semantic M8 requires to reproduce the original invocation, including supported cross-realm prototype/realm provenance that would be lost by canonicalization alone. It is not independently caller-authored data. Implementations may represent this provenance internally rather than exposing host objects directly, but replay must reconstruct the same evaluator-facing semantics M8 originally observed.
+`case.replay` is a Gotcha-owned evaluator-facing replay representation produced by M8. It preserves or reconstructs every semantic property M8 itself supports and that the evaluator can observe during the original run, including supported cross-realm prototype/realm provenance that canonicalization alone would erase. It is never caller-authored alternate case data and is not model authority.
 
-If M8 cannot safely capture/reconstruct a particular supported case's evaluator-facing semantics, that experiment is explicitly **not remediation-replayable** and M8 must not emit a replayable M10 experiment for it. M10 may never silently substitute the canonical value and claim exact replay.
+The exact representation is an implementation detail, but its contract is not: given the same evaluator callback, replay must expose evaluator-facing values semantically equivalent to those seen in the original M8 invocation for all M8-supported observable realm/prototype behaviors. Rehydrating plain canonical clones is insufficient when those semantics differ.
+
+If M8 cannot safely capture/reconstruct those semantics for a particular successful run, M8 must emit the experiment as `replayable: false` (with a stable reason code) or omit the replayable experiment field entirely according to the final implementation choice. M10 drafting rejects non-replayable experiments before generator execution. M10 may never silently fall back to canonical-only values and claim exact replay.
 
 ### Normative construction and ownership rule
 
@@ -136,13 +141,15 @@ The experiment must be constructed inside the same successful `runContractAttack
 - the validated confirmed contract
 - exact task identity
 - canonical input/expected-output snapshots
-- evaluator-facing case provenance needed for exact M8 replay
+- evaluator-facing replay representation needed for exact M8 semantics
 - the complete retained attack set after M8 filtering/deduplication
 - the exact original per-attack results
 - original deterministic survivor order
 - original top-finding identity
 
-The experiment must be an **independently owned immutable snapshot**. Its nested contract, case, attack, and baseline data must not alias mutable legacy result fields such as `generatedAttacks`, `attack.results`, or `topFinding`. Mutating any existing public M8 result field after return must not mutate `result.experiment`.
+The experiment must be an **independently owned immutable snapshot**. Its nested contract, canonical case data, attack data, and baseline data must not alias mutable legacy result fields such as `generatedAttacks`, `attack.results`, or `topFinding`.
+
+Where replay semantics necessarily depend on retained opaque realm metadata or reconstruction descriptors, that replay metadata must be owned exclusively by the experiment/replay subsystem and must not alias caller-mutable legacy public result objects. Mutating any existing public M8 result field after return must not mutate the experiment's replay behavior or structural data.
 
 Deep snapshot/freeze semantics must cover arrays and nested supported data. Alias-based mutation is a required regression test.
 
@@ -160,12 +167,13 @@ An experiment is invalid unless all are true before any protection generator run
 - `kind === "contract-attack-experiment"`
 - `experiment.task === experiment.contract.task`
 - contract is a valid confirmed Quality Contract
+- experiment is explicitly replayable under the M8 replay-case contract
 
 ### Case
 
 - canonical `input` and `expectedOutput` satisfy the existing AI-safe data policy
-- evaluator replay provenance is valid for the exact bound case
-- replay cannot fall back from required evaluator provenance to canonical-only semantics
+- replay representation is valid for the exact bound case
+- replay cannot fall back from required evaluator semantics to canonical-only values
 
 ### Attack set
 
@@ -264,7 +272,7 @@ The generator receives validated canonical data only:
 }
 ```
 
-Evaluator replay provenance is Gotcha execution metadata and is not model authority; it is not sent to the protection model unless separately proven AI-safe and intentionally part of the generator contract.
+Evaluator replay metadata is Gotcha execution authority and is not sent to the protection model unless separately proven AI-safe and intentionally added to a future generator contract.
 
 Generator output remains declarative data and must match task/source/rule authority exactly.
 
@@ -337,7 +345,7 @@ const baselineReplay = await runContractAttacks({
 });
 ```
 
-`replayCase` reconstructs the bound evaluator-facing semantics from `experiment.case.evaluatorCase`; it is not merely the canonical serialized case when realm/prototype provenance matters.
+`replayCase` is reconstructed by Gotcha from `experiment.case.replay`; it is not caller-provided and is not merely the canonical serialized case when realm/prototype provenance matters.
 
 After baseline replay returns, M10 immediately checks:
 
@@ -354,12 +362,13 @@ A stale/substituted old evaluator may throw, return a non-boolean, or otherwise 
 
 Normative behavior:
 
-- recognize a typed M8 evaluator-execution failure, or wrap the existing M8 failure at the M10 boundary without changing its meaning
+- identify baseline replay failure using stable M8/M10 error classification rather than message-text parsing
 - return `state: "baseline-execution-failed"`
 - `verificationPassed: false`
 - `baselineIdentityPassed: false`
-- `baselineMismatchAttackIds: []` unless completed results independently prove specific mismatches before the failure
-- include a structured `baselineExecutionError` classification/code, not arbitrary callback stack data as semantic authority
+- `baselineMismatchAttackIds: []` unless a completed comparison independently established specific mismatches before a later failure
+- include a structured `baselineExecutionError.code`
+- do not expose arbitrary callback stack/message text as semantic authority
 - do not execute `improvedEvaluator`
 
 `baseline-mismatch` is reserved for a completed baseline replay whose observable classifications/order/top-finding differ from the bound history. Execution failure is distinct and deterministic.
@@ -378,7 +387,7 @@ const afterReplay = await runContractAttacks({
 });
 ```
 
-The improved replay uses the exact same bound replay case and attack set.
+The improved replay uses the exact same bound reconstructed evaluator case and attack set.
 
 ---
 
@@ -407,6 +416,7 @@ Minimum shape for this state:
 
   baselineIdentityPassed: true,
   baselineMismatchAttackIds: [],
+  baselineExecutionError: null,
   sourceFindingReproduced: true,
   sourceFindingCaught: false,
   positiveControlPassed: false,
@@ -421,7 +431,7 @@ Minimum shape for this state:
 }
 ```
 
-M10 must recognize the specific M8 positive-control failure deterministically. It must not treat an arbitrary improved-evaluator throw/non-boolean attack failure as a positive-control failure.
+M10 must recognize the specific M8 positive-control failure using stable error classification. It must not treat an arbitrary improved-evaluator throw/non-boolean attack failure as a positive-control failure.
 
 Other improved callback execution failures reject/throw as evaluator execution errors unless a future public semantic state is explicitly specified.
 
@@ -471,25 +481,37 @@ For partial results where no complete after attack result exists, `improvement` 
 
 ---
 
-## 15. Deterministic Verification Failure Precedence
+## 15. Deterministic Verification Failure Semantics
 
-The result exposes all applicable after-replay correctness failures in `failureReasons`, in normative order. `state` is the first item in that ordered set.
+The public result exposes `failureReasons` for all applicable **completed after-replay correctness failures**. `state` is a deterministic primary state.
 
-Precedence:
+Execution is phase-ordered, so terminal baseline states are returned before any improved replay:
 
 ```text
-1. baseline-execution-failed
-2. baseline-mismatch
-3. improved-positive-control-failed
-4. regression-detected
-5. source-finding-still-survives
-6. verified
+baseline-execution-failed
+baseline-mismatch
 ```
 
-Rules:
+If Phase A passes but the improved known-good output fails, return:
 
-- Phase A terminal states occur before Phase B and therefore cannot coexist with after-replay failures.
-- For a complete after replay, both a regression and an unclosed source may occur simultaneously. In that case:
+```text
+improved-positive-control-failed
+```
+
+For a complete improved replay, compute all correctness failures and order them normatively as:
+
+```text
+1. regression-detected
+2. source-finding-still-survives
+```
+
+Then:
+
+- `failureReasons` contains every applicable item in that order
+- `state` equals the first failure reason
+- if the list is empty, `state = "verified"` and `verificationPassed = true`
+
+Example:
 
 ```js
 failureReasons = [
@@ -499,8 +521,7 @@ failureReasons = [
 state = "regression-detected";
 ```
 
-- `verified` is emitted only when `failureReasons` is empty.
-- consumers must use the detailed booleans/ID sets for full diagnosis; `state` is only the deterministic primary state.
+Consumers use the detailed booleans/ID sets for full diagnosis; scalar `state` is only the deterministic primary summary.
 
 ---
 
@@ -560,9 +581,9 @@ Full successful/complete-replay shape:
 }
 ```
 
-For `baseline-execution-failed`, `baseline` may be `null` or partial only if the implementation can safely expose completed M8 data; `after` is always `null`; numeric survivor-derived metrics are `null` when their required complete replay does not exist.
+For `baseline-execution-failed`, `after` is always `null`; `baseline` is `null` unless M10 has a complete M8 baseline replay result that is safe to expose. Survivor-derived metrics requiring a complete baseline/after pair are `null`.
 
-For `improved-positive-control-failed`, `baseline` is complete and identity-matched, while `after` is `null` and survivor-derived after metrics are `null`.
+For `improved-positive-control-failed`, `baseline` is complete and identity-matched, `after` is `null`, and survivor-derived after metrics are `null`.
 
 Malformed experiment/protection artifacts reject at the public boundary rather than returning semantic verification states.
 
@@ -586,7 +607,7 @@ Trusted local executable callbacks include the baseline evaluator, improved eval
 
 Historical outcome authority comes from the M8-bound immutable experiment and must be reproduced before comparison.
 
-Evaluator-facing replay provenance is Gotcha-owned execution metadata. It exists solely to reproduce M8 semantics and must not become a caller-editable alternate case.
+Evaluator-facing replay metadata is Gotcha-owned execution authority. It exists solely to reproduce M8 semantics and must not become caller-editable alternate case data or AI policy authority.
 
 ---
 
@@ -600,7 +621,7 @@ src/index.js
 test/contract-remediation.test.js
 ```
 
-Additive M8 experiment emission/replay provenance support:
+Additive M8 experiment emission/replay support:
 
 ```text
 src/contract-attacks.js
@@ -616,21 +637,22 @@ src/contract-attacks.js
 
 - experiment emitted only after successful M8 run
 - experiment task equals contract task
-- experiment contract/canonical case match same invocation
-- evaluator-facing replay provenance reproduces supported cross-realm semantics
-- unsupported/unreconstructable evaluator provenance is marked non-replayable rather than silently canonicalized
+- experiment canonical case matches same invocation
+- evaluator-facing replay semantics reproduce supported cross-realm behavior
+- unreconstructable evaluator semantics are explicitly non-replayable, never silently canonicalized
 - experiment attacks exactly match complete retained post-filter/dedupe set
 - unchanged-output candidate cannot appear in bound retained attacks
 - same-rule/deep-equal duplicate cannot appear in bound retained attacks
 - one baseline outcome per attack ID; no omissions/extras
 - survivor order/top finding match original result
-- experiment data is deeply independently owned from `generatedAttacks`, `attack.results`, and other legacy public fields
-- mutating legacy result arrays/attack objects after return cannot mutate experiment
+- structural experiment data is deeply independently owned from `generatedAttacks`, `attack.results`, and other legacy public fields
+- mutating legacy result arrays/attack objects after return cannot mutate experiment structural data or replay behavior
 - existing M8 public fields and behavior remain unchanged
 
 ### Draft/binding
 
 - valid replayable experiment accepted
+- non-replayable experiment rejected before generator call
 - `experiment.task !== contract.task` rejected before generator call
 - omitted/extra/duplicate attack or outcome rejected
 - unchanged-output attack rejected before generator call
@@ -679,8 +701,8 @@ src/contract-attacks.js
 
 M10 is complete only when:
 
-1. M8 emits an independently owned immutable experiment from the same successful invocation
-2. experiment binds contract/task, replayable evaluator-facing case semantics, complete retained attacks, original outcomes/order/top finding
+1. M8 emits an independently owned replayable experiment from the same successful invocation
+2. experiment binds contract/task, evaluator-facing replay semantics, complete retained attacks, original outcomes/order/top finding
 3. experiment validation rejects task mismatch and attacks M8 would filter on replay
 4. drafting accepts only that experiment plus source ID and generator
 5. AI remediation remains declarative only
@@ -690,9 +712,9 @@ M10 is complete only when:
 9. baseline execution failure has deterministic semantics distinct from completed baseline mismatch
 10. improved positive-control failure has a defined partial result shape
 11. source closure and regressions are identity-based
-12. simultaneous failures have deterministic ordered reasons and primary-state precedence
+12. simultaneous after-replay failures have deterministic ordered reasons and primary-state precedence
 13. improvement uses the locked formula only when both replays are complete
-14. cross-realm/replay provenance semantics are preserved or the case is explicitly non-replayable
+14. cross-realm/replay semantics are preserved or the experiment is explicitly non-replayable
 15. no silent engine/mutation-pack redesign occurs
 16. Node/package gates pass
 17. dead/temporary validation code introduced during implementation is removed before merge
