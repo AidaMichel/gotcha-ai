@@ -226,6 +226,12 @@ const promiseConstructor =
 const promiseThen =
   Promise.prototype.then;
 
+const promiseThenDescriptor =
+  getOwnPropertyDescriptor(
+    promisePrototype,
+    "then"
+  );
+
 const promiseSpecies =
   Symbol.species;
 
@@ -605,122 +611,6 @@ function captureEvaluatorInstanceSemantics(
     safeObjectHasInstance
   );
 
-  if (
-    value === null ||
-    typeof value !== "object" ||
-    utilIsProxy(value)
-  ) {
-    return semantics;
-  }
-
-  const seen =
-    new WeakSetConstructor();
-  const stack = [value];
-
-  while (stack.length > 0) {
-    const current =
-      reflectApply(
-        arrayPop,
-        stack,
-        []
-      );
-
-    if (
-      current === null ||
-      typeof current !== "object" ||
-      reflectApply(
-        weakSetHas,
-        seen,
-        [current]
-      ) ||
-      utilIsProxy(current)
-    ) {
-      continue;
-    }
-
-    reflectApply(
-      weakSetAdd,
-      seen,
-      [current]
-    );
-
-    let prototype;
-    let descriptors;
-
-    try {
-      prototype =
-        getPrototypeOf(current);
-      descriptors =
-        getOwnPropertyDescriptors(
-          current
-        );
-    } catch {
-      continue;
-    }
-
-    if (arrayIsArray(current)) {
-      if (
-        prototype !== null &&
-        utilIsProxy(prototype)
-      ) {
-        continue;
-      }
-
-      addEvaluatorInstanceSemantic(
-        semantics,
-        captureNativeRealmConstructor(
-          prototype,
-          arrayConstructorSource
-        ),
-        safeArrayHasInstance
-      );
-
-      const objectPrototype =
-        prototype === null
-          ? null
-          : getPrototypeOf(prototype);
-
-      addEvaluatorInstanceSemantic(
-        semantics,
-        captureNativeRealmConstructor(
-          objectPrototype,
-          objectConstructorSource
-        ),
-        safeObjectHasInstance
-      );
-    } else {
-      addEvaluatorInstanceSemantic(
-        semantics,
-        captureNativeRealmConstructor(
-          prototype,
-          objectConstructorSource
-        ),
-        safeObjectHasInstance
-      );
-    }
-
-    for (
-      const key of ownKeys(descriptors)
-    ) {
-      const descriptor =
-        descriptors[key];
-
-      if (
-        descriptor !== undefined &&
-        "value" in descriptor &&
-        descriptor.value !== null &&
-        typeof descriptor.value ===
-          "object"
-      ) {
-        reflectApply(
-          arrayPush,
-          stack,
-          [descriptor.value]
-        );
-      }
-    }
-  }
-
   return semantics;
 }
 
@@ -733,6 +623,114 @@ function canInstallEvaluatorInstanceSemantic(
   }
 
   return previousDescriptor.configurable === true;
+}
+
+function probeIntrinsicCallable(
+  callable,
+  receiver,
+  args
+) {
+  try {
+    const value =
+      reflectApply(
+        callable,
+        receiver,
+        args
+      );
+
+    if (value === null) {
+      return {
+        threw: false,
+        kind: "null",
+        value: null
+      };
+    }
+
+    const type = typeof value;
+
+    if (type === "object") {
+      return {
+        threw: false,
+        kind:
+          arrayIsArray(value)
+            ? "array"
+            : "object"
+      };
+    }
+
+    if (type === "function") {
+      return {
+        threw: false,
+        kind: "function"
+      };
+    }
+
+    return {
+      threw: false,
+      kind: type,
+      value
+    };
+  } catch {
+    return {
+      threw: true,
+      kind: "throw"
+    };
+  }
+}
+
+function sameIntrinsicProbeOutcome(
+  left,
+  right
+) {
+  if (
+    left.threw !== right.threw ||
+    left.kind !== right.kind
+  ) {
+    return false;
+  }
+
+  if (left.threw) {
+    return true;
+  }
+
+  if (
+    left.kind === "object" ||
+    left.kind === "array" ||
+    left.kind === "function" ||
+    left.kind === "null"
+  ) {
+    return true;
+  }
+
+  return objectIs(
+    left.value,
+    right.value
+  );
+}
+
+function sameIntrinsicCallableProbe(
+  left,
+  right,
+  receiverFactory,
+  args
+) {
+  const leftOutcome =
+    probeIntrinsicCallable(
+      left,
+      receiverFactory(),
+      args
+    );
+  const rightOutcome =
+    probeIntrinsicCallable(
+      right,
+      receiverFactory(),
+      args
+    );
+
+  return sameIntrinsicProbeOutcome(
+    leftOutcome,
+    rightOutcome
+  );
 }
 
 function sameIntrinsicCallable(
@@ -748,19 +746,66 @@ function sameIntrinsicCallable(
     return false;
   }
 
+  let sameSource = false;
+
   try {
-    return reflectApply(
-      functionToString,
-      left,
-      []
-    ) === reflectApply(
-      functionToString,
-      right,
-      []
-    );
+    sameSource =
+      reflectApply(
+        functionToString,
+        left,
+        []
+      ) === reflectApply(
+        functionToString,
+        right,
+        []
+      );
   } catch {
     return false;
   }
+
+  if (!sameSource) {
+    return false;
+  }
+
+  const receiverFactories = [
+    () => objectCreate(null),
+    () => objectCreate(objectPrototype),
+    () => reflectConstruct(
+      ArrayConstructor,
+      []
+    ),
+    () => function intrinsicProbeFunction() {}
+  ];
+
+  const argumentSets = [
+    [],
+    [undefined]
+  ];
+
+  for (
+    let receiverIndex = 0;
+    receiverIndex < receiverFactories.length;
+    receiverIndex += 1
+  ) {
+    for (
+      let argsIndex = 0;
+      argsIndex < argumentSets.length;
+      argsIndex += 1
+    ) {
+      if (
+        !sameIntrinsicCallableProbe(
+          left,
+          right,
+          receiverFactories[receiverIndex],
+          argumentSets[argsIndex]
+        )
+      ) {
+        return false;
+      }
+    }
+  }
+
+  return true;
 }
 
 function sameIntrinsicObjectValue(
@@ -1034,8 +1079,6 @@ function captureEvaluatorFallbackPrototypes(
   const fallback = {
     bySource:
       new WeakMapConstructor(),
-    arrayPrototype: null,
-    objectPrototype: null,
     foreignSurfaces: []
   };
 
@@ -1120,94 +1163,31 @@ function captureEvaluatorFallbackPrototypes(
               objectConstructorSource
             );
 
-      let plannedPrototype = null;
-
       if (
         arrayConstructor !== null &&
         arrayConstructor !== ArrayConstructor
       ) {
-        const previousDescriptor =
-          getOwnPropertyDescriptor(
-            arrayConstructor,
-            arrayHasInstanceSymbol
-          );
+        addForeignPrototypeSurface(
+          fallback,
+          prototype,
+          arrayPrototype
+        );
 
         if (
-          !canInstallEvaluatorInstanceSemantic(
-            arrayConstructor,
-            previousDescriptor
-          )
-        ) {
-          addForeignPrototypeSurface(
-            fallback,
-            prototype,
-            arrayPrototype
-          );
-
-          if (parentPrototype !== null) {
-            addForeignPrototypeSurface(
-              fallback,
-              parentPrototype,
-              objectPrototype
-            );
-          }
-
-          plannedPrototype = prototype;
-
-          if (fallback.arrayPrototype === null) {
-            fallback.arrayPrototype =
-              plannedPrototype;
-          }
-        }
-      }
-
-      if (
-        objectConstructor !== null &&
-        objectConstructor !== ObjectConstructor
-      ) {
-        const previousDescriptor =
-          getOwnPropertyDescriptor(
-            objectConstructor,
-            arrayHasInstanceSymbol
-          );
-
-        if (
-          !canInstallEvaluatorInstanceSemantic(
-            objectConstructor,
-            previousDescriptor
-          )
+          objectConstructor !== null &&
+          objectConstructor !== ObjectConstructor
         ) {
           addForeignPrototypeSurface(
             fallback,
             parentPrototype,
             objectPrototype
           );
-
-          if (fallback.objectPrototype === null) {
-            fallback.objectPrototype =
-              parentPrototype;
-          }
-
-          if (plannedPrototype === null) {
-            plannedPrototype =
-              buildSafeCallbackPrototype(
-                arrayPrototype,
-                parentPrototype
-              );
-
-            if (fallback.arrayPrototype === null) {
-              fallback.arrayPrototype =
-                plannedPrototype;
-            }
-          }
         }
-      }
 
-      if (plannedPrototype !== null) {
         reflectApply(
           weakMapSet,
           fallback.bySource,
-          [current, plannedPrototype]
+          [current, prototype]
         );
       }
     } else {
@@ -1221,35 +1201,17 @@ function captureEvaluatorFallbackPrototypes(
         objectConstructor !== null &&
         objectConstructor !== ObjectConstructor
       ) {
-        const previousDescriptor =
-          getOwnPropertyDescriptor(
-            objectConstructor,
-            arrayHasInstanceSymbol
-          );
+        addForeignPrototypeSurface(
+          fallback,
+          prototype,
+          objectPrototype
+        );
 
-        if (
-          !canInstallEvaluatorInstanceSemantic(
-            objectConstructor,
-            previousDescriptor
-          )
-        ) {
-          addForeignPrototypeSurface(
-            fallback,
-            prototype,
-            objectPrototype
-          );
-
-          reflectApply(
-            weakMapSet,
-            fallback.bySource,
-            [current, prototype]
-          );
-
-          if (fallback.objectPrototype === null) {
-            fallback.objectPrototype =
-              prototype;
-          }
-        }
+        reflectApply(
+          weakMapSet,
+          fallback.bySource,
+          [current, prototype]
+        );
       }
     }
 
@@ -1285,24 +1247,6 @@ function buildEvaluatorPrototypePlan(
   sourceRoot,
   canonicalRoot
 ) {
-  const objectPrototypeForEvaluator =
-    fallback.objectPrototype === null
-      ? safeCallbackObjectPrototype
-      : fallback.objectPrototype;
-
-  let arrayPrototypeForEvaluator =
-    fallback.arrayPrototype;
-
-  if (arrayPrototypeForEvaluator === null) {
-    arrayPrototypeForEvaluator =
-      fallback.objectPrototype === null
-        ? safeCallbackArrayPrototype
-        : buildSafeCallbackPrototype(
-            arrayPrototype,
-            fallback.objectPrototype
-          );
-  }
-
   const byNode =
     new WeakMapConstructor();
 
@@ -1414,9 +1358,9 @@ function buildEvaluatorPrototypePlan(
   return {
     byNode,
     objectPrototype:
-      objectPrototypeForEvaluator,
+      safeCallbackObjectPrototype,
     arrayPrototype:
-      arrayPrototypeForEvaluator,
+      safeCallbackArrayPrototype,
     foreignSurfaces:
       fallback.foreignSurfaces
   };
@@ -1694,6 +1638,9 @@ function captureCallbackIntrinsicSurfaces() {
       sharedIteratorPrototype
     ),
     captureIntrinsicSurface(
+      promisePrototype
+    ),
+    captureIntrinsicSurface(
       NumberConstructor
     )
   ];
@@ -1870,6 +1817,12 @@ function requirePromiseIntrinsicIntegrity() {
       "constructor"
     );
 
+  const currentThen =
+    getOwnPropertyDescriptor(
+      promisePrototype,
+      "then"
+    );
+
   const currentSpecies =
     getOwnPropertyDescriptor(
       promiseConstructor,
@@ -1880,6 +1833,10 @@ function requirePromiseIntrinsicIntegrity() {
     !samePropertyDescriptor(
       currentPrototypeConstructor,
       promisePrototypeConstructorDescriptor
+    ) ||
+    !samePropertyDescriptor(
+      currentThen,
+      promiseThenDescriptor
     ) ||
     !samePropertyDescriptor(
       currentSpecies,

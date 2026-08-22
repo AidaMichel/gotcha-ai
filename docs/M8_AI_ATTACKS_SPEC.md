@@ -3186,3 +3186,11 @@ Gotcha provides the boundary.
 The evaluator provides the test.
 
 The survivor provides the Gotcha moment.
+
+## Round 11 — exact realm provenance and Promise surface restoration
+
+M8 preserves cross-realm evaluator semantics without installing broad foreign `Symbol.hasInstance` predicates. Local evaluator snapshots retain detached local safe prototypes. Each accepted foreign Object/Array source node is mapped independently to its authenticated realm intrinsic prototype, so both positive and negative `instanceof` results are preserved in mixed local/foreign graphs and no graph-wide foreign prototype default is applied.
+
+Foreign intrinsic prototype authentication uses native source matching plus controlled native-behavior probes on fresh internal receivers. This closes same-named native-function substitution collisions while avoiding execution of caller/model data. Authenticated foreign prototype surfaces are still restored around trusted evaluator execution.
+
+`Promise.prototype` is part of the coordinated callback intrinsic surface. Its captured `then` descriptor participates in Promise integrity checks, and reversible synchronous or post-`await` callback mutations are restored before later M8/integration code observes them.
