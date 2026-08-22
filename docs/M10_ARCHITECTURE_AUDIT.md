@@ -87,15 +87,13 @@ Canonicalizing `expectedOutput` can erase source-realm prototype/identity semant
 
 ### Decision
 
-The experiment now distinguishes serializable canonical case data from evaluator-facing replay semantics.
+The experiment now distinguishes canonical AI-safe case data from a Gotcha-owned evaluator-facing replay representation.
 
-`case.input` and `case.expectedOutput` remain canonical AI-safe snapshots.
+`case.input` and `case.expectedOutput` remain canonical snapshots for serialization and generator use.
 
-A Gotcha-owned `case.evaluatorCase` representation preserves the evaluator-facing semantics required to reproduce the original M8 invocation, including supported cross-realm provenance where relevant.
+`case.replay` is created by M8 and preserves or reconstructs the evaluator-facing semantics required to reproduce the original M8 invocation, including supported cross-realm provenance where relevant. It is not caller-authored alternate case data and is not sent to the protection model by default.
 
-Replay reconstructs from that bound evaluator case rather than silently feeding canonical-only data back to the evaluator.
-
-If M8 cannot safely preserve/reconstruct a supported case, that experiment is explicitly non-replayable for M10. M10 may not claim exact replay by degrading semantics.
+If M8 cannot safely preserve/reconstruct those semantics for a successful run, the experiment is explicitly non-replayable for M10. M10 drafting rejects it rather than silently substituting canonical-only values and claiming exact replay.
 
 This closes the P1 provenance gap without expanding M10 into a generic serializer or sandbox.
 
@@ -105,7 +103,7 @@ This closes the P1 provenance gap without expanding M10 into a generic serialize
 
 ### Finding
 
-Revision 3 described both M8 calls before requiring a return on baseline mismatch. An invalid improved evaluator could therefore throw before M10 returned the historically correct `baseline-mismatch` state.
+Revision 3 described both M8 calls before requiring a return on baseline mismatch. An invalid improved evaluator could therefore throw before M10 returned the historically correct baseline state.
 
 ### Decision
 
@@ -116,7 +114,7 @@ Verification is now normatively two-phase:
 3. immediately return on baseline failure
 4. invoke `improvedEvaluator` only after exact baseline identity passes
 
-The improved evaluator is therefore never executed before historical identity is established.
+The improved evaluator is never executed before historical identity is established.
 
 ---
 
@@ -124,15 +122,15 @@ The improved evaluator is therefore never executed before historical identity is
 
 ### Finding
 
-A naive implementation could let `result.experiment.attacks` alias mutable legacy result objects such as `result.generatedAttacks`. Later mutation of the legacy field could silently mutate the bound experiment.
+A naive implementation could let experiment attack data alias mutable legacy result objects such as `result.generatedAttacks`. Later mutation of a legacy field could silently mutate the bound experiment.
 
 ### Decision
 
-M8 experiment emission must create a deeply independently owned immutable snapshot. Nested arrays/records cannot alias mutable legacy result fields.
+M8 experiment emission must create deeply independently owned structural data. Nested arrays/records cannot alias mutable legacy result fields.
 
-Required test: mutate `generatedAttacks`, attack records, result arrays, and related public legacy fields after M8 returns; the experiment must remain unchanged.
+Replay metadata required for evaluator semantics is owned exclusively by the experiment/replay subsystem and likewise cannot derive mutable behavior from legacy public result objects.
 
-The binding is therefore structural and independently owned at emission time.
+Required test: mutate `generatedAttacks`, attack records, result arrays, and related legacy fields after M8 returns; the experiment's structural data and replay behavior must remain unchanged.
 
 ---
 
@@ -140,11 +138,11 @@ The binding is therefore structural and independently owned at emission time.
 
 ### Finding
 
-M8 fails before producing attack results when an evaluator rejects the known-good expected output. Revision 3 nevertheless required complete `after.attack`/metric fields for an `improved-positive-control-failed` state.
+M8 fails before producing attack results when an evaluator rejects the known-good expected output. Revision 3 nevertheless required complete `after.attack` and metric fields for `improved-positive-control-failed`.
 
 ### Decision
 
-The state is now explicitly partial:
+The state is explicitly partial:
 
 ```text
 after = null
@@ -158,7 +156,7 @@ state = improved-positive-control-failed
 
 Baseline remains complete and identity-matched.
 
-M10 recognizes the specific M8 positive-control failure. Arbitrary improved callback failures are not mislabeled as positive-control failures.
+M10 recognizes the specific M8 positive-control failure through stable error classification. Arbitrary improved callback failures are not mislabeled as positive-control failures.
 
 No parallel positive-control implementation is introduced.
 
@@ -172,18 +170,27 @@ A complete improved replay can simultaneously leave the source surviving and cre
 
 ### Decision
 
-Verification now exposes ordered `failureReasons` plus a deterministic primary `state`.
-
-Normative precedence:
+Terminal baseline states are phase-ordered and returned before improved execution:
 
 ```text
 baseline-execution-failed
 baseline-mismatch
-improved-positive-control-failed
-regression-detected
-source-finding-still-survives
-verified
 ```
+
+After a passing baseline, improved positive-control failure is terminal:
+
+```text
+improved-positive-control-failed
+```
+
+For a complete improved replay, M10 computes every applicable correctness failure and exposes ordered `failureReasons` with normative precedence:
+
+```text
+1. regression-detected
+2. source-finding-still-survives
+```
+
+`state` is the first reason. If no reason exists, state is `verified`.
 
 For simultaneous regression + source survival:
 
@@ -207,15 +214,13 @@ The artifact contains both `experiment.task` and `experiment.contract.task`, but
 
 ### Decision
 
-Experiment validation now requires:
+Experiment validation requires:
 
 ```text
 experiment.task === experiment.contract.task
 ```
 
-Mismatch rejects atomically before the protection generator runs.
-
-Task identity cannot be separately replaced at verification.
+Mismatch rejects atomically before the protection generator runs. Task identity cannot be separately replaced at verification.
 
 ---
 
@@ -232,7 +237,7 @@ Experiment validation now requires the same retained-set invariants M8 applies b
 - every bound attack differs from expected output under M8 deep-equality semantics
 - no same-rule/deep-equal retained duplicates exist
 
-A valid bound experiment is therefore already a post-filter/post-dedupe replay set. M10 rejects malformed/reconstructed artifacts before generator execution rather than relying on a later synthetic baseline mismatch.
+A valid bound experiment is already a post-filter/post-dedupe replay set. M10 rejects malformed/reconstructed artifacts before generator execution rather than relying on a later baseline mismatch.
 
 ---
 
@@ -240,15 +245,15 @@ A valid bound experiment is therefore already a post-filter/post-dedupe replay s
 
 ### Finding
 
-A stale baseline evaluator can throw or return non-boolean before M8 produces complete results. Revision 3 required `baseline-mismatch` plus mismatched attack IDs even when no complete comparison was possible.
+A stale baseline evaluator can throw or return non-boolean before M8 produces complete results. Revision 3 required `baseline-mismatch` plus mismatch IDs even when no complete comparison was possible.
 
 ### Decision
 
-Completed historical difference and evaluator execution failure are now separate states.
+Completed historical difference and evaluator execution failure are separate states.
 
-`baseline-mismatch` means: baseline replay completed and its observable classifications/order/top finding differ from bound history.
+`baseline-mismatch` means the baseline replay completed and its observable classifications/order/top finding differ from bound history.
 
-`baseline-execution-failed` means: M8 could not complete baseline replay because the baseline evaluator violated/exited the callback contract.
+`baseline-execution-failed` means M8 could not complete baseline replay because the evaluator violated/exited the callback contract.
 
 For execution failure:
 
@@ -259,7 +264,7 @@ after = null
 improvedEvaluator is not called
 ```
 
-No attack IDs are fabricated for unevaluated attacks. A structured execution classification/code may be exposed; arbitrary stack data is not semantic authority.
+No attack IDs are fabricated for unevaluated attacks. Stable M8/M10 error classification is required; message-text parsing and arbitrary callback stack data are not semantic authority.
 
 ---
 
@@ -270,13 +275,13 @@ A replayable experiment is emitted by M8 from one successful invocation and bind
 - validated confirmed contract
 - exact task identity
 - canonical AI-safe case snapshots
-- evaluator-facing replay provenance needed for exact semantics
+- Gotcha-owned evaluator-facing replay representation
 - complete retained post-filter/post-dedupe attack set
 - original per-attack outcomes
 - deterministic survivor order
 - top-finding identity
 
-The experiment is deeply independently owned from legacy result fields.
+Its structural data is deeply independently owned from mutable legacy result fields, and replay behavior cannot depend on those mutable fields after emission.
 
 M10 validates the artifact as one unit before drafting.
 
@@ -286,11 +291,11 @@ This remains structural/canonical binding, not cryptographic historical attestat
 
 ## 14. Verification Authority After Revision 4
 
-The caller-supplied old evaluator is not historical authority. It is a compatibility witness: it must reproduce bound history exactly.
+The caller-supplied old evaluator is not historical authority. It is a compatibility witness and must reproduce bound history exactly.
 
 The improved evaluator is not run until that witness passes.
 
-For complete after replay, success requires:
+For complete improved replay, success requires:
 
 - improved positive control passes
 - source finding changes from survived to caught
@@ -334,8 +339,8 @@ test/contract-remediation.test.js
 
 Implementation must prove:
 
-- experiment is independent from mutable legacy result fields
-- cross-realm/evaluator-facing replay semantics are preserved or explicitly declared non-replayable
+- experiment structural data and replay behavior are independent from mutable legacy result fields
+- cross-realm/evaluator-facing replay semantics are preserved or the experiment is explicitly non-replayable
 - task identity matches contract task
 - bound attacks already satisfy M8 unchanged-output and retained-set dedupe rules
 - baseline mismatch returns before improved evaluator execution
