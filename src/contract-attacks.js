@@ -46,6 +46,11 @@ const NumberConstructor =
 const arrayPrototype =
   Array.prototype;
 
+const arrayPrototypeDescriptors =
+  getOwnPropertyDescriptors(
+    arrayPrototype
+  );
+
 const arrayIsArray =
   Array.isArray;
 
@@ -381,7 +386,7 @@ function withActiveEvaluatorInstanceState(
 }
 
 function registerDerivedArrayResult(
-  receiver,
+  resultPrototype,
   result
 ) {
   if (!arrayIsArray(result)) {
@@ -395,12 +400,9 @@ function registerDerivedArrayResult(
     return result;
   }
 
-  const receiverPrototype =
-    getPrototypeOf(receiver);
-
   setPrototypeOf(
     result,
-    receiverPrototype
+    resultPrototype
   );
 
   reflectApply(
@@ -409,33 +411,31 @@ function registerDerivedArrayResult(
     [result]
   );
 
-  {
-
-    if (
-      reflectApply(
-        weakSetHas,
-        instanceState.localArrayInstances,
-        [receiver]
-      )
-    ) {
-      reflectApply(
-        weakSetAdd,
-        instanceState.localArrayInstances,
-        [result]
-      );
-      reflectApply(
-        weakSetAdd,
-        instanceState.localObjectInstances,
-        [result]
-      );
-    }
+  if (
+    reflectApply(
+      weakSetHas,
+      instanceState.localArrayPrototypes,
+      [resultPrototype]
+    )
+  ) {
+    reflectApply(
+      weakSetAdd,
+      instanceState.localArrayInstances,
+      [result]
+    );
+    reflectApply(
+      weakSetAdd,
+      instanceState.localObjectInstances,
+      [result]
+    );
   }
 
   return result;
 }
 
 function buildSafeArrayResultMethod(
-  method
+  method,
+  resultPrototype
 ) {
   return function safeArrayResultMethod(
     ...args
@@ -448,7 +448,7 @@ function buildSafeArrayResultMethod(
       );
 
     return registerDerivedArrayResult(
-      this,
+      resultPrototype,
       result
     );
   };
@@ -472,7 +472,8 @@ function arrayMethodReturnsArray(key) {
 
 function safeArrayPrototypeMethod(
   key,
-  fallback
+  fallback,
+  resultPrototype
 ) {
   if (
     key === "values" ||
@@ -491,7 +492,8 @@ function safeArrayPrototypeMethod(
 
   if (arrayMethodReturnsArray(key)) {
     return buildSafeArrayResultMethod(
-      fallback
+      fallback,
+      resultPrototype
     );
   }
 
@@ -506,9 +508,11 @@ function buildSafeCallbackPrototype(
     objectCreate(parentPrototype);
 
   const descriptors =
-    getOwnPropertyDescriptors(
-      sourcePrototype
-    );
+    sourcePrototype === arrayPrototype
+      ? arrayPrototypeDescriptors
+      : getOwnPropertyDescriptors(
+          sourcePrototype
+        );
 
   for (
     const key of ownKeys(descriptors)
@@ -536,7 +540,8 @@ function buildSafeCallbackPrototype(
       sourcePrototype === arrayPrototype
         ? safeArrayPrototypeMethod(
             key,
-            descriptor.value
+            descriptor.value,
+            target
           )
         : descriptor.value;
 
@@ -1401,7 +1406,8 @@ function captureEvaluatorFallbackPrototypes(
 
 function defineSafeShadowMembers(
   target,
-  safePrototype
+  safePrototype,
+  arrayResultPrototype
 ) {
   const descriptors =
     getOwnPropertyDescriptors(
@@ -1420,10 +1426,46 @@ function defineSafeShadowMembers(
       continue;
     }
 
+    let descriptor =
+      descriptors[key];
+
+    if (
+      arrayResultPrototype !== undefined &&
+      arrayMethodReturnsArray(key)
+    ) {
+      const nativeDescriptor =
+        arrayPrototypeDescriptors[key];
+
+      if (
+        nativeDescriptor === undefined ||
+        !("value" in nativeDescriptor) ||
+        typeof nativeDescriptor.value !==
+          "function"
+      ) {
+        throw new Error(
+          "Missing captured Array result method"
+        );
+      }
+
+      descriptor = {
+        value:
+          buildSafeArrayResultMethod(
+            nativeDescriptor.value,
+            arrayResultPrototype
+          ),
+        writable:
+          descriptor.writable,
+        enumerable:
+          descriptor.enumerable,
+        configurable:
+          descriptor.configurable
+      };
+    }
+
     defineProperty(
       target,
       key,
-      descriptors[key]
+      descriptor
     );
   }
 }
@@ -1495,7 +1537,8 @@ function buildForeignIdentityShadow(
   if (isArray) {
     defineSafeShadowMembers(
       shadow,
-      safeCallbackArrayPrototype
+      safeCallbackArrayPrototype,
+      shadow
     );
   }
 
@@ -3206,8 +3249,16 @@ function createEvaluatorSnapshot(
     localArrayInstances:
       new WeakSetConstructor(),
     localObjectInstances:
+      new WeakSetConstructor(),
+    localArrayPrototypes:
       new WeakSetConstructor()
   };
+
+  reflectApply(
+    weakSetAdd,
+    instanceState.localArrayPrototypes,
+    [safeCallbackArrayPrototype]
+  );
 
   const cloned =
     cloneAiData(
@@ -3369,6 +3420,15 @@ function createEvaluatorSnapshot(
           weakSetAdd,
           instanceState.localObjectInstances,
           [current]
+        );
+        reflectApply(
+          weakSetAdd,
+          instanceState.localArrayPrototypes,
+          [
+            effectivePrototype !== undefined
+              ? effectivePrototype
+              : prototypePlan.arrayPrototype
+          ]
         );
       } else if (sourcePrototype !== null) {
         reflectApply(
