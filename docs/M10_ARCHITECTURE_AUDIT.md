@@ -1,316 +1,218 @@
 # M10 — Contract Remediation Architecture Audit
 
-Status: Complete — Revision 6
+Status: Complete — Revision 7
 Milestone: 10
 Audit base: `main@286c9fccc1d3a6107a1b16511aedef5f6265aa3f`
 Companion spec: `docs/M10_CONTRACT_REMEDIATION_SPEC.md`
 
 ## 1. Audit Question
 
-What is the smallest safe M10 architecture that can move the confirmed-contract path from `GOTCHA` to measurable remediation without weakening M8, allowing experiment rebinding, allowing a later evaluator to redefine history, or leaving any public V1 artifact/result behavior implementation-dependent?
+What is the smallest safe M10 architecture that can move a confirmed M8 contract attack into human-authorized remediation while preserving M8 authority boundaries and leaving no material V1 behavior implementation-dependent?
 
 ---
 
-## 2. Boundary Preserved
+## 2. Preserved Boundaries
 
-M8 model-produced attacks and M10 model-produced protection intent remain declarative data only.
+AI output remains declarative only. Human confirmation is mandatory. The caller owns executable evaluator changes. Gotcha verifies behavior by replaying the bound M8 experiment through the existing evaluator boundary.
 
-M10 does not execute AI-generated evaluator code, auto-apply patches, or turn model output into executable policy.
-
-A human authorizes remediation intent. The caller supplies the executable improved evaluator. Gotcha verifies observable behavior through the established M8 evaluator/attack boundary.
+M10 accepts no verification-time replacement contract, case, attack set, task, or baseline history.
 
 ---
 
-## 3. Revision 6 Core Flow
+## 3. Revision History
+
+- Revision 1: initial remediation architecture.
+- Revision 2: removed verification-time case/attack rebinding.
+- Revision 3: moved experiment authority to the M8 run boundary and bound original outcomes/order/top finding.
+- Revision 4: closed replay provenance, experiment ownership, baseline gating, task identity, retained-set, and failure-state gaps.
+- Revision 5: locked replay-schema parity, artifact schemas, exact partial outputs, and ID ordering.
+- Revision 6: locked required experiment variants, generator input, positive-control separation, and verification protection payload.
+- Revision 7: closes the final exact-head Revision 6 findings with a structural replay-eligibility algorithm, exact async-generator contract, exact public-options validation, and phase-aware positive-control truth.
+
+---
+
+## 4. Revision 7 P1 Closure — Deterministic Replay Eligibility
+
+Revision 6 still described replayability in observational terms: canonical replay had to preserve every evaluator-observable semantic. That was not an implementable predicate.
+
+Revision 7 removes evaluator observation from eligibility entirely.
+
+M8 now classifies a successful run by applying one exact structural predicate to the original pre-canonicalization `input` and `expectedOutput` values.
+
+Replayable V1 is intentionally restricted to a conservative local-plain-data tree:
+
+- null / string / boolean / finite number;
+- local-realm Arrays with exact local `Array.prototype`, index data properties only, recursively eligible contents, and no extra/symbol keys;
+- local-realm plain Objects with exact local `Object.prototype` or null prototype, string data properties only, recursively eligible contents;
+- no repeated object identity or cycles.
+
+Everything else is deterministically non-replayable, including cross-realm prototypes, custom prototypes, Date/Map/Set/RegExp/typed arrays, Promise, Proxy, functions, accessors, and other exotics.
+
+The same structure therefore always produces the same experiment variant without executing an evaluator or getter.
+
+This is deliberately conservative: M8 validity is broader than M10 V1 replayability.
+
+---
+
+## 5. Exact Experiment Variants
+
+Every successful M8 run emits exactly one own `experiment` field.
+
+The replayable variant binds exact contract, canonical case snapshots, exact retained attack set, original per-attack outcomes, survivor rank order, and top finding.
+
+The non-replayable variant contains only version/kind/replayable/task and the stable code `EVALUATOR_CASE_NOT_CANONICALLY_REPLAYABLE`.
+
+There is no optional experiment emission and no open-ended replay metadata schema.
+
+---
+
+## 6. Full Replay Schema Authority
+
+Replayable attack records project deterministically into the current M8 generator schema.
+
+Pre-draft validation covers the complete replay-relevant M8 schema, including:
+
+- 0..20 attacks;
+- unique IDs;
+- active rule authority;
+- required type/description/rationale;
+- output AI-data safety;
+- exact score dimensions and ranges;
+- contract-derived severity;
+- unchanged-output rejection;
+- retained-set dedupe rejection.
+
+M10 may not knowingly remain weaker than M8 if that schema evolves before implementation.
+
+---
+
+## 7. Revision 7 P2 Closure — Generator Async Contract
+
+The protection generator is called exactly once after all pre-generator validation.
+
+Allowed completion forms are now exact:
+
+- direct value;
+- genuine native Promise recognized by a captured side-effect-free Promise brand check.
+
+Synchronous throws and native Promise rejections propagate unchanged.
+
+Arbitrary thenables are never awaited or assimilated; M10 does not call `.then`. They remain untrusted return data and fail generator-output / AI-data validation.
+
+This preserves async model-provider adapters without introducing untrusted thenable execution.
+
+---
+
+## 8. Revision 7 P2 Closure — Public Options Objects
+
+All three public API options containers now have exact V1 boundary rules before semantic property reads.
+
+Each must:
+
+- not be a Proxy;
+- have local `Object.prototype` or null prototype;
+- contain exactly the required own string keys and no symbols;
+- expose each required option as an enumerable own data property;
+- contain no accessors, extras, or hidden non-enumerable fields.
+
+Values are taken from validated descriptors so accessors cannot execute during destructuring/property reads.
+
+Malformed call shapes cause zero callback executions.
+
+---
+
+## 9. Protection Generator / Artifact Authority
+
+The generator receives exact canonical snapshots of contract, input, expected output, selected bound attack, and one locked V1 instruction string.
+
+Generator output is exact declarative `{ version, task, sourceAttackId, ruleId, protection: { statement, rationale } }` data.
+
+Draft, confirmation decisions, confirmed artifact, and rejected artifact all use exact schemas. Serialized artifacts are revalidated from data at each boundary. Object identity is not authority.
+
+Human edit may change only the protection statement.
+
+---
+
+## 10. Revision 7 P2 Closure — Positive-Control Truth
+
+Revision 6 could erase a successful positive control when a later attack evaluation aborted.
+
+Revision 7 makes positive-control fields phase-aware:
 
 ```text
-successful M8 run
-  ↓
-required experiment field
-  ↓
-replayable canonical variant OR exact non-replayable variant
-  ↓
-replayable only: full experiment validation
-  ↓
-exact generator input
-  ↓
-exact declarative generator output
-  ↓
-exact draft
-  ↓
-exact human decision
-  ↓
-exact confirmed/rejected artifact
-  ↓
-confirmed only: full revalidation
-  ↓
-baseline positive control + replay
-  ↓
-exact historical identity gate
-  ↓
-only then improved positive control + replay
-  ↓
-deterministic complete/partial result
+true  = control returned true, even if a later attack aborted
+false = control returned false
+null  = control threw, returned non-boolean, or phase did not run
 ```
 
-Verification accepts only `{ protection, evaluator, improvedEvaluator }`.
+This applies independently to baseline and improved phases.
+
+M10 requires stable M8 failure classification sufficient to distinguish `positive-control` from `attack-evaluation` and `returned-false` from throw/non-boolean. Error message/stack parsing is forbidden.
 
 ---
 
-## 4. Why Revision 6 Narrows Replay Instead of Serializing Realms
+## 11. Strict Verification Ordering
 
-Revision 4 correctly identified that some M8-supported evaluators can observe cross-realm prototype/identity semantics. Revision 5 still left replay metadata open-ended, which prevented an exact serialized experiment schema.
+Verification remains strictly sequential:
 
-Revision 6 chooses a smaller, deterministic V1 boundary:
+1. exact options/artifact revalidation;
+2. baseline positive control + replay;
+3. exact bound-history identity comparison;
+4. immediate terminal return on any baseline failure;
+5. only then improved positive control + replay;
+6. source closure + regression comparison.
 
-- canonically replayable cases emit `replayable: true` with one exact `canonical-ai-data` strategy
-- cases whose evaluator-visible semantics would be lost by canonical cloning remain valid M8 runs but emit the exact `replayable: false` variant
-- M10 drafting rejects non-replayable variants before any model call
-
-This preserves M8 behavior without inventing a generic realm/prototype serializer inside M10.
-
-Cross-realm serialization is explicitly deferred beyond M10 V1.
-
----
-
-## 5. Closure: Required Experiment Emission
-
-Revision 5 said a successful M8 run “may” add an experiment, which contradicted the locked flow.
-
-Revision 6 requires every successful M8 run to return an own `experiment` field.
-
-Exactly two variants exist:
-
-```text
-replayable v1
-non-replayable v1
-```
-
-Eligible replayable runs may not omit the artifact. Ineligible runs may not silently canonicalize.
+The improved evaluator is never executed before baseline identity passes.
 
 ---
 
-## 6. Closure: Exact Replayable and Non-Replayable Schemas
+## 12. Deterministic Semantic States
 
-Revision 6 locks exact own-key schemas for both experiment variants.
-
-Replayable v1 contains exactly:
-
-```text
-version
-kind
-replayable
-task
-contract
-case
-attacks
-baseline
-```
-
-Its case contains exactly:
-
-```text
-input
-expectedOutput
-replay
-```
-
-and replay metadata is exactly:
-
-```js
-{
-  version: 1,
-  kind: "m8-evaluator-case",
-  strategy: "canonical-ai-data"
-}
-```
-
-Non-replayable v1 contains exactly:
-
-```text
-version
-kind
-replayable
-task
-reason
-```
-
-with exactly one reason code:
-
-```text
-EVALUATOR_CASE_NOT_CANONICALLY_REPLAYABLE
-```
-
-No optional extra payload exists in either variant.
-
----
-
-## 7. Closure: Exact Replay Attack/Baseline Schemas
-
-Every bound replay attack now has one exact key set, including rule snapshot, type/description/rationale, output, severity, and four score dimensions.
-
-The exact projection back to M8 generator form is specified, including `output -> mutatedOutput` and the exact `scores` object.
-
-The baseline object and baseline-outcome element schemas are exact.
-
-Experiment validation remains replay-complete with M8's current generator contract, including maximum 20 attacks, non-empty required strings, AI-safe data, score bounds, contract authority, unchanged-output rejection, and same-rule/deep-equal dedupe.
-
----
-
-## 8. Closure: Exact Generator Input
-
-Revision 5 locked output but not the injected generator's input projection.
-
-Revision 6 defines exactly five generator argument keys:
-
-```text
-contract
-input
-expectedOutput
-finding
-instructions
-```
-
-`finding` is exactly the selected bound attack schema, independently snapshotted.
-
-`instructions` is one locked literal V1 string. Provider-specific additions are not allowed inside the public M10 generator argument; provider wrappers remain external.
-
-This makes generator callback behavior and tests reproducible across implementations.
-
----
-
-## 9. Closure: Baseline Positive-Control Failure
-
-Revision 5 distinguished baseline execution failure and completed mismatch but omitted the valid-boolean-false known-good case.
-
-Revision 6 adds the exact semantic state:
-
-```text
-baseline-positive-control-failed
-```
-
-It returns a fully specified partial result and never invokes the improved evaluator.
-
-A boolean false is therefore not mislabeled execution failure and does not fall into implementation-defined reject behavior.
-
----
-
-## 10. Closure: Separate Baseline and Improved Positive-Control Facts
-
-The single Revision 5 `positiveControlPassed` field overloaded two phases and incorrectly allowed an unrun improved control to appear passed.
-
-Revision 6 replaces it with:
-
-```text
-baselinePositiveControlPassed
-improvedPositiveControlPassed
-```
-
-Each is exactly `true`, `false`, or `null`:
-
-- true = that phase's control returned true
-- false = that phase's control returned boolean false
-- null = no semantic boolean result or phase did not run
-
-A skipped Phase B therefore always reports `improvedPositiveControlPassed: null`.
-
----
-
-## 11. Closure: Exact Verification Protection Payload
-
-Revision 5 exposed `protection` in every result but did not define whether that meant the full confirmed artifact or only remediation text.
-
-Revision 6 locks it to exactly:
-
-```js
-{
-  statement,
-  rationale
-}
-```
-
-It is an independently owned snapshot from the revalidated confirmed artifact.
-
-The full experiment is not recursively embedded into every verification result.
-
----
-
-## 12. Uniform Verification Schema and Partial States
-
-Every semantic verification result has one exact top-level key set.
-
-Revision 6 specifies exact field values for:
+Baseline terminal states:
 
 ```text
 baseline-positive-control-failed
 baseline-execution-failed
 baseline-mismatch
+```
+
+Improved partial states after baseline PASS:
+
+```text
 improved-positive-control-failed
 improved-execution-failed
-complete improved replay
 ```
 
-Partial states never omit fields.
+Complete improved replay failures use fixed precedence:
 
-Boundary-invalid structured inputs still reject before semantic replay begins.
+```text
+1. regression-detected
+2. source-finding-still-survives
+```
+
+Otherwise state is `verified`.
+
+Every semantic state emits the same exact top-level result field set.
 
 ---
 
-## 13. Deterministic Ordering and Failure Precedence
+## 13. Result Determinism
 
-Diagnostic attack-ID arrays use bound `experiment.attacks` order:
+The verification result `protection` field is exactly an independent `{ statement, rationale }` snapshot, never the recursively large confirmed artifact.
 
-```text
-baselineMismatchAttackIds
-eliminatedAttackIds
-regressionAttackIds
-```
+All diagnostic attack-ID arrays use bound experiment attack order. Survivor order alone uses M8 deterministic rank order.
 
-`survivorOrderIds` remains M8 rank order.
-
-Phase terminal precedence is fixed by execution:
+`improvement` remains exactly:
 
 ```text
-1 baseline-positive-control-failed
-2 baseline-execution-failed
-3 baseline-mismatch
-4 improved-positive-control-failed
-5 improved-execution-failed
-6 complete replay
+baseline survivor count - after survivor count
 ```
 
-Within a complete replay:
-
-```text
-1 regression-detected
-2 source-finding-still-survives
-3 verified
-```
+and is `null` for incomplete replay pairs.
 
 ---
 
-## 14. Authority After Revision 6
-
-Historical authority remains the M8-bound experiment, not the caller-supplied old evaluator.
-
-The old evaluator must reproduce exact bound history before improved execution.
-
-AI output remains narrow declarative text under exact schemas.
-
-The human can only accept, edit the protection statement, or reject.
-
-Serialized/reloaded experiments and protection artifacts are revalidated from data. Prior object identity is never authority.
-
----
-
-## 15. Scope
-
-This PR remains documentation-only:
-
-```text
-docs/M10_CONTRACT_REMEDIATION_SPEC.md
-docs/M10_ARCHITECTURE_AUDIT.md
-```
+## 14. Implementation Scope
 
 Expected implementation touches:
 
@@ -321,53 +223,50 @@ src/contract-attacks.js
 test/contract-remediation.test.js
 ```
 
-`src/engine.js` and `src/mutation-pack.js` remain unchanged by default. Any genuine need to change either requires explicit architecture amendment first.
+`src/engine.js` and `src/mutation-pack.js` remain unchanged by default. Any genuine need to change either requires an architecture amendment.
+
+Implementation must remove temporary/dead validation code before merge.
 
 ---
 
-## 16. Revision 6 Proof Obligations
+## 15. Required Revision 7 Proofs
 
 Implementation must prove:
 
-- every successful M8 run emits exactly one experiment variant
-- canonical replay eligibility is deterministic
-- cross-realm/prototype-sensitive successful M8 cases emit non-replayable v1 rather than degraded replay
-- replayable/non-replayable exact key sets reject extras/missing fields
-- replay attacks project exactly into valid M8 generator candidates
-- generator receives exact finding projection and exact instruction string
-- generator output/draft/decision/confirmed/rejected schemas are exact
-- serialized artifacts are fully revalidated
-- baseline boolean false returns baseline-positive-control-failed
-- baseline abort and baseline mismatch remain distinct
-- improved control never appears passed if Phase B did not run
-- verification protection payload is exactly statement/rationale
-- every semantic state has the same top-level key set
-- diagnostic ID ordering and complete-replay failure precedence are deterministic
-- experiment remains independent from mutable legacy result fields
-- existing M8 behavior remains unchanged apart from additive required experiment emission
+- replay eligibility is structural, conservative, getter-free, evaluator-free, and deterministic;
+- cross-realm/custom/exotic/aliased/cyclic cases emit non-replayable experiment;
+- local plain-data cases emit replayable experiment;
+- every successful M8 run emits exactly one experiment variant;
+- exact public options schemas reject Proxies/accessors/symbols/extras without callback execution;
+- direct and native-Promise generator returns work;
+- arbitrary thenables are never assimilated;
+- generator throw/rejection propagation is exact;
+- experiment remains independent from legacy result mutation;
+- full M8 replay schema validates before generator execution;
+- baseline failure never executes improved evaluator;
+- positive-control `true` survives later attack aborts;
+- stable M8 phase/reason classification replaces message parsing;
+- partial results and ID ordering are deterministic;
+- source closure/regression gates remain identity-based;
+- existing M8 successful public behavior is unchanged apart from additive required experiment emission.
 
 ---
 
-## 17. Acceptance / Stopping Rule
+## 16. Acceptance / Stopping Rule
 
-M10 is implementation-ready only after a fresh exact-head review finds no concrete contradiction or implementation-choice ambiguity in:
+M10 is implementation-ready only after a fresh exact-head review finds no concrete contradiction or V1 implementation-choice ambiguity in:
 
-- mandatory experiment emission
-- exact replayable/non-replayable schemas
-- canonical replay eligibility
-- exact replay attack/baseline schemas
-- exact generator input/output
-- exact draft/decision/confirmed/rejected artifacts
-- artifact revalidation
-- baseline-before-improved execution
-- baseline/improved positive-control semantics
-- exact partial results
-- verification protection payload
-- ID-array ordering
-- failure precedence
-- source/regression correctness
-- metric semantics
+- replay eligibility and experiment variant selection;
+- exact artifact schemas and ownership;
+- M8 replay-schema equivalence;
+- public-options validation;
+- generator async semantics;
+- human/AI authority boundaries;
+- stable evaluator failure classification;
+- strict baseline-before-improved ordering;
+- phase-aware positive-control fields;
+- exact partial results;
+- deterministic ID ordering/failure precedence;
+- source/regression/metric semantics.
 
-The review boundary explicitly treats implementation-choice ambiguity as architecture-blocking.
-
-Out of scope remains cryptographic attestation, provider adapters, dashboards, production-model attack execution, AI-generated executable evaluator code, automatic source patching, universal future-attack proof, cross-realm serialization in M10 V1, and a generic sandbox.
+Out of scope remains cross-realm serialization, cryptographic attestation, provider adapters, dashboards, production-model execution, AI-generated executable evaluator code, automatic patching, universal future-attack proof, and a generic sandbox.
