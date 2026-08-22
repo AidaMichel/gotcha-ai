@@ -1,0 +1,92 @@
+name: M9 clean rebuild validation
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    if: github.event.pull_request.number == 9
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: milestone-9-public-contract-attacks
+          fetch-depth: 0
+
+      - name: Apply focused README patch
+        run: python3 .github/scripts/m9_rebuild_patch.py
+
+      - name: Node 22.23 setup
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.0
+
+      - name: Static and scope gates
+        run: |
+          node --check examples/contract-attacks.js
+          node --check test/public-api.test.js
+          node --check test/package-contract-attacks.test.js
+          git diff --check
+          git fetch origin main
+          git diff --exit-code origin/main -- src/engine.js src/contract-attacks.js src/ai-data.js src/quality-contract.js src/index.js docs/M8_AI_ATTACKS_SPEC.md
+
+      - name: Contract attack example on Node 22
+        run: |
+          output="$(node examples/contract-attacks.js)"
+          expected='TEACH: examples accepted
+CONTRACT: 1 rule proposed
+CONFIRM: confirmed
+ATTACK: 1 candidate generated
+GOTCHA: wrong-time survived'
+          test "$output" = "$expected"
+          printf '%s\n' "$output"
+
+      - name: M9 targeted tests on Node 22
+        run: node --test test/public-api.test.js test/package-contract-attacks.test.js
+
+      - name: Full repository on Node 22
+        run: npm test
+
+      - name: Node 24.19 setup
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+
+      - name: M9 targeted tests on Node 24
+        run: node --test test/public-api.test.js test/package-contract-attacks.test.js
+
+      - name: Full repository on Node 24
+        run: npm test
+
+      - name: Node 14.18 setup
+        uses: actions/setup-node@v4
+        with:
+          node-version: 14.18.0
+
+      - name: Node 14 public example smoke
+        run: |
+          node --check examples/contract-attacks.js
+          output="$(node examples/contract-attacks.js)"
+          expected='TEACH: examples accepted
+CONTRACT: 1 rule proposed
+CONFIRM: confirmed
+ATTACK: 1 candidate generated
+GOTCHA: wrong-time survived'
+          test "$output" = "$expected"
+          printf '%s\n' "$output"
+
+      - name: Commit validated README only
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          if git diff --cached --quiet; then
+            echo "README patch produced no change"
+            exit 1
+          fi
+          git commit -m "docs: clarify public contract attack path"
+          git push origin HEAD:milestone-9-public-contract-attacks
