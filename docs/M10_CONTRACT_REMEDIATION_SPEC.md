@@ -1,13 +1,13 @@
 # M10 — Contract Remediation & Re-Attack
 
-Status: Architecture Locked — Revision 4
+Status: Architecture Locked — Revision 5
 Milestone: 10
 Branch: `milestone-10-contract-remediation`
 Base: `main@286c9fccc1d3a6107a1b16511aedef5f6265aa3f`
 
 ## 1. Goal
 
-M10 closes the confirmed-contract loop after `GOTCHA` without turning model output directly into executable evaluator policy.
+M10 closes the confirmed-contract loop after `GOTCHA` without turning model output into executable evaluator policy.
 
 ```text
 TEACH
@@ -22,48 +22,55 @@ RANK
   ↓
 GOTCHA
   ↓
+M8 EMITS ONE REPLAYABLE EXPERIMENT
+  ↓
 AI DRAFTS DECLARATIVE PROTECTION INTENT
   ↓
 HUMAN ACCEPT / EDIT / REJECT
   ↓
 CALLER IMPLEMENTS TRUSTED IMPROVED EVALUATOR
   ↓
-REPLAY THE EXACT ORIGINAL M8 EXPERIMENT
+BASELINE REPLAY ONLY
   ↓
-BASELINE IDENTITY GATE
+EXACT BASELINE IDENTITY GATE
   ↓
-ONLY THEN RUN IMPROVED REPLAY
+ONLY THEN IMPROVED REPLAY
   ↓
-VERIFY POSITIVE CONTROL + SOURCE CLOSURE + REGRESSIONS
+POSITIVE CONTROL + SOURCE CLOSURE + REGRESSION CHECK
 ```
 
-The AI proposes what should be protected. A human confirms the intent. The caller owns executable evaluator implementation. Gotcha owns deterministic experiment binding and verification.
+The AI proposes what should be protected. A human authorizes the intent. The caller owns executable evaluator implementation. Gotcha owns experiment binding, replay, validation, and deterministic verification output.
 
 ---
 
 ## 2. Authority Boundary
 
-AI output remains declarative. It may propose a protection statement and rationale, but may not generate executable JavaScript that Gotcha runs, alter the Quality Contract, change rule authority, or claim a fix is proven.
+AI/model output remains declarative data only. M10 does not execute AI-generated JavaScript, callbacks, ASTs, shell commands, patches, or evaluator code.
 
 A human must explicitly accept, edit, or reject remediation intent before verification.
 
-The caller supplies the trusted local synchronous `improvedEvaluator`. The caller also supplies the current/pre-remediation `evaluator`, but that callback is not historical authority: it must reproduce the original bound M8 baseline before M10 executes the improved evaluator.
+The caller supplies trusted local synchronous callbacks:
 
-M10 does not execute model-generated remediation code, auto-apply patches, or bridge contract attacks directly into `runImprovementLoop()`.
+```js
+evaluator(output) -> boolean
+improvedEvaluator(output) -> boolean
+```
+
+The current/pre-remediation evaluator is not historical authority. It is only a compatibility witness and must reproduce the M8-bound baseline exactly before the improved evaluator can run.
 
 ---
 
 ## 3. Required Additive M8 Experiment Artifact
 
-`runContractAttacks()` adds one successful-result field:
+A successful `runContractAttacks()` may add:
 
 ```js
 contractAttackResult.experiment
 ```
 
-The experiment is created inside the same successful M8 invocation. Existing M8 attack generation, validation, evaluator behavior, filtering, ranking, and public result fields remain unchanged.
+A replayable experiment is produced inside the same successful M8 invocation from the exact validated contract/case, complete retained attack set, original outcomes, survivor order, and top finding.
 
-Minimum conceptual shape:
+Conceptual versioned shape:
 
 ```js
 {
@@ -71,16 +78,24 @@ Minimum conceptual shape:
   kind: "contract-attack-experiment",
   replayable: true,
   task,
-  contract: { version, status, task, rules },
+  contract,
   case: {
     input,
     expectedOutput,
-    replay: { kind: "m8-evaluator-case-v1" }
+    replay: {
+      version: 1,
+      kind: "m8-evaluator-case"
+      // Gotcha-owned replay metadata only
+    }
   },
-  attacks: [/* complete retained attack set */],
+  attacks: [/* complete retained post-filter/post-dedupe attacks */],
   baseline: {
     outcomes: [
-      { attackId, evaluatorResult: "PASS" | "FAIL", survived: true | false }
+      {
+        attackId,
+        evaluatorResult: "PASS" | "FAIL",
+        survived: true | false
+      }
     ],
     survivorOrderIds: [],
     topFindingId: null
@@ -88,71 +103,87 @@ Minimum conceptual shape:
 }
 ```
 
-`case.input` and `case.expectedOutput` are canonical AI-safe snapshots for serialization and generator use.
+`case.input` and `case.expectedOutput` are canonical AI-safe snapshots. `case.replay` is Gotcha-owned execution metadata sufficient to preserve/reconstruct evaluator-observable semantics supported by M8, including supported cross-realm prototype/realm provenance where canonicalization would lose it.
 
-`case.replay` is a Gotcha-owned representation produced by M8. It preserves or reconstructs every evaluator-facing semantic property M8 supports and that the evaluator could observe during the original run, including supported cross-realm prototype/realm provenance that canonicalization alone would erase. It is never caller-authored alternate case data and is not model authority.
+If those semantics cannot be safely reconstructed, the run is non-replayable for M10. M10 drafting must reject a non-replayable result before any protection-generator call. It may never silently substitute canonical-only replay and call that exact replay.
 
-The exact representation is an implementation detail, but its contract is normative: given the same evaluator callback, replay must expose values semantically equivalent to those observed in the original M8 invocation for supported realm/prototype behaviors. Plain canonical cloning is insufficient when those semantics differ.
+### Independent ownership
 
-If M8 cannot safely capture/reconstruct those semantics for a successful run, that result must not become a replayable M10 experiment. The implementation may emit `replayable: false` with a stable reason code or omit the replayable artifact, but M10 drafting must reject it before generator execution. M10 may never silently fall back to canonical-only values and claim exact replay.
+Experiment structural data and replay metadata must not alias mutable legacy result fields such as `generatedAttacks`, `attack.results`, `survivors`, or `topFinding`.
 
-### Construction and ownership
+Mutating any legacy public result field after M8 returns must not mutate the experiment or change later replay behavior.
 
-The experiment is built from the same invocation's validated contract, exact task, canonical case, evaluator-facing replay representation, complete retained post-filter/post-dedupe attack set, exact original per-attack results, survivor order, and top finding.
-
-Its structural data must be an independently owned immutable snapshot. Contract/canonical case/attack/baseline arrays and nested records must not alias mutable legacy result fields such as `generatedAttacks`, `attack.results`, or `topFinding`.
-
-Replay metadata required for evaluator semantics is owned exclusively by the experiment/replay subsystem and must not derive mutable behavior from legacy public result objects. Mutating any existing public M8 result field after return must not mutate experiment structural data or replay behavior.
-
-This is structural/canonical binding, not cryptographic attestation against a caller deliberately fabricating a completely new self-consistent history.
+This is structural binding, not cryptographic attestation against a caller deliberately fabricating a new self-consistent history.
 
 ---
 
-## 4. Experiment Invariants
+## 4. Experiment Validation Is Replay-Complete
 
-An experiment is invalid unless all are true before any protection generator runs.
+Before `draftContractProtection()` invokes the protection generator, the experiment must satisfy every invariant needed for the deterministic replay projection to pass M8 validation unchanged.
 
-### Identity
+### 4.1 Identity and contract
 
 - `version === 1`
 - `kind === "contract-attack-experiment"`
 - `replayable === true`
+- `experiment.task` is a non-empty string
 - `experiment.task === experiment.contract.task`
-- contract is a valid confirmed Quality Contract
+- contract is a valid confirmed Quality Contract under the existing contract validator
 
-### Case
+### 4.2 Case
 
-- canonical `input` and `expectedOutput` satisfy the existing AI-safe data policy
-- replay representation is valid for the exact bound case
-- replay cannot fall back from required evaluator semantics to canonical-only values
+- canonical `input` and `expectedOutput` pass the existing AI-safe data boundary
+- replay metadata is a valid Gotcha-owned `m8-evaluator-case` v1 representation for that exact case
+- replay metadata cannot become alternate caller-authored case data or model authority
 
-### Attack set
+### 4.3 Complete M8 replay-generator schema
 
-- attack IDs are unique
-- every attack references an active confirmed rule
-- embedded rule ID/statement/kind/severity matches contract authority exactly
-- output satisfies AI-safe data policy
-- score dimensions are finite and within `[0, 1]`
-- stored severity equals contract-derived severity
-- every retained attack output differs from the bound expected output under the same deep-equality semantics M8 uses
-- no same-rule/deep-equal retained duplicates exist under M8 retained-set deduplication semantics
-- replaying a valid artifact through M8 cannot silently remove a bound attack as unchanged or duplicate
+The replay projection is conceptually:
 
-### Baseline
+```js
+{
+  version: 1,
+  task: experiment.task,
+  attacks: experiment.attacks.map(projectForM8Replay)
+}
+```
+
+A valid experiment must make that projected generator output satisfy the **full current M8 generator schema before drafting**, not merely a subset of it.
+
+Normative requirements include:
+
+- `attacks` is an array
+- attack count is within M8's `MAX_ATTACKS` limit; for the M8 version bound by this spec, maximum is **20**
+- every attack ID is a unique non-empty string
+- every `ruleId` is a non-empty string resolving to an active confirmed rule
+- every replay candidate has non-empty string `type`
+- every replay candidate has non-empty string `description`
+- every replay candidate has non-empty string `rationale`
+- every replay candidate has an own mutated-output value through the artifact's bound `output` → replay `mutatedOutput` mapping
+- mutated output passes the existing AI-safe data boundary
+- replay scores object has exactly the required M8 score dimensions used by the current generator contract: `realism`, `subtlety`, `novelty`, `fixability`
+- each required score is finite and within `[0, 1]`
+- embedded rule identity/statement/kind/severity matches confirmed contract authority exactly
+- stored severity equals the value derived from confirmed contract severity
+- every retained attack differs from bound expected output under M8 deep-equality semantics
+- no same-rule/deep-equal retained duplicate exists under M8 retained-set dedupe semantics
+- values rejected by the M8 AI-data boundary, including functions, accessors, Proxies, unsupported exotic values, or other disallowed executable/behavioral data, are rejected before generator execution
+
+**Future-proof rule:** if the M8 generator validator gains another required replay constraint before M10 implementation lands, M10 experiment validation must mirror that constraint or delegate to a side-effect-free shared validator. M10 may not maintain a knowingly weaker replay schema.
+
+### 4.4 Baseline binding
 
 - baseline outcome IDs are unique
-- exactly one outcome exists per attack ID and no extras exist
+- there is exactly one outcome for every bound attack ID and no extras
 - `evaluatorResult === "PASS"` iff `survived === true`
 - `survivorOrderIds` is a duplicate-free permutation of exactly the survived IDs in deterministic original rank order
-- `topFindingId` equals the first survivor ID, or `null` when none survive
+- `topFindingId` is the first survivor ID, or `null` when there are no survivors
 
-Any violation rejects the experiment atomically before generator execution.
+Any validation failure rejects atomically before the protection generator runs.
 
 ---
 
-## 5. Locked Public API
-
-M10 adds:
+## 5. Locked Public APIs
 
 ```js
 const {
@@ -162,46 +193,36 @@ const {
 } = require("gotcha-ai");
 ```
 
-Draft:
-
 ```js
-const draft = await draftContractProtection({
-  experiment: contractAttackResult.experiment,
-  sourceAttackId: contractAttackResult.topFinding.id,
-  generator: protectionGenerator
+await draftContractProtection({
+  experiment,
+  sourceAttackId,
+  generator
 });
 ```
 
-Confirm:
-
 ```js
-const confirmed = confirmContractProtection({
+confirmContractProtection({
   draft,
-  decision: { type: "accept" }
+  decision
 });
 ```
 
-Verify:
-
 ```js
-const verification = await verifyContractProtection({
-  protection: confirmed,
-  evaluator: oldEvaluator,
+await verifyContractProtection({
+  protection,
+  evaluator,
   improvedEvaluator
 });
 ```
 
-M10 never accepts an independent verification-time contract, case, expected output, attack set, baseline history, source finding payload, or task identity.
+No public M10 API accepts a replacement verification-time contract, case, expected output, attack set, baseline history, source finding payload, or task identity.
 
 ---
 
-## 6. Drafting and Confirmation
+## 6. Protection Generator Contract
 
-`draftContractProtection()` accepts only `{ experiment, sourceAttackId, generator }`.
-
-M10 validates the entire experiment before the protection-generator call and snapshots it into the draft. The source ID must resolve to a bound original survivor.
-
-The generator receives validated canonical data only:
+The injected generator receives only validated canonical data:
 
 ```js
 {
@@ -213,38 +234,171 @@ The generator receives validated canonical data only:
 }
 ```
 
-Evaluator replay metadata is Gotcha execution authority and is not sent to the protection model by default. Generator output remains declarative and must match task/source/rule authority exactly.
+Replay metadata is Gotcha execution authority and is not sent to the model.
 
-Human decisions are `accept`, `edit` of the protection statement only, or `reject`. The experiment, source identity, rule authority, and task identity are immutable through confirmation. Rejected protection cannot verify.
+### 6.1 Exact generator output schema
 
----
-
-## 7. Evaluator Contract and Replay
-
-The caller supplies:
+Only this versioned declarative shape is accepted:
 
 ```js
-evaluator(output) -> boolean
-improvedEvaluator(output) -> boolean
+{
+  version: 1,
+  task: "...",
+  sourceAttackId: "...",
+  ruleId: "...",
+  protection: {
+    statement: "...",
+    rationale: "..."
+  }
+}
 ```
 
-Callbacks follow the existing M8 trust model: synchronous, deterministic for the same integration state, side-effect free by contract, and boolean-returning.
+Validation rules:
 
-Verification reconstructs a Gotcha-owned deterministic replay generator from `protection.experiment.attacks`; severity remains contract-derived by M8.
+- top-level own keys are exactly `version`, `task`, `sourceAttackId`, `ruleId`, `protection`
+- `version === 1`
+- `task`, `sourceAttackId`, and `ruleId` are non-empty strings
+- all three identities exactly match the validated experiment/source/rule authority
+- `protection` is a plain own-data object with exactly `statement` and `rationale`
+- `statement` and `rationale` are non-empty strings
+- the entire output passes the existing AI-safe data boundary
+- functions, accessors, Proxies, executable/code-bearing objects, or unsupported exotic values are rejected
+- no model-provided contract, rule snapshot, experiment, evaluator code, callback, patch, or alternate case is accepted
 
-The replay case is reconstructed by Gotcha from `experiment.case.replay`; it is not caller-provided and is not merely the canonical case when realm/prototype provenance matters.
-
-Verification performs no model/provider call and must reuse `runContractAttacks()` rather than create a second evaluator-safety implementation.
+Unknown/extra fields are rejected rather than silently ignored so serialized artifacts have one deterministic schema.
 
 ---
 
-## 8. Strict Two-Phase Verification
+## 7. Draft Artifact Schema
 
-Verification is sequential. The improved evaluator must not execute until baseline identity is conclusively accepted.
+After generator validation, M10 emits a deeply independently owned draft:
+
+```js
+{
+  version: 1,
+  kind: "contract-protection",
+  status: "draft",
+  task,
+  experiment,
+  source: {
+    attackId,
+    ruleId
+  },
+  rule: {
+    id,
+    statement,
+    kind,
+    severity
+  },
+  protection: {
+    statement,
+    rationale
+  }
+}
+```
+
+Rules:
+
+- top-level and nested keys are exact for v1
+- `task === experiment.task === experiment.contract.task`
+- source attack resolves to a bound original survivor
+- source rule matches the source attack and confirmed contract rule
+- `rule` is a snapshot of contract authority, not generator authority
+- experiment/source/rule/task are immutable through confirmation
+- draft structural data is deep-snapshotted under the AI-safe data policy
+
+Serialized/reloaded drafts must be fully revalidated before confirmation. Object identity is never trusted as proof of validity.
+
+---
+
+## 8. Confirmation Decision and Result Schemas
+
+Only these decision shapes are valid:
+
+```js
+{ type: "accept" }
+```
+
+```js
+{
+  type: "edit",
+  statement: "human-authored non-empty statement"
+}
+```
+
+```js
+{ type: "reject" }
+```
+
+Decision objects use exact own keys for their selected variant; unknown fields are rejected. `edit` may change only the protection statement. Rationale remains the validated draft rationale in V1.
+
+### 8.1 Confirmed result
+
+Accept/edit returns:
+
+```js
+{
+  version: 1,
+  kind: "contract-protection",
+  status: "confirmed",
+  task,
+  experiment,
+  source,
+  rule,
+  protection: {
+    statement,
+    rationale
+  }
+}
+```
+
+The confirmed artifact is deeply independently snapshotted and must pass the same full artifact validation when serialized/reloaded before verification.
+
+### 8.2 Rejected result
+
+Reject returns:
+
+```js
+{
+  version: 1,
+  kind: "contract-protection",
+  status: "rejected",
+  task,
+  experiment,
+  source,
+  rule,
+  protection
+}
+```
+
+A rejected artifact cannot verify. `verifyContractProtection()` rejects it at the public boundary; it does not return a remediation semantic state.
+
+---
+
+## 9. Verification Artifact Revalidation
+
+Before invoking either evaluator, verification revalidates the confirmed protection and embedded experiment from data, including:
+
+- exact v1 artifact schemas
+- confirmed status
+- task/source/rule authority
+- full experiment replay schema
+- baseline bijection/order/top-finding invariants
+- replayability and replay metadata validity
+
+Malformed, stale-schema, extra-field, non-AI-safe, or internally inconsistent artifacts reject before evaluator execution.
+
+---
+
+## 10. Strict Two-Phase Replay
+
+Verification reconstructs a Gotcha-owned deterministic replay generator from the bound attacks and reconstructs the exact evaluator-facing case from `experiment.case.replay`.
+
+Severity is re-derived by M8 from contract authority.
+
+Verification performs no model/provider call and reuses `runContractAttacks()` rather than creating a second evaluator-safety implementation.
 
 ### Phase A — baseline only
-
-Conceptually:
 
 ```js
 const baselineReplay = await runContractAttacks({
@@ -256,30 +410,11 @@ const baselineReplay = await runContractAttacks({
 });
 ```
 
-After baseline replay returns, M10 immediately checks the positive control, every attack classification, survivor order, and top finding against bound history.
+M10 then compares every bound attack classification, survivor order, and top finding with bound history.
 
-If baseline identity fails, return `baseline-mismatch` immediately. `improvedEvaluator` must not be called.
+`improvedEvaluator` is not called unless this phase completes and exact identity passes.
 
-### Baseline callback execution failure
-
-A stale/substituted baseline evaluator may throw, return a non-boolean, or otherwise cause M8 evaluator execution to abort before complete results exist. M10 does not invent mismatch IDs for attacks that were never evaluated.
-
-Normative behavior:
-
-- identify failure through stable M8/M10 error classification, not message-text parsing
-- return `state: "baseline-execution-failed"`
-- `verificationPassed: false`
-- `baselineIdentityPassed: false`
-- `baselineMismatchAttackIds: []` unless a completed comparison independently established specific mismatches
-- include structured `baselineExecutionError.code`
-- do not use arbitrary callback stack/message text as semantic authority
-- do not execute `improvedEvaluator`
-
-`baseline-mismatch` is reserved for a completed baseline replay whose classifications/order/top finding differ from bound history.
-
-### Phase B — improved replay
-
-Only after Phase A passes:
+### Phase B — improved only after Phase A PASS
 
 ```js
 const afterReplay = await runContractAttacks({
@@ -291,18 +426,111 @@ const afterReplay = await runContractAttacks({
 });
 ```
 
-The exact same reconstructed replay case and bound attack set are used.
+The same reconstructed case and bound attack set are used.
 
 ---
 
-## 9. Improved Positive-Control Failure
+## 11. Canonical Ordering Rule for Reported Attack IDs
 
-M8 rejects/throws when an evaluator rejects the known-good expected output before attack results exist. M10 does not duplicate that positive-control path.
+All public verification arrays that report attack IDs use **bound experiment attack order**, i.e. the order of `experiment.attacks`, filtered by membership in the relevant set.
 
-Therefore this is a partial semantic result:
+This applies normatively to:
+
+```text
+baselineMismatchAttackIds
+eliminatedAttackIds
+regressionAttackIds
+```
+
+It also applies to any future V1 diagnostic attack-ID array unless that field explicitly states another order.
+
+`survivorOrderIds` is the sole exception because its meaning is deterministic M8 survivor rank order, not bound attack order.
+
+No lexical sorting, callback-result order, Set/Map iteration order, or implementation-dependent order may replace these rules.
+
+---
+
+## 12. Baseline Outcomes and Exact Partial Results
+
+### 12.1 Completed baseline identity mismatch
+
+If baseline replay completes but classifications/order/top finding differ from history:
 
 ```js
 {
+  version: 1,
+  task,
+  sourceAttackId,
+  ruleId,
+  protection,
+  baseline: { attack, topFinding },
+  after: null,
+  baselineIdentityPassed: false,
+  baselineMismatchAttackIds, // bound attack order
+  baselineExecutionError: null,
+  sourceFindingReproduced: false,
+  sourceFindingCaught: false,
+  positiveControlPassed: true,
+  improvement: null,
+  eliminatedAttackIds: [],
+  regressionAttackIds: [],
+  verificationPassed: false,
+  failureReasons: ["baseline-mismatch"],
+  state: "baseline-mismatch"
+}
+```
+
+If only survivor ordering/top-finding differs while classifications match, `baselineMismatchAttackIds` is `[]`; order/top mismatch remains represented by the terminal state and baseline payload. M10 does not fabricate attack IDs for a non-classification mismatch.
+
+### 12.2 Baseline execution failure
+
+If the baseline evaluator throws, returns non-boolean, or M8 otherwise cannot complete callback execution, return exactly:
+
+```js
+{
+  version: 1,
+  task,
+  sourceAttackId,
+  ruleId,
+  protection,
+  baseline: null,
+  after: null,
+  baselineIdentityPassed: false,
+  baselineMismatchAttackIds: [],
+  baselineExecutionError: {
+    code: "BASELINE_EVALUATOR_EXECUTION_FAILED"
+  },
+  sourceFindingReproduced: false,
+  sourceFindingCaught: false,
+  positiveControlPassed: null,
+  improvement: null,
+  eliminatedAttackIds: [],
+  regressionAttackIds: [],
+  verificationPassed: false,
+  failureReasons: ["baseline-execution-failed"],
+  state: "baseline-execution-failed"
+}
+```
+
+`positiveControlPassed` is `null` because M10 does not expose execution-progress timing as semantic output; the replay did not complete and historical identity was not established.
+
+No mismatch IDs are fabricated for unevaluated attacks. Stable error classification is used; callback stack/message text is not semantic authority. `improvedEvaluator` is never called.
+
+---
+
+## 13. Improved-Replay Partial Results
+
+### 13.1 Improved positive-control failure
+
+When M8 identifies the improved evaluator rejecting the known-good output before attack results exist:
+
+```js
+{
+  version: 1,
+  task,
+  sourceAttackId,
+  ruleId,
+  protection,
   baseline: { attack, topFinding },
   after: null,
   baselineIdentityPassed: true,
@@ -320,23 +548,63 @@ Therefore this is a partial semantic result:
 }
 ```
 
-M10 recognizes this specific M8 failure through stable error classification. Arbitrary improved-evaluator throw/non-boolean failures are not mislabeled positive-control failures; they reject/throw as evaluator execution errors unless a future semantic state is specified.
+### 13.2 Other improved evaluator execution failure
+
+To avoid an implementation-defined reject-vs-return split, any non-positive-control improved callback execution abort is a deterministic semantic state:
+
+```js
+{
+  version: 1,
+  task,
+  sourceAttackId,
+  ruleId,
+  protection,
+  baseline: { attack, topFinding },
+  after: null,
+  baselineIdentityPassed: true,
+  baselineMismatchAttackIds: [],
+  baselineExecutionError: null,
+  sourceFindingReproduced: true,
+  sourceFindingCaught: false,
+  positiveControlPassed: null,
+  improvement: null,
+  eliminatedAttackIds: [],
+  regressionAttackIds: [],
+  verificationPassed: false,
+  failureReasons: ["improved-execution-failed"],
+  state: "improved-execution-failed"
+}
+```
+
+The implementation may expose a stable non-stack diagnostic code in a future additive field, but V1 consumers do not depend on callback message text.
 
 ---
 
-## 10. Source Closure, Regressions, and Metric
+## 14. Complete Improved Replay Semantics
 
-After a complete improved replay, source closure requires:
+Source closure requires:
 
 ```text
-bound original baseline: source SURVIVED
-baseline replay:         source SURVIVED
-after replay:            source CAUGHT
+bound original: source SURVIVED
+baseline replay: source SURVIVED
+after replay: source CAUGHT
 ```
 
-A regression is identity-based: baseline caught → after survived. All regression IDs are reported. Unrelated baseline survivors may remain.
+A regression is:
 
-For complete baseline + after replays:
+```text
+baseline CAUGHT -> after SURVIVED
+```
+
+`eliminatedAttackIds` is:
+
+```text
+baseline SURVIVED -> after CAUGHT
+```
+
+Both arrays use bound experiment attack order.
+
+For complete baseline + after replays only:
 
 ```js
 improvement =
@@ -344,61 +612,46 @@ improvement =
   afterReplay.attack.survivors.length;
 ```
 
-`eliminatedAttackIds` means baseline survived → after caught. `regressionAttackIds` means baseline caught → after survived.
-
-`improvement` is descriptive only. For partial results without a complete after replay, it is `null`.
+The metric is descriptive and cannot override identity-level correctness gates.
 
 ---
 
-## 11. Deterministic Failure Semantics
+## 15. Deterministic Failure Precedence
 
-Terminal baseline states are phase-ordered before improved replay: `baseline-execution-failed` or `baseline-mismatch` according to the actual Phase A outcome.
+Terminal Phase A states prevent Phase B execution:
 
-If Phase A passes but the improved known-good output fails, return `improved-positive-control-failed`.
+```text
+baseline-execution-failed
+baseline-mismatch
+```
 
-For a complete improved replay, compute every applicable correctness failure in this normative order:
+After Phase A passes, pre-attack Phase B states are:
+
+```text
+improved-positive-control-failed
+improved-execution-failed
+```
+
+For a **complete** improved replay, compute all applicable correctness failures in exactly this order:
 
 ```text
 1. regression-detected
 2. source-finding-still-survives
 ```
 
-`failureReasons` contains all applicable items in that order. `state` equals the first failure. If none apply, `state = "verified"` and `verificationPassed = true`.
-
-Example:
+`failureReasons` contains every applicable complete-replay failure in that order. `state` is the first reason. If none apply:
 
 ```js
-failureReasons = [
-  "regression-detected",
-  "source-finding-still-survives"
-];
-state = "regression-detected";
+failureReasons = [];
+state = "verified";
+verificationPassed = true;
 ```
 
-Detailed booleans and ID sets remain authoritative for diagnosis.
-
 ---
 
-## 12. Verification Success Gate
+## 16. Complete Verification Output
 
-`verificationPassed` is true only when all are true:
-
-1. protection is confirmed and internally valid
-2. experiment invariants pass, including task equality and replayability
-3. baseline replay completes successfully
-4. baseline positive control passes
-5. baseline classifications/order/top finding exactly reproduce bound history
-6. improved replay completes successfully
-7. improved positive control passes
-8. selected source is a bound original survivor and reproducibly survives baseline
-9. selected source is caught after remediation
-10. no baseline-caught attack becomes an after survivor
-
----
-
-## 13. Verification Output
-
-Full complete-replay shape:
+A complete baseline + improved replay returns exactly the v1 fields below:
 
 ```js
 {
@@ -409,12 +662,12 @@ Full complete-replay shape:
   protection,
   baseline: { attack, topFinding },
   after: { attack, topFinding },
-  baselineIdentityPassed,
-  baselineMismatchAttackIds,
+  baselineIdentityPassed: true,
+  baselineMismatchAttackIds: [],
   baselineExecutionError: null,
-  sourceFindingReproduced,
+  sourceFindingReproduced: true,
   sourceFindingCaught,
-  positiveControlPassed,
+  positiveControlPassed: true,
   improvement,
   eliminatedAttackIds,
   regressionAttackIds,
@@ -424,39 +677,60 @@ Full complete-replay shape:
 }
 ```
 
-For `baseline-execution-failed`, `after` is always `null`; `baseline` is `null` unless a complete safe baseline result exists. Metrics requiring a complete baseline/after pair are `null`.
+All semantic states use the same top-level field set. Partial states assign `null`, `false`, or `[]` exactly as specified above; fields are not conditionally omitted.
 
-For `improved-positive-control-failed`, `baseline` is complete and identity-matched, `after` is `null`, and after-derived metrics are `null`.
-
-Malformed experiment/protection artifacts reject at the public boundary rather than return semantic verification states.
+Malformed input/artifact validation failures remain public-boundary rejections, not verification semantic states.
 
 ---
 
-## 14. What PASS Proves
+## 17. Verification Success Gate
 
-A passing M10 verification proves only:
+`verificationPassed === true` only when all are true:
 
-> On the exact replayable M8-bound original case and complete retained contract-attack set, the supplied baseline evaluator reproduced the original M8 classifications/order/top finding, and the supplied improved evaluator preserved the known-good output, caught the selected source finding, and introduced no replay-set regressions.
+1. confirmed protection and embedded experiment pass full v1 revalidation
+2. experiment is replayable and preserves evaluator-facing semantics
+3. baseline replay completes
+4. baseline classifications/order/top finding exactly reproduce bound history
+5. improved replay completes
+6. improved known-good output passes
+7. selected source is a bound original survivor and is reproduced as a baseline survivor
+8. selected source is caught after remediation
+9. no baseline-caught attack becomes an after survivor
 
-It does not prove universal correctness, coverage of future attacks, production-model behavior, formal equivalence between protection text and evaluator implementation, absence of unseen regressions, or cryptographic historical authenticity.
-
----
-
-## 15. Trust Model
-
-Untrusted structured data includes serialized/reloaded experiment/protection artifacts and protection-generator output.
-
-Trusted local executable callbacks include the baseline evaluator, improved evaluator, and injected generator callback.
-
-Historical outcome authority comes from the M8-bound experiment and must be reproduced before comparison.
-
-Evaluator-facing replay metadata is Gotcha execution authority. It exists solely to reproduce M8 semantics and cannot become caller-editable alternate case data or AI policy authority.
+Unrelated baseline survivors may remain.
 
 ---
 
-## 16. Preferred Implementation Shape
+## 18. What PASS Proves
 
-M10 core:
+A pass proves only:
+
+> On the exact replayable M8-bound original case and complete retained attack set, the supplied baseline evaluator reproduced the original M8 history, and the supplied improved evaluator preserved the known-good output, caught the selected source finding, and introduced no replay-set regressions.
+
+It does not prove universal correctness, future-attack coverage, production-model behavior, formal equivalence between protection text and evaluator implementation, absence of unseen regressions, or cryptographic historical authenticity.
+
+---
+
+## 19. Trust and Serialization Model
+
+Untrusted structured data includes:
+
+- serialized/reloaded experiments
+- serialized/reloaded draft/confirmed/rejected protection artifacts
+- protection-generator output
+- confirmation decisions crossing the public boundary
+
+All are validated from data on each public boundary. Previously validated object identity is never authority.
+
+Trusted local executable callbacks are the baseline evaluator, improved evaluator, and injected generator callback itself. Model-produced generator return data remains untrusted.
+
+Gotcha is not a generic JavaScript sandbox.
+
+---
+
+## 20. Preferred Implementation Shape
+
+Expected M10 core:
 
 ```text
 src/contract-remediation.js
@@ -464,71 +738,63 @@ src/index.js
 test/contract-remediation.test.js
 ```
 
-Additive M8 experiment emission/replay support:
+Additive M8 experiment/replay support:
 
 ```text
 src/contract-attacks.js
 ```
 
-`src/engine.js` and `src/mutation-pack.js` remain unchanged by default. Any genuine need to change either requires an architecture amendment first.
+`src/engine.js` and `src/mutation-pack.js` remain unchanged by default. Any genuine need to change either requires an explicit architecture amendment before implementation proceeds.
 
 ---
 
-## 17. Required Test Matrix
+## 21. Required Test Matrix
 
-### M8 experiment emission
+### M8 experiment emission / replay
 
-- experiment emitted only after successful M8 run
+- successful run emits independently owned replayable experiment
+- legacy result mutation cannot change experiment structure or replay behavior
 - task equals contract task
-- canonical case matches same invocation
-- supported cross-realm evaluator-facing semantics replay exactly
-- unreconstructable semantics are explicitly non-replayable, never silently canonicalized
-- attacks exactly match complete retained post-filter/dedupe set
-- unchanged-output candidate cannot appear in retained attacks
-- same-rule/deep-equal duplicate cannot appear in retained attacks
-- one baseline outcome per attack ID; no omissions/extras
-- survivor order/top finding match original result
-- structural experiment data is deeply independently owned from legacy public result fields
-- mutating legacy result arrays/attack objects cannot mutate experiment structural data or replay behavior
-- existing M8 public fields and behavior remain unchanged
+- supported cross-realm evaluator semantics replay exactly
+- unreconstructable semantics are explicitly non-replayable
+- attack count 0..20 accepted as otherwise valid; >20 rejected before generator
+- missing/empty replay `type`, `description`, or `rationale` rejected before generator
+- missing replay-required score or invalid score rejected before generator
+- unchanged-output attack rejected before generator
+- same-rule/deep-equal retained duplicate rejected before generator
+- omitted/extra/duplicate attack or baseline outcome rejected
 
-### Draft/binding
+### Generator / artifact schemas
 
-- valid replayable experiment accepted
-- non-replayable experiment rejected before generator call
-- task mismatch rejected before generator call
-- omitted/extra/duplicate attack or outcome rejected
-- unchanged-output attack rejected before generator call
-- retained-set duplicate rejected before generator call
-- source must resolve to original survivor
-- rule/severity authority mismatch rejected
-- generator task/source/rule mismatch rejected
+- exact generator output shape accepted
+- missing required key rejected
+- extra unknown key rejected
+- task/source/rule mismatch rejected
+- empty statement/rationale rejected
+- function/accessor/Proxy/unsupported data rejected
+- draft exact schema validated after generation
+- serialized/reloaded draft revalidated
+- accept exact decision accepted
+- edit statement-only exact decision accepted
+- reject exact decision accepted
+- decision extra fields rejected
+- confirmed artifact exact schema revalidated before verification
+- rejected artifact cannot verify
 
-### Confirmation
+### Verification ordering and partial states
 
-- accept
-- edit statement only
-- reject
-- authority fields and experiment cannot be edited
-- rejected protection cannot verify
-
-### Verification
-
-- exact baseline reproduces original identity
-- stale baseline classification mismatch returns `baseline-mismatch`
-- stale baseline order/top mismatch returns `baseline-mismatch`
-- baseline mismatch does not call improved evaluator
-- baseline callback throw/non-boolean returns `baseline-execution-failed` and does not call improved evaluator
-- no fabricated mismatch IDs for unevaluated attacks
-- source survivor → caught succeeds when no regressions
-- improved known-good rejection returns partial `improved-positive-control-failed` with `after: null` and `improvement: null`
-- arbitrary improved attack callback failure is not mislabeled positive-control failure
-- source remains survivor fails
-- baseline-caught → after-survived regression fails
-- simultaneous regression + source survival returns ordered `failureReasons` and primary `state: regression-detected`
-- unrelated survivors may remain
-- `improvement` uses the locked formula only for complete replays
-- cross-realm replay preserves evaluator-facing behavior
+- baseline mismatch never calls improved evaluator
+- baseline callback abort returns exact `baseline-execution-failed` field values
+- no baseline mismatch IDs invented for unevaluated attacks
+- completed classification mismatch IDs use bound experiment attack order
+- improved known-good rejection returns exact partial shape
+- other improved evaluator abort returns exact `improved-execution-failed` partial shape
+- regression IDs use bound experiment attack order
+- eliminated IDs use bound experiment attack order
+- survivor order remains M8 rank order and is not replaced by bound attack order
+- simultaneous regression + source survival yields ordered reasons and primary `regression-detected`
+- every semantic state emits the same top-level field set
+- `improvement` is null for partial states and uses locked formula for complete states
 
 ### Runtime/package
 
@@ -536,36 +802,37 @@ src/contract-attacks.js
 - Node 22 full suite
 - Node 24 full suite
 - deterministic no-key example
-- packed external consumer can import/use all three public M10 APIs
+- packed external consumer imports/uses all three public M10 APIs
 
 ---
 
-## 18. Acceptance Gates
+## 22. Acceptance Gates
 
-M10 is complete only when:
+M10 architecture is implementation-ready only when a fresh exact-head review finds no concrete contradiction in these locked contracts:
 
-1. M8 emits an independently owned replayable experiment from the same successful invocation
-2. experiment binds contract/task, evaluator-facing replay semantics, complete retained attacks, original outcomes/order/top finding
-3. experiment validation rejects task mismatch and attacks M8 would filter during replay
-4. drafting accepts only that experiment plus source ID and generator
-5. AI remediation remains declarative only
-6. human confirmation is mandatory
-7. verification accepts no replacement experiment inputs
-8. baseline replay is completed and identity-gated before improved evaluator execution
-9. baseline execution failure is distinct from completed baseline mismatch
-10. improved positive-control failure has the defined partial result shape
-11. source closure and regressions are identity-based
-12. simultaneous complete-after failures have deterministic ordered reasons and state precedence
-13. improvement uses the locked formula only when both replays are complete
-14. evaluator-facing replay semantics are preserved or the experiment is explicitly non-replayable
-15. no silent engine/mutation-pack redesign occurs
-16. Node/package gates pass
-17. dead/temporary validation code introduced during implementation is removed before merge
+1. experiment ownership/completeness and replayability
+2. exact M8 replay-generator schema equivalence
+3. evaluator-facing replay fidelity
+4. task/case/attack/outcome authority
+5. exact generator/draft/decision/confirmed/rejected schemas
+6. human authorization boundary
+7. verification-time artifact revalidation
+8. strict baseline-before-improved execution
+9. exact partial-state outputs
+10. deterministic ID-array ordering
+11. deterministic failure precedence
+12. source closure/regression correctness
+13. locked metric semantics
+14. no silent `engine.js` / `mutation-pack.js` redesign
+
+Implementation must also remove temporary/dead validation code introduced while building M10 before merge.
 
 ---
 
-## 19. Review Boundary / Stopping Rule
+## 23. Review Boundary / Stopping Rule
 
-Treat a new finding as M10 architecture-blocking only if it demonstrates a concrete contradiction or authority gap in this V1 flow, including experiment aliasing/rebinding, replay-semantic loss, baseline history redefinition, AI-to-executable-policy leakage, human-confirmation bypass, ambiguous failure semantics, success despite source/regression/positive-control failure, or required unapproved M8/engine boundary weakening.
+Treat a finding as architecture-blocking only if it demonstrates a concrete contradiction or under-specified behavior in the locked V1 contracts above.
 
-Out of scope: cryptographic provenance attestation, provider adapters, dashboards, production-model attack execution, AI-generated executable evaluator code, automatic patching, universal future-attack proof, and a generic JavaScript sandbox.
+In particular, implementations must not be left free to choose between multiple schemas, field omission/null conventions, ID-array orderings, reject-vs-semantic-state behavior for evaluator execution, or weaker-than-M8 replay validation.
+
+Out of scope remains cryptographic provenance attestation, provider adapters, dashboards, production-model attack execution, AI-generated executable evaluator code, automatic patching, universal future-attack proof, and a generic sandbox.
