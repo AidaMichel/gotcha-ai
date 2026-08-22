@@ -36,6 +36,7 @@ Today, Gotcha supports both sides of that flow:
 
 - teach Gotcha what quality means using examples and judgments
 - generate a structured Quality Contract for human confirmation
+- generate attacks from confirmed Quality Contracts through an injected AI generator
 - attack an evaluator with meaningful mutations
 - rank the failures that survive
 - propose a protection
@@ -310,7 +311,7 @@ The example uses a deterministic fake generator so it does not require an extern
 
 Once quality is defined, Gotcha’s attack engine looks for bad outputs your evaluator still accepts.
 
-The deterministic attack flow is:
+The deterministic Mutation Pack attack flow is:
 
 ```text
 Known-good output
@@ -432,6 +433,18 @@ const result = await runContractAttacks({
 Gotcha owns the contract authority, generator instructions, schema validation, rule attribution, deterministic attack execution, survivor ranking, and data boundary. The caller still owns model credentials, provider selection, and provider-specific infrastructure.
 
 The generator proposes declarative mutated outputs; it does **not** provide executable mutation code. Confirmed rule severity remains authoritative and is not delegated back to the generator.
+
+A contract-attack survivor means an **AI-proposed rule violation passed the evaluator**. For arbitrary natural-language rules, Gotcha does not independently prove that the candidate semantically violates the referenced rule or that a production model produced the same failure.
+
+`runContractAttacks()` ends at ranked survivors and `topFinding` (`GOTCHA`). It does not automatically create a protection or run `CATCH THIS → RE-ATTACK`; those stages belong to the separate deterministic Mutation Pack improvement path.
+
+If you cloned the repository, run the deterministic end-to-end example with:
+
+```bash
+node examples/contract-attacks.js
+```
+
+The repository command above is not a package-level executable. Installed consumers call the public `runContractAttacks()` API directly.
 
 ## Bring your own business idea
 
@@ -609,6 +622,12 @@ Quality Contract example:
 node examples/quality-contract.js
 ```
 
+Contract Attack example:
+
+```bash
+node examples/contract-attacks.js
+```
+
 Structured-data portability example:
 
 ```bash
@@ -617,7 +636,7 @@ node examples/order-fulfillment/demo.js
 
 ## Current architecture
 
-Gotcha currently has two complementary layers.
+Gotcha currently has complementary quality-definition and attack paths.
 
 ### Quality definition
 
@@ -631,7 +650,7 @@ CONFIRM
 
 This layer turns human teaching evidence into an explicitly confirmed Quality Contract.
 
-### Quality attack
+### Confirmed-contract attack path
 
 ```text
 ATTACK
@@ -639,15 +658,21 @@ ATTACK
 RANK
   ↓
 GOTCHA
+```
+
+Confirmed Quality Contracts can drive provider-independent AI-assisted attack generation through `runContractAttacks()`. This path stops at ranked survivors and `topFinding`.
+
+### Deterministic Mutation Pack improvement path
+
+```text
+GOTCHA
   ↓
 CATCH THIS
   ↓
 RE-ATTACK
 ```
 
-This layer attacks the current definition of quality and looks for meaningful failures that still escape.
-
-`runContractAttacks()` now connects a confirmed Quality Contract to provider-independent AI-assisted attack generation, while the deterministic engine remains responsible for executing and ranking the attacks.
+The separate Mutation Pack path can continue from a finding into deterministic protection and remediation verification. An automatic bridge from `runContractAttacks()` into those stages is not implemented.
 
 ## Current scope
 
