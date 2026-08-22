@@ -2,7 +2,8 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const {
-  runGotcha
+  runGotcha,
+  runContractAttacks
 } = require("../src");
 
 test(
@@ -80,6 +81,98 @@ test(
     assert.equal(
       result.improvement,
       1
+    );
+  }
+);
+
+test(
+  "public API exposes confirmed-contract attacks",
+  async () => {
+    const contract = {
+      version: 1,
+      status: "confirmed",
+      task:
+        "Schedule the requested person at the requested time.",
+
+      rules: [
+        {
+          id: "time-rule",
+          statement:
+            "The scheduled time must match the requested time.",
+          kind: "required",
+          severity: "critical"
+        }
+      ]
+    };
+
+    const result =
+      await runContractAttacks({
+        contract,
+
+        input: {
+          request:
+            "Schedule Sara at 3 PM."
+        },
+
+        expectedOutput: {
+          person: "Sara",
+          time: "3 PM"
+        },
+
+        evaluator(output) {
+          return (
+            output.person ===
+              "Sara"
+          );
+        },
+
+        generator() {
+          return {
+            version: 1,
+            task: contract.task,
+
+            attacks: [
+              {
+                id: "wrong-time",
+                ruleId: "time-rule",
+                type: "wrong-time",
+
+                description:
+                  "Changes the requested time.",
+
+                rationale:
+                  "The evaluator does not verify the confirmed time rule.",
+
+                mutatedOutput: {
+                  person: "Sara",
+                  time: "4 PM"
+                },
+
+                scores: {
+                  realism: 0.9,
+                  subtlety: 0.9,
+                  novelty: 0.8,
+                  fixability: 1
+                }
+              }
+            ]
+          };
+        }
+      });
+
+    assert.equal(
+      result.baselinePassed,
+      true
+    );
+
+    assert.equal(
+      result.attack.survivors.length,
+      1
+    );
+
+    assert.equal(
+      result.topFinding.id,
+      "wrong-time"
     );
   }
 );
