@@ -41,25 +41,19 @@ The AI proposes what should be protected. A human confirms the intent. The calle
 
 ---
 
-## 2. Critical Authority Boundary
+## 2. Authority Boundary
 
-AI output remains declarative. It may propose a protection statement and rationale, but may not generate executable JavaScript that Gotcha runs, alter the Quality Contract, change rule authority, or claim a fix is already proven.
+AI output remains declarative. It may propose a protection statement and rationale, but may not generate executable JavaScript that Gotcha runs, alter the Quality Contract, change rule authority, or claim a fix is proven.
 
 A human must explicitly accept, edit, or reject remediation intent before verification.
 
-The caller supplies the trusted local synchronous `improvedEvaluator`. The caller also supplies the current/pre-remediation `evaluator`, but that callback is not historical authority: it must reproduce the original bound M8 baseline before M10 will execute the improved evaluator.
+The caller supplies the trusted local synchronous `improvedEvaluator`. The caller also supplies the current/pre-remediation `evaluator`, but that callback is not historical authority: it must reproduce the original bound M8 baseline before M10 executes the improved evaluator.
+
+M10 does not execute model-generated remediation code, auto-apply patches, or bridge contract attacks directly into `runImprovementLoop()`.
 
 ---
 
-## 3. No AI-Generated Executable Protection
-
-The deterministic Mutation Pack path can use developer-authored executable `protectionCheck` callbacks. M8 contract attacks are model-produced declarative data.
-
-M10 therefore does not execute model-generated remediation code, auto-apply patches, or bridge contract attacks directly into `runImprovementLoop()`.
-
----
-
-## 4. Required Additive M8 Experiment Artifact
+## 3. Required Additive M8 Experiment Artifact
 
 `runContractAttacks()` adds one successful-result field:
 
@@ -90,7 +84,6 @@ Minimum conceptual shape:
     expectedOutput,
     replay: {
       kind: "m8-evaluator-case-v1"
-      // Gotcha-owned evaluator-facing replay representation
     }
   },
 
@@ -130,7 +123,7 @@ This is structural/canonical binding, not cryptographic attestation against a ca
 
 ---
 
-## 5. Experiment Invariants
+## 4. Experiment Invariants
 
 An experiment is invalid unless all are true before any protection generator runs.
 
@@ -172,7 +165,7 @@ Any violation rejects the experiment atomically before generator execution.
 
 ---
 
-## 6. Locked Public API
+## 5. Locked Public API
 
 M10 adds:
 
@@ -217,21 +210,11 @@ M10 never accepts an independent verification-time contract, case, expected outp
 
 ---
 
-## 7. Drafting and Binding
+## 6. Drafting and Confirmation
 
-`draftContractProtection()` accepts only:
-
-```js
-{
-  experiment,
-  sourceAttackId,
-  generator
-}
-```
+`draftContractProtection()` accepts only `{ experiment, sourceAttackId, generator }`.
 
 M10 validates the entire experiment before the protection-generator call and snapshots it into the draft. The source ID must resolve to a bound original survivor.
-
-The draft carries the immutable experiment, selected source ID/rule ID, confirmed rule snapshot, and declarative protection statement/rationale.
 
 The generator receives validated canonical data only:
 
@@ -245,21 +228,13 @@ The generator receives validated canonical data only:
 }
 ```
 
-Evaluator replay metadata is Gotcha execution authority and is not sent to the protection model by default.
+Evaluator replay metadata is Gotcha execution authority and is not sent to the protection model by default. Generator output remains declarative and must match task/source/rule authority exactly.
 
-Generator output remains declarative and must match task/source/rule authority exactly.
-
----
-
-## 8. Human Confirmation
-
-Allowed decisions are `accept`, `edit` of the protection statement only, or `reject`.
-
-The experiment, source identity, rule ID/statement/kind/severity, and task identity are immutable through confirmation. Rejected protection cannot verify.
+Human decisions are `accept`, `edit` of the protection statement only, or `reject`. The experiment, source identity, rule authority, and task identity are immutable through confirmation. Rejected protection cannot verify.
 
 ---
 
-## 9. Evaluator Contract
+## 7. Evaluator Contract and Replay
 
 The caller supplies:
 
@@ -270,21 +245,15 @@ improvedEvaluator(output) -> boolean
 
 Callbacks follow the existing M8 trust model: synchronous, deterministic for the same integration state, side-effect free by contract, and boolean-returning.
 
-M10 does not inspect evaluator source code for semantic equivalence with the protection statement.
-
----
-
-## 10. Deterministic Replay
-
-Verification reconstructs a Gotcha-owned deterministic replay generator from `protection.experiment.attacks`. Severity remains contract-derived by M8.
-
-Verification performs no model/provider call and must reuse `runContractAttacks()` rather than create a second evaluator-safety implementation.
+Verification reconstructs a Gotcha-owned deterministic replay generator from `protection.experiment.attacks`; severity remains contract-derived by M8.
 
 The replay case is reconstructed by Gotcha from `experiment.case.replay`; it is not caller-provided and is not merely the canonical case when realm/prototype provenance matters.
 
+Verification performs no model/provider call and must reuse `runContractAttacks()` rather than create a second evaluator-safety implementation.
+
 ---
 
-## 11. Strict Two-Phase Verification
+## 8. Strict Two-Phase Verification
 
 Verification is sequential. The improved evaluator must not execute until baseline identity is conclusively accepted.
 
@@ -346,7 +315,7 @@ The exact same reconstructed replay case and bound attack set are used.
 
 ---
 
-## 12. Improved Positive-Control Failure
+## 9. Improved Positive-Control Failure
 
 M8 rejects/throws when an evaluator rejects the known-good expected output before attack results exist. M10 does not duplicate that positive-control path.
 
@@ -354,17 +323,7 @@ Therefore this is a partial semantic result:
 
 ```js
 {
-  version: 1,
-  task,
-  sourceAttackId,
-  ruleId,
-  protection,
-
-  baseline: {
-    attack,
-    topFinding
-  },
-
+  baseline: { attack, topFinding },
   after: null,
 
   baselineIdentityPassed: true,
@@ -388,7 +347,7 @@ M10 recognizes this specific M8 failure through stable error classification. Arb
 
 ---
 
-## 13. Source Closure and Regression Detection
+## 10. Source Closure, Regressions, and Metric
 
 After a complete improved replay, source closure requires:
 
@@ -404,11 +363,7 @@ A regression is identity-based:
 baseline CAUGHT -> after SURVIVED
 ```
 
-All regression IDs are reported. Unrelated baseline survivors may remain after a correct narrow fix.
-
----
-
-## 14. Improvement Metric
+All regression IDs are reported. Unrelated baseline survivors may remain.
 
 For complete baseline + after replays:
 
@@ -418,30 +373,24 @@ improvement =
   afterReplay.attack.survivors.length;
 ```
 
-`eliminatedAttackIds` means baseline survived → after caught.
-
-`regressionAttackIds` means baseline caught → after survived.
+`eliminatedAttackIds` means baseline survived → after caught. `regressionAttackIds` means baseline caught → after survived.
 
 `improvement` is descriptive only. For partial results without a complete after replay, it is `null`.
 
 ---
 
-## 15. Deterministic Verification Failure Semantics
+## 11. Deterministic Failure Semantics
 
-Terminal baseline states are phase-ordered and returned before any improved replay:
+Terminal baseline states are phase-ordered before any improved replay:
 
 ```text
 baseline-execution-failed
 baseline-mismatch
 ```
 
-If Phase A passes but the improved known-good output fails, return:
+If Phase A passes but the improved known-good output fails, return `improved-positive-control-failed`.
 
-```text
-improved-positive-control-failed
-```
-
-For a complete improved replay, compute every applicable correctness failure and order them normatively:
+For a complete improved replay, compute every applicable correctness failure in this normative order:
 
 ```text
 1. regression-detected
@@ -464,7 +413,7 @@ Detailed booleans and ID sets remain authoritative for diagnosis.
 
 ---
 
-## 16. Verification Success Gate
+## 12. Verification Success Gate
 
 `verificationPassed` is true only when all are true:
 
@@ -481,7 +430,7 @@ Detailed booleans and ID sets remain authoritative for diagnosis.
 
 ---
 
-## 17. Verification Output
+## 13. Verification Output
 
 Full complete-replay shape:
 
@@ -493,15 +442,8 @@ Full complete-replay shape:
   ruleId,
   protection,
 
-  baseline: {
-    attack,
-    topFinding
-  },
-
-  after: {
-    attack,
-    topFinding
-  },
+  baseline: { attack, topFinding },
+  after: { attack, topFinding },
 
   baselineIdentityPassed,
   baselineMismatchAttackIds,
@@ -528,7 +470,7 @@ Malformed experiment/protection artifacts reject at the public boundary rather t
 
 ---
 
-## 18. What PASS Proves
+## 14. What PASS Proves
 
 A passing M10 verification proves only:
 
@@ -538,7 +480,7 @@ It does not prove universal correctness, coverage of future attacks, production-
 
 ---
 
-## 19. Trust Model
+## 15. Trust Model
 
 Untrusted structured data includes serialized/reloaded experiment/protection artifacts and protection-generator output.
 
@@ -550,7 +492,7 @@ Evaluator-facing replay metadata is Gotcha execution authority. It exists solely
 
 ---
 
-## 20. Preferred Implementation Shape
+## 16. Preferred Implementation Shape
 
 M10 core:
 
@@ -570,7 +512,7 @@ src/contract-attacks.js
 
 ---
 
-## 21. Required Test Matrix
+## 17. Required Test Matrix
 
 ### M8 experiment emission
 
@@ -636,7 +578,7 @@ src/contract-attacks.js
 
 ---
 
-## 22. Acceptance Gates
+## 18. Acceptance Gates
 
 M10 is complete only when:
 
@@ -660,7 +602,7 @@ M10 is complete only when:
 
 ---
 
-## 23. Review Boundary / Stopping Rule
+## 19. Review Boundary / Stopping Rule
 
 Treat a new finding as M10 architecture-blocking only if it demonstrates a concrete contradiction or authority gap in this V1 flow, including experiment aliasing/rebinding, replay-semantic loss, baseline history redefinition, AI-to-executable-policy leakage, human-confirmation bypass, ambiguous failure semantics, success despite source/regression/positive-control failure, or required unapproved M8/engine boundary weakening.
 
