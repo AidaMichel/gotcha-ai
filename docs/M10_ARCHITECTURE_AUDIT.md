@@ -1,94 +1,85 @@
 # M10 — Contract Remediation Architecture Audit
 
-Status: Complete — Revision 14
+Status: Complete — Revision 15
 Milestone: 10
 Audit base: `main@286c9fccc1d3a6107a1b16511aedef5f6265aa3f`
 Companion spec: `docs/M10_CONTRACT_REMEDIATION_SPEC.md`
 
 ## 1. Audit question
 
-What is the smallest deterministic architecture that can turn one confirmed M8 survivor into a human-authorized declarative protection and verify an externally supplied improved evaluator against the exact bound experiment without serialization drift, alias drift, callback prototype mutation, post-call authority races, confirmation bypass, or implementation-dependent result states?
+What is the smallest deterministic architecture that can turn one confirmed M8 survivor into a human-authorized declarative protection and verify an externally supplied improved evaluator against the exact bound experiment without serialization drift, prototype normalization, identity aliasing, callback prototype corruption, post-call authority races, confirmation bypass, or implementation-dependent result states?
 
-## 2. Revision 14 principle
+## 2. Revision 15 principle
 
-Revision 14 closes the five exact-head Revision 13 findings with five shared rules rather than local exceptions:
+Revision 15 closes the five exact-head Revision 14 P1 findings by strengthening shared primitives rather than adding special cases:
 
-- the complete experiment is a tree, not merely a set of individually replayable values;
-- generator callbacks receive data in a fresh dedicated prototype realm that cannot mutate Gotcha authority prototypes;
-- every evaluator phase/reason pair has one exact semantic result state;
-- public option graphs and callback identities become authoritative at invocation time through side-effect-free descriptor capture;
-- every completed draft/confirmed/rejected artifact is wire-probed after final protection text is known.
+- invocation capture validates rejection-relevant source prototypes before copying, so forbidden containers cannot be normalized into valid local records;
+- the generator callback projection has one exact observable record/array boundary, including realm prototypes, own keys, descriptors, length semantics, and extensibility;
+- every protection artifact status explicitly requires non-empty statement and rationale;
+- generator execution is protected by one exclusive local Object/Array-prototype guard across synchronous and native-Promise completion, with exact restoration before release;
+- tree semantics apply to the entire completed protection artifact before and after JSON round trip, not merely its nested experiment.
 
-All Revision 13 signed-zero, draft-only confirmation, Promise-only public completion, non-empty-string, ownership, replay-ordering, severity, baseline-identity, and failure-reason rules remain locked.
+All prior signed-zero, Promise-only completion, exact evaluator-state mapping, draft-only confirmation, wire probing, ownership, severity, ordering, and baseline-identity rules remain locked.
 
-## 3. Closure of Revision 13 findings
+## 3. Closure of Revision 14 findings
 
-### 3.1 Cross-field identity cannot drift through JSON
+### 3.1 Invocation capture preserves invalid prototype facts
 
-Revision 13 rejected repeated identity only inside each recursive case/output value. Revision 14 adds `isTreeGraphV1(root)`, which uses one identity set across the complete replayable experiment graph.
+Capture no longer copies a container first and asks whether the copied object is valid.
 
-No Object/Array identity may occur at two paths anywhere in the experiment. This includes aliases between input and expected output, between different attack outputs, between contract/rule containers and attack-rule containers, or across any other schema fields.
+Before any copy, source containers are classified with captured side-effect-free intrinsics. Arrays must have Gotcha local `Array.prototype`; non-array records must have Gotcha local `Object.prototype`. Proxy, custom, null, exotic, or cross-realm containers produce an internal capture-failure sentinel.
 
-Because accepted experiments are trees, JSON serialization cannot silently de-alias an accepted authority relationship.
+Only containers that already satisfy the required source prototype class are copied. Therefore capture cannot turn prohibited authority into valid local authority.
 
-### 3.2 Generator prototype mutation cannot reach authority
+### 3.2 Generator projection is observably exact
 
-Data-reference isolation alone is insufficient because ordinary local Objects and Arrays share local prototypes.
+Every callback-realm record uses that realm's ordinary Object prototype, exact own string keys, writable/enumerable/configurable data properties, no symbols, and remains extensible.
 
-Revision 14 therefore requires one fresh dedicated callback realm per drafting invocation. Every Object/Array reachable from generator input belongs to that realm. Its Object/Array prototypes are not reference-identical to Gotcha authority prototypes or any prototype reachable from `experimentAuthority`.
+Every callback-realm array uses that realm's ordinary Array prototype, dense canonical indices with writable/enumerable/configurable data descriptors, ordinary non-enumerable/non-configurable writable `length`, and remains extensible.
 
-A generator may mutate its callback realm, including its Object/Array prototypes, without changing authority, artifact serialization behavior, or another drafting invocation. The realm is discarded when generator completion settles.
+The same rule applies recursively, so generators cannot distinguish conforming implementations by descriptors, prototype choice, or freeze/seal/extensibility differences.
 
-### 3.3 Evaluator failure mapping is total
+### 3.3 Protection text is validated on every artifact boundary
 
-The stable M8 classification is now mapped exhaustively.
+`protection.statement` and `protection.rationale` now explicitly satisfy `isNonEmptyStringV1` on draft, confirmed, and rejected artifacts, including reconstructed serialized artifacts.
 
-For either evaluator:
+The rule is no longer inferred only from fresh generator output. Empty or whitespace-only protection text is invalid at every artifact boundary.
 
-```text
-positive-control + returned-false -> positive-control-failed
-positive-control + threw          -> execution-failed
-positive-control + non-boolean    -> execution-failed
-attack-evaluation + threw         -> execution-failed
-attack-evaluation + non-boolean   -> execution-failed
-```
+### 3.4 Local Gotcha prototypes are guarded across generator lifetime
 
-The baseline/improved prefix selects the exact public state. Positive-control pass facts are `null` when the failure occurs before a valid `true`, and remain `true` when attack evaluation fails after the control passed.
+A fresh input realm alone does not change the ECMAScript realm of the callback function. Revision 15 therefore adds one module-level exclusive generator guard.
 
-### 3.4 Public-call authority is fixed at invocation
+Before generator invocation, Gotcha captures the complete own-key/descriptor surfaces of local `Object.prototype` and `Array.prototype`. The guard remains held through settlement of a genuine native Promise. In a mandatory finally path, added properties are deleted, original descriptors are restored exactly, and restoration is verified before the guard is released.
 
-All public M10 APIs still return a native Promise and expose no synchronous validation-error channel.
+If restoration fails, drafting rejects with `TypeError`. Otherwise callback throw/rejection remains authoritative; a successfully returning generator that mutated either guarded surface is rejected with `TypeError` after restoration.
 
-Before that Promise is returned, a side-effect-free descriptor capture copies the complete options data graph and captures callback identities by value. Proxies are identified with the captured side-effect-free Proxy probe before reflective traversal, and accessors are never invoked.
+Because generator lifetimes are serialized under this guard, overlapping async generators cannot restore each other's snapshots out of order.
 
-Capture failure is stored internally and converted to asynchronous `TypeError` rejection in the Promise continuation. Caller mutation immediately after the API call cannot replace or alter the experiment, draft, protection, decision, or callback authority for that invocation.
+### 3.5 Tree semantics cover the whole protection artifact
 
-### 3.5 Final artifact size/escaping is actually tested
+Revision 14 guaranteed a tree only for the nested experiment. Revision 15 requires `isTreeGraphV1` over each complete draft/confirmed/rejected artifact before serialization and over the complete parsed artifact after serialization.
 
-The M8 experiment probe remains necessary but is no longer treated as proof that later user/model text is serializable.
+Top-level `rule`, `source`, or `protection` containers cannot alias any nested experiment container. Builders must allocate independently owned containers, so direct artifacts and their supported JSON-reloaded forms have the same identity semantics.
 
-Every draft, confirmed artifact, and rejected artifact is stringified/parsed after its final status and protection text are known. The inherited `Object.prototype.toJSON` / `Array.prototype.toJSON` hardening is repeated before each completed-artifact probe.
-
-If final text, escaping, nesting, or runtime maximum string size makes serialization fail, drafting/confirmation rejects with `TypeError`; no unserializable artifact is returned.
-
-## 4. Authority chain
-
-The final V1 authority chain is:
+## 4. Final authority chain
 
 ```text
 validated M8 case before callbacks
-  -> frozen case eligibility + owned case snapshots
+  -> frozen case eligibility + owned snapshots
   -> retained attack/output snapshots
-  -> complete tree candidate experiment
-  -> experiment wire probe
+  -> complete tree experiment
+  -> hardened experiment wire probe
   -> emitted replayable experiment
-  -> invocation-time drafting capture
+  -> invocation-time source-prototype-preserving capture
   -> owned experimentAuthority
-  -> isolated callback-realm generator input
+  -> exact callback-realm generator projection
+  -> exclusive local prototype guard across generator lifetime
   -> validated generator output
-  -> completed draft artifact wire probe
+  -> complete tree draft
+  -> completed-artifact wire probe
   -> invocation-time confirmation capture
-  -> completed confirmed/rejected artifact wire probe
+  -> complete tree confirmed/rejected artifact
+  -> completed-artifact wire probe
   -> invocation-time verification capture
   -> owned verificationAuthority
   -> baseline replay
@@ -97,9 +88,9 @@ validated M8 case before callbacks
   -> normalized deterministic result
 ```
 
-No later phase reads mutable caller authority and no generator callback can mutate authority through either own references or shared prototypes.
+No later phase rereads mutable caller authority. Generator data mutation is isolated by ownership/realm projection; generator local-prototype mutation is detected/restored under the exclusive guard.
 
-## 5. Replayability boundary
+## 5. Replayability and artifact boundary
 
 Replayable V1 remains intentionally narrow:
 
@@ -108,32 +99,22 @@ Replayable V1 remains intentionally narrow:
 - dense local Arrays;
 - local ordinary Objects;
 - no accessors, symbols, exotic/custom/null/cross-realm prototypes;
-- no cycles;
-- no repeated identity anywhere in the complete experiment tree;
-- no non-finite numeric authority;
+- no cycles or repeated identity;
 - exact signed-zero-safe attack scores.
 
-The replayable experiment must survive the hardened JSON round trip and revalidate as the same tree-shaped authority.
+The experiment must be a tree and survive its hardened JSON probe. Every protection artifact must independently be a complete tree and survive a final JSON probe after status/text are fixed.
 
-## 6. Public completion and authority model
+## 6. Public completion and callback model
 
-The public operations remain uniformly Promise-based:
+All public APIs remain genuine-local-Promise-only. Invocation capture occurs before Promise return but executes no callback and exposes no synchronous validation error channel. Capture/validation errors reject asynchronously with `TypeError`.
 
-```text
-draftContractProtection -> Promise<draft artifact>
-confirmContractProtection -> Promise<confirmed|rejected artifact>
-verifyContractProtection -> Promise<verification result>
-```
+Generator direct/native-Promise completion semantics remain exact; arbitrary thenables are not assimilated. Generator execution is serialized only for the protected callback lifetime needed to prevent shared local-prototype corruption.
 
-Invocation capture is synchronous but non-callback/non-throwing to the caller; validation failures reject asynchronously.
+Evaluator failures resolve deterministic semantic verification states according to the total phase/reason mapping.
 
-Generator throws/rejections reject drafting. Classified evaluator failures resolve semantic verification results.
+## 7. Human and historical authority
 
-## 7. Human authority
-
-Drafting can produce only `status: "draft"`.
-
-Confirmation accepts only a draft. Exact terminal mapping remains:
+Drafting returns only `draft`. Confirmation accepts only `draft` and maps:
 
 ```text
 accept -> confirmed
@@ -141,44 +122,29 @@ edit   -> confirmed
 reject -> rejected
 ```
 
-Verification accepts only confirmed artifacts. Every confirmation output is independently owned and wire-safe before it is returned.
+Verification accepts only a valid confirmed complete-tree artifact.
 
-## 8. Historical identity and result semantics
+The baseline evaluator remains a compatibility witness. Historical authority is the bound experiment: per-attack classifications, survivor order, and top finding must match before improved evaluation begins.
 
-The old evaluator is a compatibility witness; bound experiment history remains authority.
-
-Baseline must reproduce per-attack classifications, survivor rank order, and top finding before improved evaluation starts.
-
-Attack numeric severity remains bound exactly to rule severity. Baseline and normalized replay outcomes remain in bound attack order.
-
-Complete-state precedence remains:
-
-```text
-regression-detected
-source-finding-still-survives
-verified
-```
-
-`failureReasons` reports all simultaneously applicable complete failures in canonical order. `sourceFindingCaught` reflects only the selected source's after classification.
-
-## 9. Required proof obligations
+## 8. Required proof obligations
 
 Implementation must prove at least:
 
-- aliases across any two experiment paths reject, including input↔expectedOutput aliases;
-- accepted experiments remain semantically identical after JSON reload because they are trees;
-- generator input Objects/Arrays and their mutable prototypes are isolated from authority in a fresh per-invocation realm;
-- generator prototype mutation cannot affect authority, later wire probes, or another invocation;
-- public invocation capture freezes nested option data and callback identity before Promise return without invoking getters/Proxy traps;
-- immediate caller mutation after API return cannot alter that invocation;
-- capture/validation failures still reject asynchronously with `TypeError`;
-- every evaluator phase/reason pair maps to the exact required state and positive-control fact;
-- every completed draft/confirmed/rejected artifact is probed after final protection text is known;
-- huge or escape-heavy generator/edit text cannot produce an unserializable returned artifact;
-- inherited local `toJSON` never executes in any wire probe;
-- signed-zero, severity, baseline ordering, draft-only confirmation, baseline identity, and complete failure-reason rules remain intact.
+- custom/null/cross-realm/Proxy/accessor source containers fail invocation capture before copying and cannot be normalized into valid local records;
+- immediate caller mutation after API return cannot alter invocation authority;
+- generator callback records/arrays expose exact specified callback-realm prototypes, descriptors, length semantics, keys, and extensibility;
+- generator input shares no authority data objects or Object/Array prototypes;
+- overlapping generator calls are serialized for the full guarded callback/native-Promise lifetime;
+- local Object/Array prototype mutation is detected and exactly restored before another generator can run;
+- callback throw/rejection survives successful restoration while restoration failure has `TypeError` precedence;
+- protection statement/rationale reject empty and whitespace-only values on every artifact status, including reconstructed artifacts;
+- aliases anywhere across a completed artifact reject before serialization and cannot be silently de-aliased by JSON;
+- every completed artifact revalidates as a whole tree after JSON parse;
+- huge/escape-heavy text cannot yield an unserializable returned artifact;
+- inherited local `toJSON` never executes during a wire probe;
+- signed-zero, severity, ordering, draft-only confirmation, exact evaluator mapping, baseline identity, and complete failure-reason semantics remain intact.
 
-## 10. Scope
+## 9. Scope
 
 Expected implementation files:
 
@@ -189,10 +155,10 @@ src/contract-attacks.js
 test/contract-remediation.test.js
 ```
 
-A small isolated-realm helper under `src/` is allowed. `src/engine.js` and `src/mutation-pack.js` remain unchanged by default.
+A small internal callback-realm/prototype-guard helper under `src/` is allowed. `src/engine.js` and `src/mutation-pack.js` remain unchanged by default.
 
 Lossless arbitrary graph/prototype serialization, cryptographic attestation, provider adapters, dashboards, model execution, generated evaluator code, automatic patching, and unrelated engine redesign remain out of scope.
 
-## 11. Stopping rule
+## 10. Stopping rule
 
-M10 architecture is implementation-ready only after a fresh exact-head Codex review reports no concrete contradiction or remaining V1 implementation-choice ambiguity in the Revision 14 spec.
+M10 architecture is implementation-ready only after a fresh exact-head Codex review reports no concrete contradiction or remaining V1 implementation-choice ambiguity in the Revision 15 spec.
