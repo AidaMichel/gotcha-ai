@@ -1,85 +1,132 @@
 # M10 — Contract Remediation Architecture Audit
 
-Status: Complete — Revision 15
+Status: Complete — Revision 16
 Milestone: 10
 Audit base: `main@286c9fccc1d3a6107a1b16511aedef5f6265aa3f`
 Companion spec: `docs/M10_CONTRACT_REMEDIATION_SPEC.md`
 
 ## 1. Audit question
 
-What is the smallest deterministic architecture that can turn one confirmed M8 survivor into a human-authorized declarative protection and verify an externally supplied improved evaluator against the exact bound experiment without serialization drift, prototype normalization, identity aliasing, callback prototype corruption, post-call authority races, confirmation bypass, or implementation-dependent result states?
+What is the smallest deterministic architecture that can turn one confirmed M8 survivor into a human-authorized declarative protection and verify an externally supplied improved evaluator against the exact bound experiment without serialization drift, prototype ambiguity, identity aliasing, callback-global corruption, post-call authority races, confirmation bypass, or implementation-dependent result states?
 
-## 2. Revision 15 principle
+## 2. Revision 16 principle
 
-Revision 15 closes the five exact-head Revision 14 P1 findings by strengthening shared primitives rather than adding special cases:
+Revision 16 removes the source of the Revision 15 loop instead of extending the prototype guard.
 
-- invocation capture validates rejection-relevant source prototypes before copying, so forbidden containers cannot be normalized into valid local records;
-- the generator callback projection has one exact observable record/array boundary, including realm prototypes, own keys, descriptors, length semantics, and extensibility;
-- every protection artifact status explicitly requires non-empty statement and rationale;
-- generator execution is protected by one exclusive local Object/Array-prototype guard across synchronous and native-Promise completion, with exact restoration before release;
-- tree semantics apply to the entire completed protection artifact before and after JSON round trip, not merely its nested experiment.
+The trusted M10 core no longer executes a proposal-generator callback. Model/provider execution is explicitly outside the core; M10 consumes only exact declarative proposal data.
 
-All prior signed-zero, Promise-only completion, exact evaluator-state mapping, draft-only confirmation, wire probing, ownership, severity, ordering, and baseline-identity rules remain locked.
+That change eliminates, by construction, the Revision 15 concerns about:
 
-## 3. Closure of Revision 14 findings
+- prototype `[[Prototype]]` / extensibility restoration;
+- async global visibility while a generator Promise is pending;
+- reentrant generator-guard deadlock;
+- callback-projection observable key order;
+- cross-realm generator-return records;
+- transient prototype mutation detection.
 
-### 3.1 Invocation capture preserves invalid prototype facts
+The two remaining generic boundary concerns are handled directly:
 
-Capture no longer copies a container first and asks whether the copied object is valid.
+- invocation/replay data uses captured intrinsic-brand probes before any normalization, so prototype-rewritten intrinsic exotics cannot masquerade as ordinary authority;
+- non-empty-string validation uses captured `String.prototype.trim` through captured `Reflect.apply`, so mutable global trim behavior is irrelevant.
 
-Before any copy, source containers are classified with captured side-effect-free intrinsics. Arrays must have Gotcha local `Array.prototype`; non-array records must have Gotcha local `Object.prototype`. Proxy, custom, null, exotic, or cross-realm containers produce an internal capture-failure sentinel.
+## 3. Why proposal generation moved outside the trusted core
 
-Only containers that already satisfy the required source prototype class are copied. Therefore capture cannot turn prohibited authority into valid local authority.
+M10's product invariant is that AI proposes declarative protection intent and humans authorize it. The core does not need to own provider execution to enforce that invariant.
 
-### 3.2 Generator projection is observably exact
+The final flow is:
 
-Every callback-realm record uses that realm's ordinary Object prototype, exact own string keys, writable/enumerable/configurable data properties, no symbols, and remains extensible.
+```text
+external model/provider adapter
+  -> exact declarative proposal value
+  -> M10 boundary validation + authority binding
+  -> draft artifact
+  -> mandatory human confirmation
+  -> baseline identity gate
+  -> improved evaluator re-attack
+```
 
-Every callback-realm array uses that realm's ordinary Array prototype, dense canonical indices with writable/enumerable/configurable data descriptors, ordinary non-enumerable/non-configurable writable `length`, and remains extensible.
+This is smaller and safer than attempting to make arbitrary JavaScript callback execution transactional across ambient globals for an unbounded async lifetime.
 
-The same rule applies recursively, so generators cannot distinguish conforming implementations by descriptors, prototype choice, or freeze/seal/extensibility differences.
+The adapter has no authority over contract/rule/source identity, baseline history, confirmation status, or verification result. It can only propose `{ statement, rationale }` under IDs that M10 independently rebinds to the selected experiment authority.
 
-### 3.3 Protection text is validated on every artifact boundary
+## 4. Closure of Revision 15 findings
 
-`protection.statement` and `protection.rationale` now explicitly satisfy `isNonEmptyStringV1` on draft, confirmed, and rejected artifacts, including reconstructed serialized artifacts.
+### 4.1 Prototype internal-slot restoration is no longer required
 
-The rule is no longer inferred only from fresh generator output. Empty or whitespace-only protection text is invalid at every artifact boundary.
+There is no M10 proposal callback and therefore no M10-owned callback lifetime during which the core must snapshot, restore, or compare `Object.prototype` / `Array.prototype` internal state.
 
-### 3.4 Local Gotcha prototypes are guarded across generator lifetime
+Wire operations instead fail closed against one captured prototype baseline: local Object/Array prototype-chain identities must match module-start authority and neither may expose an own `toJSON`.
 
-A fresh input realm alone does not change the ECMAScript realm of the callback function. Revision 15 therefore adds one module-level exclusive generator guard.
+M10 does not mutate or restore these globals.
 
-Before generator invocation, Gotcha captures the complete own-key/descriptor surfaces of local `Object.prototype` and `Array.prototype`. The guard remains held through settlement of a genuine native Promise. In a mandatory finally path, added properties are deleted, original descriptors are restored exactly, and restoration is verified before the guard is released.
+### 4.2 No async global prototype exposure window
 
-If restoration fails, drafting rejects with `TypeError`. Otherwise callback throw/rejection remains authoritative; a successfully returning generator that mutated either guarded surface is rejected with `TypeError` after restoration.
+The removed generator callback means drafting never holds an async callback open while global prototype mutations are visible.
 
-Because generator lifetimes are serialized under this guard, overlapping async generators cannot restore each other's snapshots out of order.
+M8 evaluator/attack-generator callback safety remains owned by M8. M10's proposal path is pure data validation/construction.
 
-### 3.5 Tree semantics cover the whole protection artifact
+### 4.3 No reentrant proposal-generation deadlock
 
-Revision 14 guaranteed a tree only for the nested experiment. Revision 15 requires `isTreeGraphV1` over each complete draft/confirmed/rejected artifact before serialization and over the complete parsed artifact after serialization.
+`draftContractProtection()` invokes no proposal callback. Recursive/reentrant model execution is outside M10 core and cannot deadlock an M10 global guard because no such guard exists.
 
-Top-level `rule`, `source`, or `protection` containers cannot alias any nested experiment container. Builders must allocate independently owned containers, so direct artifacts and their supported JSON-reloaded forms have the same identity semantics.
+### 4.4 No callback projection key-order ambiguity
 
-## 4. Final authority chain
+The generator-input projection was deleted with the generator callback.
+
+For core-created records, Revision 16 separately defines canonical property construction order as the schema order shown in the spec. Caller/reloaded record insertion order is not authority and is normalized by core construction.
+
+### 4.5 Prototype-rewritten exotics are deterministic
+
+Prototype identity alone is not used as an ordinary-object proof.
+
+Before treating a non-array object as V1 schema/data authority, Gotcha runs captured Node intrinsic-brand probes for Date, RegExp, collection types, Promise, native errors, ArrayBuffer/views/typed arrays, boxed primitives, arguments/generator/module-namespace/iterator objects, KeyObject/External values, Buffer, and other available covered intrinsic brands.
+
+A value such as:
+
+```js
+Object.setPrototypeOf(new Date(), Object.prototype)
+```
+
+still fails because the captured Date brand probe remains positive.
+
+For unbranded host objects not recognized by Node's captured probes, V1 semantics are explicitly the exact current prototype/descriptor data boundary; hidden host semantics are not preserved or authoritative.
+
+### 4.6 Cross-realm generator output ambiguity is gone
+
+There is no generator callback output inside core.
+
+External adapters must pass proposal data through the normal local declarative-data public boundary. Cross-realm/custom-prototype/exotic/Proxy/accessor proposal containers reject rather than being silently normalized after callback return.
+
+### 4.7 Transient mutation detection is gone
+
+Because M10 does not run a proposal callback, it makes no unimplementable claim about detecting every intermediate write to global prototypes.
+
+Wire operations inspect current captured-baseline facts immediately before serialization and fail closed if the baseline is not exact.
+
+### 4.8 Trim semantics are captured
+
+`isNonEmptyStringV1` uses the captured module-start `String.prototype.trim` via captured `Reflect.apply`.
+
+Replacing `String.prototype.trim` later cannot turn whitespace-only task/ID/protection text into valid authority.
+
+## 5. Final authority chain
 
 ```text
 validated M8 case before callbacks
-  -> frozen case eligibility + owned snapshots
+  -> frozen case eligibility + owned canonical case snapshots
   -> retained attack/output snapshots
-  -> complete tree experiment
-  -> hardened experiment wire probe
+  -> complete tree candidate experiment
+  -> prototype-baseline + JSON experiment probe
   -> emitted replayable experiment
-  -> invocation-time source-prototype-preserving capture
+  -> external adapter obtains declarative proposal
+  -> invocation-time descriptor/brand capture
   -> owned experimentAuthority
-  -> exact callback-realm generator projection
-  -> exclusive local prototype guard across generator lifetime
-  -> validated generator output
+  -> exact proposal authority binding
   -> complete tree draft
-  -> completed-artifact wire probe
+  -> final artifact JSON probe
   -> invocation-time confirmation capture
   -> complete tree confirmed/rejected artifact
-  -> completed-artifact wire probe
+  -> final artifact JSON probe
   -> invocation-time verification capture
   -> owned verificationAuthority
   -> baseline replay
@@ -88,33 +135,39 @@ validated M8 case before callbacks
   -> normalized deterministic result
 ```
 
-No later phase rereads mutable caller authority. Generator data mutation is isolated by ownership/realm projection; generator local-prototype mutation is detected/restored under the exclusive guard.
+No later phase rereads mutable caller authority. No M10 proposal-generation callback can mutate core authority or ambient prototype state because none is executed.
 
-## 5. Replayability and artifact boundary
+## 6. Replayability and data boundary
 
 Replayable V1 remains intentionally narrow:
 
 - null/string/boolean;
 - finite numbers except `-0`;
 - dense local Arrays;
-- local ordinary Objects;
-- no accessors, symbols, exotic/custom/null/cross-realm prototypes;
+- local Object-prototype data records that pass captured intrinsic-brand rejection;
+- no accessors, symbols, custom/null/cross-realm prototypes;
 - no cycles or repeated identity;
 - exact signed-zero-safe attack scores.
 
-The experiment must be a tree and survive its hardened JSON probe. Every protection artifact must independently be a complete tree and survive a final JSON probe after status/text are fixed.
+Experiments and protection artifacts are complete trees and must survive the supported JSON round trip without semantic/identity drift.
 
-## 6. Public completion and callback model
+Prototype-rewritten known intrinsics reject before normalization.
 
-All public APIs remain genuine-local-Promise-only. Invocation capture occurs before Promise return but executes no callback and exposes no synchronous validation error channel. Capture/validation errors reject asynchronously with `TypeError`.
+## 7. Public completion model
 
-Generator direct/native-Promise completion semantics remain exact; arbitrary thenables are not assimilated. Generator execution is serialized only for the protected callback lifetime needed to prevent shared local-prototype corruption.
+All three public APIs remain genuine-local-native-Promise-only.
 
-Evaluator failures resolve deterministic semantic verification states according to the total phase/reason mapping.
+Invocation capture happens synchronously before Promise return but executes no user callback and exposes no synchronous validation-error channel. Capture/schema/authority errors reject asynchronously with `TypeError`.
 
-## 7. Human and historical authority
+Drafting has no model callback throw/rejection/thenable channel.
 
-Drafting returns only `draft`. Confirmation accepts only `draft` and maps:
+Only evaluator callbacks remain executable in M10, and they are delegated to the existing M8 evaluator execution boundary. Classified evaluator failures resolve deterministic semantic verification states.
+
+## 8. Human and historical authority
+
+Drafting returns only `draft`.
+
+Confirmation accepts only `draft` and maps:
 
 ```text
 accept -> confirmed
@@ -124,27 +177,26 @@ reject -> rejected
 
 Verification accepts only a valid confirmed complete-tree artifact.
 
-The baseline evaluator remains a compatibility witness. Historical authority is the bound experiment: per-attack classifications, survivor order, and top finding must match before improved evaluation begins.
+The baseline evaluator is a compatibility witness; the bound experiment remains historical authority. Per-attack classifications, survivor order, and top finding must match before improved evaluation begins.
 
-## 8. Required proof obligations
+## 9. Required proof obligations
 
 Implementation must prove at least:
 
-- custom/null/cross-realm/Proxy/accessor source containers fail invocation capture before copying and cannot be normalized into valid local records;
-- immediate caller mutation after API return cannot alter invocation authority;
-- generator callback records/arrays expose exact specified callback-realm prototypes, descriptors, length semantics, keys, and extensibility;
-- generator input shares no authority data objects or Object/Array prototypes;
-- overlapping generator calls are serialized for the full guarded callback/native-Promise lifetime;
-- local Object/Array prototype mutation is detected and exactly restored before another generator can run;
-- callback throw/rejection survives successful restoration while restoration failure has `TypeError` precedence;
-- protection statement/rationale reject empty and whitespace-only values on every artifact status, including reconstructed artifacts;
-- aliases anywhere across a completed artifact reject before serialization and cannot be silently de-aliased by JSON;
-- every completed artifact revalidates as a whole tree after JSON parse;
-- huge/escape-heavy text cannot yield an unserializable returned artifact;
-- inherited local `toJSON` never executes during a wire probe;
-- signed-zero, severity, ordering, draft-only confirmation, exact evaluator mapping, baseline identity, and complete failure-reason semantics remain intact.
+- replacing `String.prototype.trim` cannot alter non-empty-string validation;
+- Proxy/accessor/cross-realm/null/custom-prototype containers fail before authority copying;
+- prototype-rewritten covered intrinsics (Date/Map/typed arrays/etc.) fail captured brand checks before normalization;
+- immediate caller mutation after API return cannot alter experiment/proposal/draft/protection/decision/evaluator authority;
+- drafting executes no provider/model/proposal callback;
+- proposal data is exact, local, declarative, and rebound to experiment task/source/rule authority;
+- accepted experiments and artifacts are whole trees, with aliases/cycles rejected before and after JSON round trip;
+- canonical Gotcha-built record key order is stable and independent of caller insertion order;
+- prototype-baseline checks include Object/Array prototype-chain identity plus own `toJSON` absence before wire operations;
+- empty/whitespace protection text rejects on every artifact boundary;
+- huge/escape-heavy proposal/edit text cannot yield an unserializable returned artifact;
+- signed-zero, severity, ordering, draft-only confirmation, evaluator-state mapping, baseline identity, and complete failure-reason semantics remain exact.
 
-## 9. Scope
+## 10. Scope
 
 Expected implementation files:
 
@@ -155,10 +207,14 @@ src/contract-attacks.js
 test/contract-remediation.test.js
 ```
 
-A small internal callback-realm/prototype-guard helper under `src/` is allowed. `src/engine.js` and `src/mutation-pack.js` remain unchanged by default.
+No callback-realm/prototype-guard helper is required.
 
-Lossless arbitrary graph/prototype serialization, cryptographic attestation, provider adapters, dashboards, model execution, generated evaluator code, automatic patching, and unrelated engine redesign remain out of scope.
+Provider/model adapters are outside this architecture PR and can be implemented later around the declarative proposal boundary without changing trusted authority semantics.
 
-## 10. Stopping rule
+`src/engine.js` and `src/mutation-pack.js` remain unchanged by default.
 
-M10 architecture is implementation-ready only after a fresh exact-head Codex review reports no concrete contradiction or remaining V1 implementation-choice ambiguity in the Revision 15 spec.
+Lossless arbitrary graph/prototype serialization, cryptographic attestation, dashboards, production-model execution inside M10 core, generated evaluator code, automatic patching, and unrelated engine redesign remain out of scope.
+
+## 11. Stopping rule
+
+M10 architecture is implementation-ready only after a fresh exact-head Codex review reports no concrete contradiction or remaining V1 implementation-choice ambiguity in the Revision 16 spec.
