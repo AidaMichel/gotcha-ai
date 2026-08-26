@@ -1,132 +1,123 @@
 # M10 — Contract Remediation Architecture Audit
 
-Status: Complete — Revision 13
+Status: Complete — Revision 14
 Milestone: 10
 Audit base: `main@286c9fccc1d3a6107a1b16511aedef5f6265aa3f`
 Companion spec: `docs/M10_CONTRACT_REMEDIATION_SPEC.md`
 
-## 1. Audit Question
+## 1. Audit question
 
-What is the smallest deterministic architecture that can turn a confirmed M8 survivor into a human-authorized declarative protection and then prove an externally supplied improved evaluator against the exact bound experiment without serialization drift, callback mutation, authority aliasing, human-confirmation bypass, or implementation-dependent public control flow?
+What is the smallest deterministic architecture that can turn one confirmed M8 survivor into a human-authorized declarative protection and verify an externally supplied improved evaluator against the exact bound experiment without serialization drift, alias drift, callback prototype mutation, post-call authority races, confirmation bypass, or implementation-dependent result states?
 
-## 2. Revision 13 Principle
+## 2. Revision 14 principle
 
-Revision 13 is a narrow closure pass over the five exact-head Revision 12 findings.
+Revision 14 closes the five exact-head Revision 13 findings with five shared rules rather than local exceptions:
 
-It retains the closed Revision 12 boundary model and adds five explicit rules:
+- the complete experiment is a tree, not merely a set of individually replayable values;
+- generator callbacks receive data in a fresh dedicated prototype realm that cannot mutate Gotcha authority prototypes;
+- every evaluator phase/reason pair has one exact semantic result state;
+- public option graphs and callback identities become authoritative at invocation time through side-effect-free descriptor capture;
+- every completed draft/confirmed/rejected artifact is wire-probed after final protection text is known.
 
-- one signed-zero-safe numeric primitive for every serialized non-literal numeric field;
-- draft-only confirmation authority;
-- a wire probe with one full protection-artifact wrapper level of nesting headroom;
-- one Promise-only completion contract for every public M10 API;
-- one trim-based non-empty-string predicate used everywhere.
+All Revision 13 signed-zero, draft-only confirmation, Promise-only public completion, non-empty-string, ownership, replay-ordering, severity, baseline-identity, and failure-reason rules remain locked.
 
-## 3. Closure of Revision 12 Findings
+## 3. Closure of Revision 13 findings
 
-### 3.1 Signed zero is forbidden in every serialized numeric authority field
+### 3.1 Cross-field identity cannot drift through JSON
 
-`isWireNumberV1(value)` requires a finite number and `Object.is(value, -0) === false`.
+Revision 13 rejected repeated identity only inside each recursive case/output value. Revision 14 adds `isTreeGraphV1(root)`, which uses one identity set across the complete replayable experiment graph.
 
-This primitive now applies not only to case/output values but also to `realism`, `subtlety`, `novelty`, `fixability`, and any other non-literal serialized numeric field. Ordinary positive zero remains valid.
+No Object/Array identity may occur at two paths anywhere in the experiment. This includes aliases between input and expected output, between different attack outputs, between contract/rule containers and attack-rule containers, or across any other schema fields.
 
-### 3.2 Human confirmation cannot be bypassed or replayed
+Because accepted experiments are trees, JSON serialization cannot silently de-alias an accepted authority relationship.
 
-`draftContractProtection()` resolves only a `status: "draft"` artifact.
+### 3.2 Generator prototype mutation cannot reach authority
 
-`confirmContractProtection()` accepts only `status: "draft"`. Passing a confirmed or rejected artifact rejects with `TypeError`.
+Data-reference isolation alone is insufficient because ordinary local Objects and Arrays share local prototypes.
 
-Decision mapping remains exact:
+Revision 14 therefore requires one fresh dedicated callback realm per drafting invocation. Every Object/Array reachable from generator input belongs to that realm. Its Object/Array prototypes are not reference-identical to Gotcha authority prototypes or any prototype reachable from `experimentAuthority`.
 
-```text
-accept -> confirmed
-edit   -> confirmed
-reject -> rejected
-```
+A generator may mutate its callback realm, including its Object/Array prototypes, without changing authority, artifact serialization behavior, or another drafting invocation. The realm is discarded when generator completion settles.
 
-Verification accepts only confirmed artifacts.
+### 3.3 Evaluator failure mapping is total
 
-### 3.3 Wire depth is tested at protection-artifact depth
+The stable M8 classification is now mapped exhaustively.
 
-M8 no longer probes only the experiment itself.
-
-It serializes this exact depth envelope:
-
-```js
-{ experiment: completeCandidateExperiment }
-```
-
-A real contract-protection artifact adds sibling fields but no deeper path beneath `experiment`, so this envelope reserves the one additional wrapper level required by the later serialized/reloaded draft/confirmed/rejected artifact flow.
-
-The inherited `Object.prototype.toJSON` / `Array.prototype.toJSON` hardening remains mandatory before the probe.
-
-### 3.4 Public completion semantics are exact
-
-All three public APIs always return a genuine local native Promise before validation or callback execution.
-
-Boundary validation rejects that Promise with `TypeError`; there is no direct return or synchronous validation-throw channel.
-
-Draft generator throws/rejections reject through the Promise. Classified evaluator failures remain semantic verification results and resolve rather than reject.
-
-This gives callers one control-flow model regardless of whether the injected generator is synchronous or asynchronous.
-
-### 3.5 Non-empty strings have one meaning
-
-`isNonEmptyStringV1(value)` is exactly:
+For either evaluator:
 
 ```text
-typeof value === "string" AND value.trim().length > 0
+positive-control + returned-false -> positive-control-failed
+positive-control + threw          -> execution-failed
+positive-control + non-boolean    -> execution-failed
+attack-evaluation + threw         -> execution-failed
+attack-evaluation + non-boolean   -> execution-failed
 ```
 
-Whitespace-only values reject. Accepted strings are not silently trimmed or normalized after validation.
+The baseline/improved prefix selects the exact public state. Positive-control pass facts are `null` when the failure occurs before a valid `true`, and remain `true` when attack evaluation fails after the control passed.
 
-The same rule applies to tasks, IDs, statements, descriptions, rationales, types, and protection text.
+### 3.4 Public-call authority is fixed at invocation
 
-## 4. Authority Chain
+All public M10 APIs still return a native Promise and expose no synchronous validation-error channel.
 
-The required authority chain is now:
+Before that Promise is returned, a side-effect-free descriptor capture copies the complete options data graph and captures callback identities by value. Proxies are identified with the captured side-effect-free Proxy probe before reflective traversal, and accessors are never invoked.
+
+Capture failure is stored internally and converted to asynchronous `TypeError` rejection in the Promise continuation. Caller mutation immediately after the API call cannot replace or alter the experiment, draft, protection, decision, or callback authority for that invocation.
+
+### 3.5 Final artifact size/escaping is actually tested
+
+The M8 experiment probe remains necessary but is no longer treated as proof that later user/model text is serializable.
+
+Every draft, confirmed artifact, and rejected artifact is stringified/parsed after its final status and protection text are known. The inherited `Object.prototype.toJSON` / `Array.prototype.toJSON` hardening is repeated before each completed-artifact probe.
+
+If final text, escaping, nesting, or runtime maximum string size makes serialization fail, drafting/confirmation rejects with `TypeError`; no unserializable artifact is returned.
+
+## 4. Authority chain
+
+The final V1 authority chain is:
 
 ```text
 validated M8 case before callbacks
-  -> owned case snapshots + frozen eligibility
-  -> retained attack output/score snapshots
-  -> complete candidate experiment
-  -> one-level protection-depth JSON wire probe
-  -> emitted experiment
-  -> public drafting Promise
-  -> pre-generator experimentAuthority snapshot
-  -> separately owned generatorInput snapshot
-  -> status:draft artifact
-  -> public confirmation Promise
-  -> confirmed/rejected independently owned artifact
-  -> public verification Promise
-  -> pre-baseline verificationAuthority snapshot
+  -> frozen case eligibility + owned case snapshots
+  -> retained attack/output snapshots
+  -> complete tree candidate experiment
+  -> experiment wire probe
+  -> emitted replayable experiment
+  -> invocation-time drafting capture
+  -> owned experimentAuthority
+  -> isolated callback-realm generator input
+  -> validated generator output
+  -> completed draft artifact wire probe
+  -> invocation-time confirmation capture
+  -> completed confirmed/rejected artifact wire probe
+  -> invocation-time verification capture
+  -> owned verificationAuthority
   -> baseline replay
-  -> historical identity gate
+  -> exact historical identity gate
   -> improved replay
-  -> independently owned normalized result
+  -> normalized deterministic result
 ```
 
-No callback may mutate authority that a later phase reads, and no artifact may become verification authority without an explicit draft confirmation decision.
+No later phase reads mutable caller authority and no generator callback can mutate authority through either own references or shared prototypes.
 
-## 5. Replayability Boundary
+## 5. Replayability boundary
 
-Replayable V1 supports only local JSON-wire-stable evaluator values:
+Replayable V1 remains intentionally narrow:
 
 - null/string/boolean;
-- finite numbers except negative zero;
+- finite numbers except `-0`;
 - dense local Arrays;
-- local ordinary Objects with `Object.prototype`;
-- no accessors, symbols, custom/null/cross-realm prototypes;
-- no repeated identity or cycles;
-- no exotics or non-finite numbers.
+- local ordinary Objects;
+- no accessors, symbols, exotic/custom/null/cross-realm prototypes;
+- no cycles;
+- no repeated identity anywhere in the complete experiment tree;
+- no non-finite numeric authority;
+- exact signed-zero-safe attack scores.
 
-Every serialized attack score also rejects signed zero independently of the recursive case/output predicate.
+The replayable experiment must survive the hardened JSON round trip and revalidate as the same tree-shaped authority.
 
-The decisive wire test is the protection-depth envelope round trip, guarded against inherited `toJSON` execution.
+## 6. Public completion and authority model
 
-## 6. Public API Contract
-
-The public operations are uniformly Promise-based:
+The public operations remain uniformly Promise-based:
 
 ```text
 draftContractProtection -> Promise<draft artifact>
@@ -134,33 +125,33 @@ confirmContractProtection -> Promise<confirmed|rejected artifact>
 verifyContractProtection -> Promise<verification result>
 ```
 
-Malformed boundaries reject with `TypeError` and execute zero callbacks.
+Invocation capture is synchronous but non-callback/non-throwing to the caller; validation failures reject asynchronously.
 
-Generator callback errors reject drafting. Evaluator execution failures that have defined semantic states resolve verification with those states.
+Generator throws/rejections reject drafting. Classified evaluator failures resolve semantic verification results.
 
-## 7. Historical Identity and Ranking
+## 7. Human authority
 
-The baseline evaluator remains only a compatibility witness. Bound experiment history remains authority.
+Drafting can produce only `status: "draft"`.
 
-A complete baseline replay must reproduce:
-
-- every per-attack classification in bound attack order;
-- survivor rank order;
-- top finding.
-
-Attack numeric severity remains exactly bound to rule severity:
+Confirmation accepts only a draft. Exact terminal mapping remains:
 
 ```text
-critical -> 1.0
-major    -> 0.7
-minor    -> 0.4
+accept -> confirmed
+edit   -> confirmed
+reject -> rejected
 ```
 
-Experiment baseline outcomes remain in exact bound attack order.
+Verification accepts only confirmed artifacts. Every confirmation output is independently owned and wire-safe before it is returned.
 
-## 8. Result Semantics
+## 8. Historical identity and result semantics
 
-Partial verification states remain exact and complete. Complete state precedence remains:
+The old evaluator is a compatibility witness; bound experiment history remains authority.
+
+Baseline must reproduce per-attack classifications, survivor rank order, and top finding before improved evaluation starts.
+
+Attack numeric severity remains bound exactly to rule severity. Baseline and normalized replay outcomes remain in bound attack order.
+
+Complete-state precedence remains:
 
 ```text
 regression-detected
@@ -168,30 +159,24 @@ source-finding-still-survives
 verified
 ```
 
-`failureReasons` reports all simultaneously applicable complete failures in canonical order.
+`failureReasons` reports all simultaneously applicable complete failures in canonical order. `sourceFindingCaught` reflects only the selected source's after classification.
 
-`sourceFindingCaught` reflects only the selected source's after classification and may be true while verification fails because of another regression.
-
-## 9. Required Proof Obligations
+## 9. Required proof obligations
 
 Implementation must prove at least:
 
-- whitespace-only required strings reject consistently;
-- accepted strings are preserved without silent trimming;
-- `-0` rejects in case/output values and all attack score fields while `0` remains valid;
-- a candidate that serializes as an experiment but fails when wrapped as `{ experiment }` is non-replayable;
-- inherited prototype `toJSON` is never executed by the probe;
-- every public API immediately returns a genuine native Promise;
-- malformed calls reject asynchronously with `TypeError` and execute zero callbacks;
-- generator throw/rejection uses the Promise rejection channel;
-- evaluator execution failures resolve the required semantic states;
-- drafting can resolve only a draft artifact;
-- confirmation accepts only a draft and cannot reconfirm confirmed/rejected artifacts;
-- accept/edit/reject map to exact terminal statuses;
-- generator input shares no mutable references with experiment authority;
-- numeric attack severity and baseline outcome ordering remain exact;
-- pre-callback case capture, confirmation ownership, and pre-baseline verification snapshot remain intact;
-- baseline-before-improved ordering and exact historical identity remain intact.
+- aliases across any two experiment paths reject, including input↔expectedOutput aliases;
+- accepted experiments remain semantically identical after JSON reload because they are trees;
+- generator input Objects/Arrays and their mutable prototypes are isolated from authority in a fresh per-invocation realm;
+- generator prototype mutation cannot affect authority, later wire probes, or another invocation;
+- public invocation capture freezes nested option data and callback identity before Promise return without invoking getters/Proxy traps;
+- immediate caller mutation after API return cannot alter that invocation;
+- capture/validation failures still reject asynchronously with `TypeError`;
+- every evaluator phase/reason pair maps to the exact required state and positive-control fact;
+- every completed draft/confirmed/rejected artifact is probed after final protection text is known;
+- huge or escape-heavy generator/edit text cannot produce an unserializable returned artifact;
+- inherited local `toJSON` never executes in any wire probe;
+- signed-zero, severity, baseline ordering, draft-only confirmation, baseline identity, and complete failure-reason rules remain intact.
 
 ## 10. Scope
 
@@ -204,10 +189,10 @@ src/contract-attacks.js
 test/contract-remediation.test.js
 ```
 
-`src/engine.js` and `src/mutation-pack.js` remain unchanged by default.
+A small isolated-realm helper under `src/` is allowed. `src/engine.js` and `src/mutation-pack.js` remain unchanged by default.
 
-Lossless graph/prototype serialization, cryptographic attestation, provider adapters, dashboards, model execution, generated evaluator code, automatic patching, and unrelated engine redesign remain out of scope.
+Lossless arbitrary graph/prototype serialization, cryptographic attestation, provider adapters, dashboards, model execution, generated evaluator code, automatic patching, and unrelated engine redesign remain out of scope.
 
-## 11. Stopping Rule
+## 11. Stopping rule
 
-M10 architecture is implementation-ready only after a fresh exact-head Codex review reports no concrete contradiction or remaining V1 implementation-choice ambiguity in the Revision 13 spec.
+M10 architecture is implementation-ready only after a fresh exact-head Codex review reports no concrete contradiction or remaining V1 implementation-choice ambiguity in the Revision 14 spec.
