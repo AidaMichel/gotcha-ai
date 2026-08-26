@@ -1,6 +1,6 @@
 # M10 — Contract Remediation & Re-Attack
 
-Status: Architecture Locked — Revision 17
+Status: Architecture Locked — Revision 18
 Milestone: 10
 Branch: `milestone-10-contract-remediation`
 Base: `main@286c9fccc1d3a6107a1b16511aedef5f6265aa3f`
@@ -122,18 +122,18 @@ Buffer.isBuffer
 
 `capturedIsProxy` is checked before this brand set.
 
-No additional runtime probe may widen or narrow V1 acceptance. In particular, newly added Node probes such as a future `isCryptoKey` are ignored by Revision 17 unless a later spec revision explicitly adds them.
+No additional runtime probe may widen or narrow V1 acceptance. Newly added Node probes are ignored by Revision 18 unless a later spec revision explicitly adds them.
 
-If **any** mandatory probe named above is unavailable or is not callable at module initialization, Gotcha marks the Revision-17 wire-authority capability unavailable for that process. Deterministic fallback is:
+If **any** mandatory probe named above is unavailable or is not callable at module initialization, Gotcha marks the Revision-18 wire-authority capability unavailable for that process. Deterministic fallback is:
 
 - M8 emits only the non-replayable experiment variant for M10 purposes;
 - every M10 public API returns its normal local native Promise and asynchronously rejects it with `TypeError` before semantic processing.
 
 This is the only missing-probe fallback; implementations may not silently skip a mandatory probe.
 
-Brand probing occurs before prototype normalization/copying. Therefore a covered intrinsic whose prototype was rewritten, for example `Object.setPrototypeOf(new Date(), Object.prototype)`, still rejects.
+Brand probing occurs before prototype normalization/copying. Therefore a covered intrinsic whose prototype was rewritten still rejects.
 
-Objects not identified by this exact mandatory set are governed only by the exact prototype/descriptor/tree rules below. Revision 17 does not preserve or assign authority to hidden host semantics outside this closed set.
+Objects not identified by this exact mandatory set are governed only by the exact prototype/descriptor/tree rules below.
 
 ### 2.5 `isExactRecordV1(value, exactKeys)`
 
@@ -160,7 +160,18 @@ A local schema array passes only when all are true:
 4. own keys are exactly canonical indices `0..length-1` plus `"length"`;
 5. every index is an enumerable own data property;
 6. no holes, symbols, accessors, or extra named keys exist;
-7. `length` has ordinary Array length data-property semantics.
+7. the own `length` descriptor is exactly:
+
+```js
+{
+  value: <the array's integer length>,
+  writable: true,
+  enumerable: false,
+  configurable: false
+}
+```
+
+Therefore frozen/sealed Arrays whose `length.writable !== true` are not accepted V1 schema/wire Arrays even if dense.
 
 Array element order remains semantically authoritative wherever this spec assigns an order.
 
@@ -177,7 +188,7 @@ For each accepted schema-less record:
 5. never lexically sort, schema-sort, or otherwise reorder those keys;
 6. wire revalidation after JSON parse must reproduce the same `Reflect.ownKeys` string-key sequence.
 
-This key sequence is part of V1 semantic equality for schema-less wire records because evaluators may observe `Object.keys`/`Reflect.ownKeys` order.
+This key sequence is part of replay semantics because evaluators may observe `Object.keys`/`Reflect.ownKeys` order.
 
 Nested schema-less records apply this rule recursively and independently.
 
@@ -197,7 +208,7 @@ Allowed Objects must:
 
 Traversal uses one identity set for the complete value. Repeated Object/Array identity and cycles reject.
 
-Therefore V1 rejects `undefined`, bigint, symbols, functions, accessors, null/custom/cross-realm prototypes, sparse arrays, repeated identity, cycles, every Section 2.4 forbidden brand, non-finite numbers, and `-0`.
+Therefore V1 rejects `undefined`, bigint, symbols, functions, accessors, null/custom/cross-realm prototypes, sparse/frozen-length arrays, repeated identity, cycles, every Section 2.4 forbidden brand, non-finite numbers, and `-0`.
 
 ### 2.9 `isTreeGraphV1(root)`
 
@@ -227,20 +238,52 @@ A deep owned snapshot:
 - constructs schema records in canonical schema order;
 - satisfies `isTreeGraphV1` whenever the source is required to be a tree.
 
-## 3. Invocation-time authority capture
+### 2.11 `isM8AttackFilterEqualV1(a, b)`
 
-### 3.1 `captureInvocationV1(options, callbackKeys)`
+This predicate is used **only** for M8 unchanged-output filtering and same-rule duplicate filtering when deciding which attacks may enter a replayable V1 experiment.
+
+It intentionally matches current M8 deep-data equivalence rather than evaluator key-order observability:
+
+- scalars compare by current M8 AI-data equality, with accepted V1 numeric inputs already excluding non-finite numbers and `-0`;
+- Arrays compare recursively by length and index order;
+- plain schema-less Objects compare recursively by own string-key **membership and corresponding values, ignoring object key insertion order**.
+
+Therefore an object mutation that changes only schema-less object key insertion order is explicitly **not a distinct M8/V1 attack** and is filtered as unchanged/duplicate. Revision 18 does not expand M8 attack generation to retain order-only mutations.
+
+For every attack that is retained because it differs by this predicate, the exact historical key order of its `output` remains replay authority under Section 2.7 and must be preserved exactly.
+
+## 3. Invocation-time authority capture and exact public option schemas
+
+### 3.1 Exact top-level option records
+
+Each public API accepts exactly one local schema record with exactly these own keys and no others:
+
+```text
+draft options   -> ["experiment", "sourceAttackId", "proposal"]
+confirm options -> ["draft", "decision"]
+verify options  -> ["protection", "evaluator", "improvedEvaluator"]
+```
+
+The top-level options object itself must satisfy the Section 2.5 record boundary for that exact key set: local `Object.prototype`, non-Proxy, no symbols, no accessors, no non-enumerable fields, no omissions, no extras.
+
+Thus examples such as `{ experiment, sourceAttackId, proposal, metadata: 1 }` reject asynchronously with `TypeError`; benign extras are not accepted in V1.
+
+For verify options, `evaluator` and `improvedEvaluator` are then validated by Section 2.3 rather than traversed as wire/data values.
+
+### 3.2 `captureInvocationV1(options, callbackKeys)`
 
 Public arguments become authoritative synchronously at invocation time, before the returned Promise is handed back.
 
 Capture is descriptor-only and does not execute getters/setters or Proxy traps.
+
+The exact top-level schema in Section 3.1 is checked from captured descriptors before descendant copying.
 
 One `seenContainers` identity set is created for the **entire non-callback options graph** of that invocation, including the options record itself. Before copying any Object/Array container:
 
 1. if its identity is already in `seenContainers`, capture fails immediately;
 2. otherwise add it to `seenContainers` before traversing descendants;
 3. Proxy => capture failure;
-4. Array => source must satisfy source-side local Array prototype/dense descriptor rules;
+4. Array => source must satisfy the exact Section 2.6 local Array prototype/dense descriptor/length rules;
 5. non-Array object => run Section 2.4 mandatory brand probes, then require local `Object.prototype` and data descriptors;
 6. accessors, symbol keys, malformed dense-array descriptors, or unreadable descriptor state => capture failure;
 7. only after those facts pass may values be copied into fresh local containers.
@@ -277,7 +320,7 @@ Array.prototype has no own "toJSON" property
 If the baseline is not exact, JSON probing is not invoked:
 
 - M8 emits the non-replayable experiment variant;
-- M10 draft/confirmation completion rejects with `TypeError`.
+- M10 draft/confirmation/verification boundary processing rejects with `TypeError` before evaluator execution.
 
 ## 5. Exact confirmed contract
 
@@ -302,12 +345,12 @@ Embedded contract, canonical build order:
 
 `id` and `statement` satisfy `isNonEmptyStringV1`. Rule IDs are unique. `kind` is one of `required | forbidden | conditional`; `severity` is one of `critical | major | minor`.
 
-## 6. M8 pre-callback capture and experiment emission
+## 6. M8 pre-callback capture, ownership, and experiment emission
 
 Before the first evaluator or attack-generator callback of a `runContractAttacks()` attempt, M8 MUST:
 
 1. validate the confirmed contract;
-2. determine structural V1 eligibility of original pre-canonicalization `input` and `expectedOutput`, including mandatory brand/prototype rules;
+2. determine structural V1 eligibility of original pre-canonicalization `input` and `expectedOutput`, including mandatory brand/prototype/Array-descriptor rules;
 3. capture independently owned canonical evaluator-case snapshots, preserving Section 2.7 schema-less key order;
 4. freeze that eligibility decision and snapshots for the run.
 
@@ -319,7 +362,7 @@ Every successful M8 run emits exactly one own `experiment` field.
 
 ### 6.1 Non-replayable experiment
 
-If any eligibility, mandatory-probe availability, tree, numeric, prototype-baseline, or wire-safety check fails:
+If any eligibility, mandatory-probe availability, tree, numeric, prototype-baseline, ownership-disjointness, or wire-safety check fails:
 
 ```js
 {
@@ -364,7 +407,11 @@ Exactly:
 
 Exact keys are shown above. `task === contract.task`. The complete experiment satisfies `isTreeGraphV1`.
 
-After construction, Gotcha checks Section 4 and probes:
+The replayable experiment is also a **fully independent ownership island** inside the returned M8 result. Every Object/Array identity reachable from `result.experiment` must be disjoint from every Object/Array identity reachable through every other own result path, including but not limited to `generatedAttacks`, `attack`, `attack.results`, `topFinding`, retained/ranked survivor structures, and any compatibility fields. No rule/attack/output/case/baseline container may be reused between the experiment and a sibling result path.
+
+This disjointness check is by identity over the complete returned M8 result before exposure. If any experiment-reachable container is also reachable from a non-`experiment` result path, M8 must rebuild the experiment from independent deep-owned snapshots before return; if it cannot do so safely, it emits the non-replayable variant.
+
+After construction and disjointness establishment, Gotcha checks Section 4 and probes:
 
 ```js
 { experiment: completeCandidateExperiment }
@@ -372,7 +419,7 @@ After construction, Gotcha checks Section 4 and probes:
 
 using captured JSON intrinsics.
 
-Replayable requires successful stringify/parse, complete parsed revalidation, parsed whole-experiment tree validity, exact schema-less key-order reproduction, deep equality of case/attack payloads, exact signed-zero-safe numerics, and every cross-field invariant.
+Replayable requires successful stringify/parse, complete parsed revalidation, parsed whole-experiment tree validity, exact schema-less key-order reproduction, deep equality of retained case/attack payloads, exact signed-zero-safe numerics, and every cross-field invariant.
 
 ## 7. Exact attack and baseline schemas
 
@@ -409,7 +456,16 @@ minor    -> 0.4
 
 Embedded attack rule exactly matches the active contract rule and `attack.ruleId === attack.rule.id`.
 
-`output` passes current M8 AI-data validation plus `isWireValueV1`, differs from `expectedOutput`, and retained attacks contain no same-rule/deep-equal duplicate.
+`output` passes current M8 AI-data validation plus `isWireValueV1`.
+
+For unchanged-output filtering and same-rule duplicate filtering, M8/V1 uses **exactly `isM8AttackFilterEqualV1` from Section 2.11**:
+
+```text
+isM8AttackFilterEqualV1(output, expectedOutput) === true -> filter as unchanged
+same rule && isM8AttackFilterEqualV1(outputA, outputB) === true -> later duplicate is filtered
+```
+
+Thus order-only object-key permutations are explicitly excluded from retained attacks, while exact key order of every retained output remains replay authority.
 
 Each baseline outcome is exactly:
 
@@ -456,7 +512,7 @@ Extra fields, executable values, accessors, Proxies, mandatory forbidden brands,
 
 All three APIs always return a genuine local native Promise from captured local Promise machinery.
 
-Boundary/schema/value/status/authority errors reject with `TypeError`. Error text is non-authoritative.
+Boundary/schema/value/status/authority/wire-probe errors reject with `TypeError`. Error text is non-authoritative.
 
 There is no proposal-generator throw/rejection/thenable channel inside M10 core.
 
@@ -466,8 +522,8 @@ Evaluator failures classified in Section 16 resolve semantic verification result
 
 The drafting continuation performs exactly:
 
-1. validate invocation capture;
-2. validate replayable experiment completely, including whole-experiment tree and schema-less key-order semantics;
+1. validate invocation capture and exact draft-options schema;
+2. validate replayable experiment completely, including whole-experiment tree, schema-less key-order semantics, and artifact-independent M8 ownership assumptions encoded by the experiment boundary;
 3. require `sourceAttackId` to identify exactly one original baseline survivor;
 4. create `experimentAuthority = deepOwnedSnapshotV1(experiment)`;
 5. validate captured declarative proposal;
@@ -545,13 +601,13 @@ This includes experiment, contract, rules, attacks, outcomes, proposal normaliza
 
 Caller/reloaded schema-record insertion order is not authority.
 
-Schema-less evaluator-facing wire records are the exception and follow Section 2.7: their captured own-key order is semantic and must be preserved, not schema-normalized or sorted.
+Schema-less evaluator-facing wire records are the exception and follow Section 2.7: their captured own-key order is replay authority and must be preserved, not schema-normalized or sorted.
 
 Array order remains semantic according to Sections 7, 17, 18, and 21.
 
 ## 13. Completed-artifact wire safety
 
-Every draft/confirmed/rejected artifact is wire-probed after final text/status is known and immediately before its public Promise resolves.
+`probeCompletedProtectionArtifactV1(artifact)` is the single normative protection-artifact wire probe used by drafting, confirmation, and verification.
 
 Before serialization:
 
@@ -560,26 +616,37 @@ Before serialization:
 
 Using captured JSON intrinsics, Gotcha stringifies/parses the exact completed artifact.
 
-Resolution requires:
+Success requires:
 
 1. stringify succeeds, including runtime nesting/string-size limits;
 2. parse succeeds;
-3. parsed artifact fully revalidates for exact status/schemas;
+3. parsed artifact fully revalidates for its exact status/schemas;
 4. complete parsed artifact satisfies `isTreeGraphV1`;
 5. parsed experiment remains a valid replayable experiment;
 6. schema-less wire-record key sequences reproduce exactly;
 7. cross-field bindings remain exact;
 8. parsed protection strings equal pre-probe strings byte-for-byte.
 
-Any failure rejects drafting/confirmation with `TypeError`.
+Any failure is a `TypeError` boundary failure.
+
+Drafting and confirmation MUST invoke this probe after final text/status is known and immediately before resolving their artifact.
+
+Verification MUST independently invoke this same probe again on its invocation-captured confirmed artifact before creating verification authority or executing either evaluator. Verification may not rely on the fact that some earlier process once probed the artifact.
+
+Therefore a reconstructed/edited-in-storage artifact, an artifact whose current serialized size exceeds runtime limits, or an artifact presented while the Section 4 prototype baseline is invalid is rejected by the verification Promise with `TypeError` **before the first evaluator callback**.
 
 ## 14. Verification authority snapshot
 
-Verification accepts only `status: "confirmed"` artifacts satisfying Sections 11–13.
+Verification performs, in exact order:
 
-Invocation capture fixes caller protection/evaluator identities before Promise return.
+1. validate invocation capture and exact verify-options schema;
+2. validate `evaluator` and `improvedEvaluator` with Section 2.3;
+3. require `protection.status === "confirmed"` and validate Sections 11–12;
+4. run `probeCompletedProtectionArtifactV1(protection)` from Section 13 and reject with `TypeError` on any failure;
+5. only after the successful probe, create one independent `verificationAuthority` deep snapshot;
+6. execute baseline replay.
 
-Before first baseline callback, verification creates one independent `verificationAuthority`. Baseline and improved phases derive every case, attack, result-protection, baseline-history, and source value only from that authority.
+Baseline and improved phases derive every case, attack, result-protection, baseline-history, and source value only from `verificationAuthority`.
 
 No caller object is reread after invocation and no baseline callback can alter Phase B authority.
 
@@ -773,15 +840,18 @@ The completed result is validated as a whole tree under Section 19 before resolu
 
 Schema-record property construction follows Section 12. Schema-less evaluator-facing record keys follow Section 2.7.
 
+M8 attack-retention equality is separately fixed by Section 2.11 and intentionally ignores object insertion order only for unchanged/duplicate filtering.
+
 ## 22. Required proof matrix
 
 Implementation is not complete until tests prove at least:
 
+- all three top-level public option records reject omissions, extras, symbols, accessors, Proxies, non-local prototypes, and non-enumerable fields;
 - `isNonEmptyStringV1` uses captured trim semantics;
-- `isWireNumberV1` uses captured `Number.isFinite` and captured `Object.is`; mutating those globals later cannot admit `Infinity`, `NaN`, or `-0`;
-- the Section 2.4 forbidden-brand probe list is exact: extra runtime probes do not alter V1 acceptance;
-- if any mandatory brand probe is unavailable, M8 emits non-replayable and all M10 APIs asynchronously reject with `TypeError`;
-- prototype-rewritten Date/Map/typed-array/etc. values covered by the mandatory set reject before normalization;
+- `isWireNumberV1` uses captured `Number.isFinite` and captured `Object.is`;
+- the Section 2.4 forbidden-brand probe list is exact and missing any mandatory probe triggers the fail-closed fallback;
+- prototype-rewritten covered intrinsic exotics reject before normalization;
+- `isExactArrayV1` requires `length` exactly `{ writable: true, enumerable: false, configurable: false, value: length }`; frozen-length Arrays reject;
 - invocation capture uses one identity set for the complete non-callback options graph and rejects cycles/repeated aliases before copying;
 - an aliased experiment/proposal/artifact cannot be normalized into a valid tree by invocation capture;
 - immediate caller mutation after API return cannot replace experiment/proposal/draft/protection/decision/evaluator authority;
@@ -789,8 +859,10 @@ Implementation is not complete until tests prove at least:
 - M10 drafting executes no proposal/model callback;
 - exact proposal schema/authority binding rejects extra/executable/rebound data;
 - complete experiment and protection-artifact tree traversal rejects aliases/cycles before and after JSON round trip;
+- every Object/Array reachable from a replayable `result.experiment` is disjoint from every Object/Array reachable from every other M8 result path; mutating `generatedAttacks`, `attack.results`, `topFinding`, or other legacy fields cannot mutate experiment authority;
 - schema-less wire records preserve captured recursive own-key order through snapshot, experiment emission, JSON reload, and evaluator replay;
-- an evaluator inspecting `Object.keys` sees the same schema-less order on historical and replayed values;
+- order-only object-key mutation is filtered as unchanged/duplicate by `isM8AttackFilterEqualV1` and is not retained as a V1 attack;
+- retained attacks preserve their exact historical schema-less output key order;
 - `-0` rejects in case/output values and every score field;
 - pre-callback M8 case eligibility is frozen;
 - prototype baseline checks include prototype-chain identity and own `toJSON` absence;
@@ -798,13 +870,15 @@ Implementation is not complete until tests prove at least:
 - artifact protection text rejects empty/whitespace-only values for every status;
 - drafting resolves only draft; confirmation accepts only draft and maps accept/edit/reject exactly;
 - every completed artifact is probed after final text/status and whole-artifact tree validation;
+- **verification reruns the exact Section 13 artifact wire probe on its captured confirmed artifact before any evaluator callback**;
+- a verification-time size/prototype-baseline/probe failure rejects with `TypeError` and neither evaluator runs;
 - huge/escape-heavy proposal/edit text that cannot stringify rejects;
 - baseline/improved evaluator phase/reason mappings are exact;
 - baseline identity gates improved execution;
 - all partial results have exact field values;
-- every verification result, including partial results with multiple empty diagnostic arrays, satisfies `isTreeGraphV1` with no shared container identities;
+- every verification result satisfies `isTreeGraphV1` with no shared container identities;
 - simultaneous regression + source survival reports both reasons in canonical order;
-- existing successful M8 behavior remains unchanged except additive experiment emission.
+- existing successful M8 behavior remains unchanged except additive experiment emission and the explicitly specified independent experiment snapshots.
 
 ## 23. Scope and stopping rule
 
@@ -823,6 +897,6 @@ Provider/model adapters remain outside the trusted M10 core and may be added lat
 
 `src/engine.js` and `src/mutation-pack.js` remain unchanged by default.
 
-M10 is implementation-ready only when a fresh exact-head architecture review finds no concrete contradiction or remaining V1 implementation-choice ambiguity in proposal-data authority, invocation capture, mandatory intrinsic-brand handling, schema-less wire key order, experiment/artifact/result tree semantics, prototype-baseline wire safety, ownership, replay ordering, evaluator-state mapping, or result semantics.
+M10 is implementation-ready only when a fresh exact-head architecture review finds no concrete contradiction or remaining V1 implementation-choice ambiguity in public option schemas, invocation capture, mandatory intrinsic-brand handling, exact Array descriptors, schema-less wire key order, M8 attack-filter equality, experiment/legacy-result ownership disjointness, experiment/artifact/result tree semantics, verification-time wire re-probing, prototype-baseline wire safety, replay ordering, evaluator-state mapping, or result semantics.
 
 Out of scope: provider adapters, lossless arbitrary graph/prototype serialization, cryptographic provenance, dashboards, production-model execution inside M10 core, AI-generated executable code, automatic patching, universal future-attack proof, and unrelated engine redesign.
