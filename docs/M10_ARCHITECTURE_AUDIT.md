@@ -1,19 +1,24 @@
 # M10 — Contract Remediation Architecture Audit
 
-Status: Complete — Revision 9
+Status: Complete — Revision 10
 Milestone: 10
 Audit base: `main@286c9fccc1d3a6107a1b16511aedef5f6265aa3f`
 Companion spec: `docs/M10_CONTRACT_REMEDIATION_SPEC.md`
 
 ## 1. Audit Question
 
-What is the smallest safe M10 architecture that can move a confirmed M8 contract attack into human-authorized remediation while preserving M8 authority boundaries and leaving no material V1 behavior implementation-dependent?
+What is the smallest safe M10 architecture that can move a confirmed M8 contract attack into human-authorized remediation while preserving M8 authority boundaries and eliminating material V1 implementation-choice ambiguity?
 
-## 2. Preserved Boundaries
+## 2. Revision 10 Closure Strategy
 
-AI output remains declarative only. Human confirmation is mandatory. The caller owns executable evaluator changes. Gotcha verifies behavior only against the exact bound M8 experiment through the existing evaluator boundary.
+Revision 10 replaces accumulating one-off edge-case rules with four reusable normative boundary primitives:
 
-M10 accepts no verification-time replacement contract, case, attack set, task, rule authority, or baseline history.
+1. `isExactDataContainerV1` — one exact record/container validation model for options, experiments, artifacts, nested authority records, generator I/O, replay results, and semantic results.
+2. `isAcceptedCallbackV1` — one exact callback acceptance rule: `typeof === "function"` plus non-Proxy, with no realm or function-kind restriction.
+3. `isWireReplayableV1` — one replayability predicate that includes the actual captured `JSON.stringify`/`JSON.parse` round-trip before a run can be labeled replayable.
+4. `deepOwnedSnapshotV1` — one ownership rule used at M8 experiment emission, draft creation, confirmation, normalization, and verification authority capture.
+
+The architecture intentionally becomes narrower and simpler rather than adding a lossless arbitrary-JavaScript serialization system.
 
 ## 3. Revision History
 
@@ -22,248 +27,193 @@ M10 accepts no verification-time replacement contract, case, attack set, task, r
 - Revision 3: moved experiment authority to M8 and bound historical outcomes/order/top finding.
 - Revision 4: closed realm provenance, ownership, baseline gating, task identity, retained-set, and failure-state gaps.
 - Revision 5: locked replay-schema parity, artifact schemas, partial outputs, and ID ordering.
-- Revision 6: locked required experiment variants, generator input, positive-control separation, and verification protection payload.
-- Revision 7: locked structural replay eligibility, async-generator behavior, public-options validation, and phase-aware positive-control truth.
+- Revision 6: locked experiment variants, generator input, positive-control separation, and result protection payload.
+- Revision 7: locked structural replay eligibility, async generator behavior, public options validation, and phase-aware positive-control truth.
 - Revision 8: locked artifact cross-field binding, normalized baseline/after payloads, and sparse-array alignment.
-- Revision 9: closes serialization and ownership gaps by making replayability JSON-stable across case and attack outputs, excluding null-prototype and shared-identity values, deep-snapshotting confirmation outputs, and defining `sourceFindingCaught` independently of overall pass/fail.
+- Revision 9: narrowed replayability to JSON-stable local plain data and severed confirmation aliases.
+- Revision 10: closes actual stringify failure, draft ownership, pre-callback verification authority capture, mismatch-ID membership, nested artifact container validation, and callback acceptance ambiguity through shared primitives.
 
-## 4. Revision 9 Principle — Replayable Means Wire-Stable
+## 4. Exact Container Boundary
 
-The recurring architecture risk was not evaluator execution itself; it was claiming exact replay after an artifact had been serialized and reloaded while allowing values whose semantics ordinary serialized data cannot preserve.
+Every schema-bearing object in M10 uses the same exact container rule before semantic reads:
 
-Revision 9 collapses these edge cases into one conservative rule: replayable V1 values must be JSON-stable local plain data.
+- non-Proxy;
+- exact local `Object.prototype`;
+- exact own string key set;
+- no symbols;
+- enumerable own data properties only;
+- no accessors, non-enumerable fields, extras, null/custom/cross-realm prototypes, or exotic containers.
 
-The rule is applied to:
+This rule applies recursively to experiments, case/replay records, attack/rule records, baseline/outcome records, public API options, generator input/output, artifacts, decisions, normalized replay results, and semantic results.
 
-- original pre-canonicalization input;
-- original pre-canonicalization expected output;
-- every retained attack output.
+This removes the previous gap where options were strict but reconstructed nested artifacts could be interpreted differently by conforming implementations.
 
-Allowed structures are only finite JSON-compatible scalars, dense local Arrays, and ordinary local Objects with `Object.prototype`.
+## 5. Exact Callback Boundary
 
-The following are explicitly non-replayable V1:
+`generator`, `evaluator`, and `improvedEvaluator` are accepted iff:
 
-- null-prototype objects;
-- sparse arrays;
-- repeated/shared object identity;
-- cycles;
-- cross-realm/custom prototypes;
-- accessors, Proxies, functions, Promises, typed arrays, Date/Map/Set/RegExp and other exotics;
-- non-finite numbers and other non-wire-stable scalars.
+```text
+typeof value === "function"
+and value is not a Proxy
+```
 
-This intentionally narrows M10 replayability below M8 general AI-data support.
+There is no realm restriction and no function-kind/source-code/constructor restriction.
 
-## 5. Closure of Revision 8 P1 — Null Prototype Serialization
+Thus ordinary, bound, native, arrow, async, generator-function, callable-function-object, and cross-realm functions are accepted when non-Proxy. Proxied callables reject before invocation.
 
-Revision 8 allowed null-prototype case objects. Ordinary JSON reload recreates them as normal objects, so an evaluator could distinguish the original value from the reloaded artifact.
+This aligns with M8's broad callable behavior without leaving “trusted local” as an unimplementable predicate.
 
-Revision 9 removes that ambiguity entirely: null-prototype objects are not replayable V1.
+## 6. Replayability Includes the Actual Wire Probe
 
-No custom graph/prototype serialization format is introduced. That remains explicitly out of scope.
+Revision 9 structurally described JSON-stable data but allowed a sufficiently deep otherwise-valid tree to pass structural eligibility even when `JSON.stringify` throws.
 
-## 6. Closure of Revision 8 P1 — Shared Identity in Attack Outputs
+Revision 10 makes successful wire serialization part of eligibility itself.
 
-M8 AI-data may accept repeated object identity, but JSON reload does not preserve aliasing.
+A replayable case/attack value must first be a dense local ordinary JSON-compatible tree with no repeated identities/cycles/accessors/Proxies/exotics. It then must successfully complete captured untampered:
 
-Revision 9 applies the repeated-identity/cycle rejection rule to every retained attack output, not only case input/expected output.
+```text
+JSON.stringify(value)
+JSON.parse(serialized)
+```
 
-An output such as `{ a: shared, b: shared }` therefore makes the successful M8 run emit the non-replayable experiment variant.
+The parsed result must remain in the same admitted structural class and be M8-deep-equal to the canonical in-memory snapshot.
 
-The verifier never claims exact replay for an attack whose evaluator behavior can depend on aliasing that the wire representation loses.
+If stringify or parse throws for any reason, including runtime nesting limits, the value is non-replayable. Therefore a successful M8 run can never be labeled replayable while failing the exact supported wire operation required by its artifact semantics.
 
-## 7. Supported Artifact Wire Invariant
+The same predicate is required for original input, original expected output, and every retained attack output.
 
-For admitted replayable values, the supported v1 wire semantics are ordinary JSON stringify/parse using captured untampered intrinsics.
+## 7. Ownership Chain Is Continuous
 
-Replayable validation requires that the parsed structure remains within the exact allowed local-plain subset and remains M8-deep-equal to the canonical bound snapshot.
+Revision 10 explicitly closes every public ownership transition:
 
-This is not cryptographic attestation and does not preserve arbitrary JavaScript object graphs. It is a deliberately narrow deterministic replay format.
+```text
+M8 mutable legacy result
+  -> independently owned experiment
+caller experiment + generator returned data
+  -> independently owned draft
+caller draft + decision
+  -> independently owned confirmed/rejected artifact
+caller confirmed artifact
+  -> independently owned verificationAuthority before callbacks
+M8 replay internals
+  -> independently owned normalized baseline/after/result
+```
 
-## 8. Experiment and Replay Schema Authority
+No mutable object/array identity is authority across these transitions.
 
-Every successful M8 run emits exactly one experiment variant.
+This is structural ownership, not cryptographic provenance.
 
-Replayable experiments bind:
+## 8. Draft Ownership Closure
 
-- exact confirmed contract/task authority;
-- exact wire-stable case snapshots;
-- complete retained attack set;
-- exact replay-generator fields;
-- original per-attack outcomes;
-- deterministic survivor order;
+`draftContractProtection()` does not shallowly embed the caller experiment or the generator's returned object.
+
+After both validate, the draft is constructed from independently owned snapshots. Later mutation of either the caller-supplied experiment or a generator-retained output object cannot change the draft shown to the human or the artifact later confirmed.
+
+This closes the Revision 9 draft-alias P1 directly.
+
+## 9. Confirmation Ownership Closure
+
+Accept, edit, and reject all construct fresh independently owned artifacts from validated draft/decision data.
+
+No mutable nested reference is retained from draft or decision. Editing changes only the human-authorized protection statement.
+
+Draft mutation cannot change confirmed authority; result mutation cannot change draft; decision mutation cannot change result.
+
+## 10. One Verification Authority Snapshot Before Baseline
+
+Validation alone is insufficient if the caller artifact remains mutable during evaluator execution.
+
+Revision 10 therefore requires `verifyContractProtection()` to create one complete independently owned `verificationAuthority` before the first baseline callback.
+
+It contains every datum needed by either phase or the public result: task/source/rule authority, protection text, case, complete attack set, bound history, and replay generator data.
+
+After creation, verification never reads replay/authority/protection data from the caller-supplied artifact again.
+
+Baseline and improved replays both derive only from this same snapshot. A baseline evaluator that mutates the caller artifact cannot affect Phase B.
+
+## 11. Baseline Identity and Mismatch IDs
+
+Baseline identity remains three-part:
+
+- per-attack classifications;
+- survivor order;
 - top finding.
 
-Pre-draft validation remains at least as strict as the replay-relevant M8 generator schema, including attack count, required strings, score ranges, rule authority, unchanged-output rejection, and retained-set dedupe.
+`baselineMismatchAttackIds` now has exact membership semantics: it contains exactly those bound attack IDs whose replayed `survived` classification differs from bound history, in bound attack order.
 
-## 9. Public API Boundary
+Ranking-only or top-finding-only mismatch with identical classifications returns an empty mismatch-ID array while still producing `baseline-mismatch`.
 
-All three public API option containers are validated before semantic property reads.
+Incomplete callback execution is `baseline-execution-failed`, never mismatch.
 
-They reject Proxies, accessors, symbol keys, hidden/non-enumerable fields, extras, and exotic prototypes. Semantic values are taken only from validated own data descriptors.
+## 12. Strict Verification Ordering
 
-Malformed options cause zero callback executions.
+Verification order is locked:
 
-## 10. Generator Contract
+1. exact options validation;
+2. callback acceptance validation;
+3. full confirmed artifact/nested-container/wire/cross-field validation;
+4. build one independently owned verification authority snapshot;
+5. baseline positive control + replay;
+6. normalize baseline;
+7. exact historical identity gate;
+8. immediate terminal return on any baseline failure;
+9. only then improved positive control + replay from the same snapshot;
+10. normalize improved replay;
+11. source closure + regression comparison.
 
-The protection generator is invoked once after all pre-generator validation.
+The improved evaluator is never invoked before baseline identity passes.
 
-Allowed completion forms are exactly:
+## 13. Deterministic Result Semantics
 
-- direct value;
-- genuine native Promise identified by captured side-effect-free Promise branding.
-
-Synchronous throws and native-Promise rejections propagate unchanged. Arbitrary thenables are never assimilated or invoked.
-
-Generator output remains exact declarative data and cannot alter executable authority.
-
-## 11. Revision 9 Ownership Closure — Confirmation Must Sever Aliases
-
-Revision 8 required artifact ownership generally but did not state strongly enough that accept/edit/reject must sever every mutable reference to the still-exposed draft.
-
-Revision 9 makes this normative:
-
-`confirmContractProtection()` constructs a deep independently owned returned artifact for all three decisions.
-
-No mutable object or array reachable from the returned confirmed/rejected artifact may be the same mutable reference as an object or array reachable from the draft or decision.
-
-This includes embedded experiment, contract, case, attacks, attack outputs, baseline outcomes/arrays, source, rule, and protection.
-
-Required behavioral proof is bidirectional:
-
-- later draft mutation cannot change confirmed/rejected authority;
-- later decision mutation cannot change the result;
-- later result mutation cannot change the original draft.
-
-## 12. Artifact Cross-Field Authority
-
-Every draft/confirmed/rejected artifact is revalidated from data and must bind:
-
-```text
-task === experiment.task === experiment.contract.task
-source.attackId -> exactly one bound original survivor
-source.ruleId === selectedAttack.ruleId
-rule.id === source.ruleId === selectedAttack.rule.id
-rule statement/kind/severity === selected attack snapshot
-rule snapshot === active confirmed contract rule
-```
-
-Confirmation cannot rebind task/source/rule/experiment authority. Verification checks these relationships again before callbacks.
-
-## 13. Strict Verification Ordering
-
-Verification remains strictly sequential:
-
-1. exact options/artifact/wire-stability/cross-field validation;
-2. baseline control + replay;
-3. normalize completed baseline replay;
-4. exact historical identity comparison;
-5. terminal return on any baseline failure;
-6. only then improved control + replay;
-7. normalize completed improved replay;
-8. source closure + regression comparison.
-
-The improved evaluator is never executed before baseline identity passes.
-
-## 14. Stable Evaluator Failure Semantics
-
-M10 uses stable M8 failure classification, not message/stack parsing:
-
-```text
-phase = positive-control | attack-evaluation
-reason = returned-false | threw | non-boolean
-```
-
-Positive-control truth remains phase-aware: a successful control remains `true` if a later attack evaluation aborts.
-
-## 15. Exact Verification Payloads
-
-Non-null `baseline` and `after` are one exact normalized schema:
+Non-null `baseline` and `after` have one exact normalized schema:
 
 ```js
 {
   outcomes: [
     { attackId, evaluatorResult: "PASS" | "FAIL", survived: true | false }
   ],
-  survivorOrderIds: [],
-  topFindingId: null
+  survivorOrderIds,
+  topFindingId
 }
 ```
 
-Outcome arrays use bound attack order. Survivor arrays use deterministic M8 rank order. Payloads are deep independent snapshots and expose no full mutable M8 result graph.
+Outcome order is bound attack order. Survivor order is M8 deterministic rank order. Result payloads are independently owned and expose no full mutable M8 result graph.
 
-All semantic states use one exact top-level result field set and exact partial-state null/false/empty-array values.
+`sourceFindingCaught` is the complete after-replay caught classification for the selected source, independent of regressions and overall pass/fail.
 
-## 16. Closure of Revision 8 P2 — `sourceFindingCaught`
-
-`sourceFindingCaught` is now independent of overall verification status.
-
-On every complete improved replay it means exactly whether the normalized after outcome for `sourceAttackId` is caught:
-
-```text
-sourceFindingCaught = after source survived === false
-```
-
-Therefore a source can be caught while verification still fails because another attack regressed. In that case:
-
-```text
-sourceFindingCaught = true
-verificationPassed = false
-state = regression-detected
-```
-
-A source that still survives yields `sourceFindingCaught = false`.
-
-Partial Phase B states without a complete after replay retain the fixed `false` value.
-
-## 17. Deterministic Comparison Semantics
-
-Regression is `baseline caught -> after survived`.
-
-Eliminated is `baseline survived -> after caught`.
-
-Diagnostic ID arrays use bound experiment attack order. Survivor order remains M8 rank order.
-
-Complete after-replay failure precedence remains:
+Complete failure precedence remains:
 
 ```text
 1. regression-detected
 2. source-finding-still-survives
 ```
 
-The public improvement metric remains:
+The public improvement metric remains baseline survivor count minus after survivor count and is descriptive only.
 
-```text
-baseline.survivorOrderIds.length - after.survivorOrderIds.length
-```
-
-and is descriptive only.
-
-## 18. Required Revision 9 Proofs
+## 14. Required Revision 10 Proofs
 
 Implementation must prove:
 
-- null-prototype case values are non-replayable;
-- repeated/shared identities and cycles are non-replayable in case values and every retained attack output;
-- dense ordinary local JSON-stable trees are replayable;
-- supported stringify/parse round trip remains within the allowed structural class and M8-deep-equal;
-- every successful M8 run emits exactly one experiment variant;
-- exact options schemas reject hostile call containers without callback execution;
-- generator direct/native-Promise behavior and throw/rejection propagation are exact;
-- arbitrary thenables are never invoked;
-- M8 legacy result mutation cannot alter experiment;
-- accept/edit/reject deep-snapshot every nested artifact field away from draft and decision;
-- draft/result mutations cannot cross-mutate after confirmation;
-- task/source/rule/survivor rebinding rejects at confirmation and verification;
+- every named nested schema container follows the universal exact-container boundary;
+- Proxies/accessors/symbols/extras/invalid prototypes reject before semantic reads;
+- callback acceptance equals function + non-Proxy across ordinary/async/bound/native/cross-realm cases;
+- proxied callables reject before execution;
+- replayability includes successful actual stringify/parse;
+- deeply nested plain data that makes stringify throw is non-replayable;
+- case and every attack output use the same wire predicate;
+- legacy result cannot mutate experiment;
+- caller experiment and generator-retained object cannot mutate draft after return;
+- draft/decision cannot mutate confirmed/rejected artifact;
+- baseline evaluator mutation of caller artifact cannot affect improved replay or result protection;
+- baseline mismatch IDs contain exactly classification-different IDs in bound order;
+- ranking-only/top-finding-only mismatch yields empty mismatch IDs;
 - baseline failure never executes improved evaluator;
-- positive-control truth survives later attack aborts;
-- baseline/after normalization is exact and independently owned;
-- diagnostic ordering and complete failure precedence are deterministic;
-- source caught plus unrelated regression reports `sourceFindingCaught=true` while verification fails;
-- existing M8 successful behavior remains unchanged apart from additive required experiment emission.
+- normalized results contain exact keys and no mutable/full M8 aliases;
+- source caught plus unrelated regression yields `sourceFindingCaught=true` with verification failure.
 
-## 19. Implementation Scope
+## 15. Implementation Scope
 
-Expected implementation touches:
+Expected implementation remains:
 
 ```text
 src/contract-remediation.js
@@ -272,29 +222,23 @@ src/contract-attacks.js
 test/contract-remediation.test.js
 ```
 
-`src/engine.js` and `src/mutation-pack.js` remain unchanged by default. Any genuine need to change either requires architecture amendment.
+`src/engine.js` and `src/mutation-pack.js` remain unchanged by default. Any genuine need to alter either requires architecture amendment first.
 
-Temporary/dead validation code introduced during implementation must be removed before merge.
+Temporary/dead validation code must be removed before merge.
 
-## 20. Acceptance / Stopping Rule
+## 16. Acceptance / Stopping Rule
 
 M10 is implementation-ready only after a fresh exact-head review finds no concrete contradiction or V1 implementation-choice ambiguity in:
 
-- JSON-stable replay eligibility for case and attack outputs;
-- serialized/reloaded artifact semantics;
-- deep ownership from M8 result -> experiment -> draft -> confirmed/rejected -> verification result;
-- exact experiment/artifact schemas;
-- M8 replay-schema equivalence;
-- public-options validation;
-- generator async semantics;
-- human/AI authority boundaries;
-- task/source/rule/survivor binding;
-- stable evaluator failure classification;
+- the four shared boundary primitives;
+- actual stringify/parse replay eligibility;
+- exact callback acceptance;
+- exact nested artifact/container validation;
+- continuous ownership from M8 result through verification result;
+- one verification authority snapshot before callbacks;
 - strict baseline-before-improved ordering;
-- phase-aware positive-control truth;
-- exact baseline/after payloads and partial states;
-- deterministic ID ordering/failure precedence;
-- exact `sourceFindingCaught` semantics;
-- source/regression/metric semantics.
+- exact baseline mismatch ID membership;
+- exact normalized results/partial states;
+- source/regression/improvement semantics.
 
-Out of scope remains lossless graph/prototype serialization, cross-realm serialization, cryptographic attestation, provider adapters, dashboards, production-model execution, AI-generated executable evaluator code, automatic patching, universal future-attack proof, and a generic sandbox.
+Out of scope remains lossless arbitrary graph/prototype serialization, cross-realm serialization, cryptographic provenance, provider adapters, dashboards, production-model execution, AI-generated executable evaluator code, automatic patching, universal future-attack proof, and a generic sandbox.
