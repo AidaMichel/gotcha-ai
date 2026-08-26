@@ -1,19 +1,19 @@
 # M10 — Contract Remediation Architecture Audit
 
-Status: Complete — Revision 11
+Status: Complete — Revision 12
 Milestone: 10
 Audit base: `main@286c9fccc1d3a6107a1b16511aedef5f6265aa3f`
 Companion spec: `docs/M10_CONTRACT_REMEDIATION_SPEC.md`
 
 ## 1. Audit Question
 
-What is the smallest deterministic architecture that can turn a confirmed M8 survivor into a human-authorized declarative protection and then prove an externally supplied improved evaluator against the exact bound experiment without allowing artifact mutation, replay drift, or implementation-dependent public results?
+What is the smallest deterministic architecture that can turn a confirmed M8 survivor into a human-authorized declarative protection and then prove an externally supplied improved evaluator against the exact bound experiment without allowing serialization drift, callback mutation, authority aliasing, or implementation-dependent public results?
 
-## 2. Revision 11 Principle
+## 2. Revision 12 Principle
 
-Revision 11 replaces accumulated edge-case prose with a closed normative boundary model.
+Revision 12 keeps Revision 11's closed boundary model and closes the seven remaining exact-head findings without expanding scope.
 
-The architecture now has explicit reusable primitives for:
+The normative primitives remain:
 
 - exact schema records;
 - exact dense schema arrays;
@@ -21,63 +21,81 @@ The architecture now has explicit reusable primitives for:
 - wire-replayable evaluator values;
 - deep independent ownership.
 
-Every public and nested boundary is defined through these primitives rather than ad hoc local wording.
+Revision 12 tightens numeric wire semantics, generator-input ownership, ranking authority, JSON probe safety, confirmation status, complete failure-reason membership, and historical outcome ordering.
 
-## 3. Closure of Revision 10 Findings
+## 3. Closure of Revision 11 Findings
 
-### 3.1 Full-artifact serialization probe
+### 3.1 Negative zero is non-replayable
 
-Replayability no longer depends on stringifying bare case or attack values only.
+Finite-number eligibility now explicitly rejects `-0` using `Object.is(value, -0)`.
 
-M8 constructs the complete replayable-candidate experiment and requires captured `JSON.stringify` + `JSON.parse` of that complete wrapper to succeed and revalidate. Runtime nesting failures introduced by artifact wrapper depth therefore produce the required non-replayable variant.
+This prevents JSON's `-0 -> 0` normalization from changing evaluator-observable semantics for callbacks that distinguish signed zero.
 
-### 3.2 Exact schema-array primitive
+### 3.2 Generator input is fully isolated
 
-`isExactArrayV1` now applies to every schema array, including contract rules, attacks, outcomes, survivor IDs, mismatch IDs, eliminated IDs, regression IDs, and failure reasons.
+`draftContractProtection()` first creates `experimentAuthority`, then creates a second independently owned `generatorInput` snapshot.
 
-It fixes prototype, Proxy, holes, symbols, descriptors, and extra-key behavior.
+Every mutable generator-input member—`contract`, `input`, `expectedOutput`, and `finding`—is independent from `experimentAuthority`. Generator mutation cannot alter authority later embedded in the draft.
 
-### 3.3 Literal generator instruction
+### 3.3 Numeric attack severity is authority-bound
 
-The normative V1 instruction string is embedded literally in the spec. Implementations cannot substitute prompt variants while claiming the same boundary behavior.
+Stored attack severity is exactly derived from rule severity:
 
-### 3.4 Draft authority before generator
+```text
+critical -> 1.0
+major    -> 0.7
+minor    -> 0.4
+```
 
-`draftContractProtection()` now creates an independently owned `experimentAuthority` after full validation and before generator invocation.
+An altered but in-range numeric severity is invalid. This keeps serialized historical ranking authority aligned with M8 replay, which recomputes severity from the rule.
 
-Generator input and final draft are both derived only from that snapshot. Generator closures, async delay, or caller mutation cannot alter what the human later confirms.
+### 3.4 JSON wire probe blocks inherited `toJSON`
 
-### 3.5 Exact contract and rule records
+Immediately before the complete-experiment wire probe, M8 requires both local `Object.prototype` and `Array.prototype` to have no own `toJSON` property.
 
-The embedded contract is now exactly `{ version, status, task, rules }`, and every rule exactly `{ id, statement, kind, severity }` with locked value constraints.
+If either surface is contaminated, the experiment is classified non-replayable and `JSON.stringify` is not invoked. This prevents inherited user code from executing inside the supposedly data-only wire probe.
 
-This removes disagreement between “M8 normalizer silently drops extras” and “M10 exact container rejects extras.” M10 rejects extras deterministically.
+### 3.5 Confirmation decision status is exact
 
-### 3.6 Pre-callback M8 eligibility capture
+Decision mapping is now normative:
 
-Case replay eligibility and independently owned case snapshots are captured before the first evaluator/generator callback.
+```text
+accept -> confirmed
+edit   -> confirmed
+reject -> rejected
+```
 
-Retained attack outputs are snapshotted when retained, before attack-evaluator callbacks can create later artifact drift.
+Confirmation never returns `draft`. Rejected artifacts cannot verify.
 
-### 3.7 Exact partial state strings
+### 3.6 Complete failure reasons report all applicable facts
 
-All five partial verification states explicitly assign `state`, the uniform complete field set, null/false/empty-array facts, and failure reason values.
+State precedence remains regression before source survival, but `failureReasons` now independently contains every applicable complete-replay failure in canonical order.
 
-No result field is omitted and `undefined` is never a public semantic value.
+When both are true the exact array is:
+
+```text
+["regression-detected", "source-finding-still-survives"]
+```
+
+### 3.7 Bound outcomes use bound attack order
+
+`experiment.baseline.outcomes[i].attackId` must equal `experiment.attacks[i].id`.
+
+The serialized historical experiment therefore has one exact outcome order, matching normalized replay output and eliminating permutation ambiguity.
 
 ## 4. Authority Chain
 
-The required authority chain is now:
+The required authority chain is:
 
 ```text
-validated M8 input/expected output before callbacks
-  -> owned case snapshots + frozen case eligibility
+validated M8 case before callbacks
+  -> owned case snapshots + frozen eligibility
   -> retained attack output snapshots
   -> complete candidate experiment
-  -> whole-experiment JSON wire probe
+  -> hardened whole-experiment JSON wire probe
   -> emitted experiment
   -> pre-generator experimentAuthority snapshot
-  -> generator input
+  -> separately owned generatorInput snapshot
   -> independently owned draft
   -> independently owned confirmed/rejected artifact
   -> pre-baseline verificationAuthority snapshot
@@ -87,60 +105,41 @@ validated M8 input/expected output before callbacks
   -> independently owned normalized result
 ```
 
-No callback may mutate authority that a later phase reads from a caller-owned object.
+No callback may mutate authority that a later phase reads.
 
-## 5. Callback Boundary
+## 5. Replayability Boundary
 
-The accepted callback set is exact and shared across generator/evaluator/improvedEvaluator:
+Replayable V1 supports only local JSON-wire-stable evaluator values:
 
-```text
-typeof value === "function" AND value is not a Proxy
-```
-
-There is no realm or function-kind restriction. Ordinary, bound, native, async, and cross-realm non-Proxy functions are accepted.
-
-Generator completion remains direct value or genuine native Promise only. Arbitrary thenables are never assimilated.
-
-## 6. Replayability Boundary
-
-Replayable V1 intentionally supports only local JSON-stable evaluator values:
-
-- null/string/boolean/finite number;
+- null/string/boolean;
+- finite numbers except negative zero;
 - dense local Arrays;
 - local ordinary Objects with `Object.prototype`;
 - no accessors, symbols, custom/null/cross-realm prototypes;
 - no repeated identity or cycles;
 - no exotics or non-finite numbers.
 
-The decisive wire test is the complete candidate experiment round trip, not only nested value probes.
+The decisive wire test is the complete candidate experiment round trip, guarded against inherited `toJSON` execution.
 
-## 7. Historical Identity and Results
+## 6. Historical Identity and Ranking
 
-The baseline evaluator is a compatibility witness only. Bound experiment history remains authority.
+The baseline evaluator is only a compatibility witness. Bound experiment history remains authority.
 
-A completed baseline replay must reproduce:
+A complete baseline replay must reproduce:
 
-- every attack classification;
-- survivor order;
+- every per-attack classification in bound attack order;
+- survivor rank order;
 - top finding.
 
-`baselineMismatchAttackIds` contains exactly classification-different attacks in bound attack order. A ranking/top-finding-only mismatch has an empty mismatch-ID array while still returning `baseline-mismatch`.
+Attack numeric severity is bound to rule severity, so the serialized historical record cannot claim ranking inputs that replay would recompute differently.
 
-Normalized replay payloads expose only exact outcomes, survivor IDs, and top finding ID—not the full mutable M8 result graph.
+`baselineMismatchAttackIds` contains exactly classification-different attacks in bound order. A ranking/top-finding-only mismatch still returns `baseline-mismatch` with `[]` mismatch IDs.
 
-## 8. Verification Failure Semantics
+## 7. Confirmation and Verification Results
 
-Partial states are exactly:
+Accept/edit create confirmed artifacts; reject creates a rejected artifact. All outputs are deeply independently owned.
 
-```text
-baseline-positive-control-failed
-baseline-execution-failed
-baseline-mismatch
-improved-positive-control-failed
-improved-execution-failed
-```
-
-Complete states are exactly:
+Partial verification states remain exact and complete. Complete state precedence is:
 
 ```text
 regression-detected
@@ -148,27 +147,27 @@ source-finding-still-survives
 verified
 ```
 
-Regression precedence is higher than source-survival failure. `sourceFindingCaught` reflects only the selected source's complete after classification and can therefore be true while verification fails because of another regression.
+`failureReasons` is not a synonym for state: it reports all simultaneously applicable complete failures in canonical precedence order.
 
-## 9. Implementation Proof Obligations
+`sourceFindingCaught` reflects only the selected source's after classification and may be `true` while verification fails because of another regression.
 
-Implementation must demonstrate:
+## 8. Required Proof Obligations
 
-- zero callbacks on malformed option/container boundaries;
-- exact array rejection for holes, Proxies, symbols, exotic prototypes, and extra properties;
-- whole-experiment JSON round-trip gating;
-- pre-callback case eligibility capture;
-- pre-generator experiment snapshotting;
-- deep draft/confirmation ownership;
-- pre-baseline verification snapshotting;
-- exact callback acceptance behavior;
-- exact historical mismatch membership and ordering;
-- exact partial state/result serialization;
-- stable baseline-before-improved ordering;
-- no regression masked by positive improvement;
-- no source-finding success masked or fabricated by overall state.
+Implementation must prove at least:
 
-## 10. Scope
+- `-0` is non-replayable;
+- inherited prototype `toJSON` is never executed by the wire probe;
+- generator input shares no mutable references with experiment authority;
+- generator mutation of contract/input/expectedOutput/finding cannot alter draft authority;
+- numeric severity exactly matches the rule-severity mapping;
+- experiment baseline outcomes reject any order other than bound attack order;
+- accept/edit/reject map to exact statuses;
+- simultaneous regression + source survival emits both exact failure reasons in order;
+- whole-experiment wire round-trip gating remains required;
+- pre-callback case capture, pre-generator authority snapshot, confirmation ownership, and pre-baseline verification snapshot remain intact;
+- baseline-before-improved ordering and exact historical identity remain intact.
+
+## 9. Scope
 
 Expected implementation files:
 
@@ -183,6 +182,6 @@ test/contract-remediation.test.js
 
 Lossless graph/prototype serialization, cryptographic attestation, provider adapters, dashboards, model execution, generated evaluator code, automatic patching, and unrelated engine redesign remain out of scope.
 
-## 11. Stopping Rule
+## 10. Stopping Rule
 
-M10 architecture is implementation-ready only after a fresh exact-head Codex review reports no concrete contradiction or remaining V1 implementation-choice ambiguity in the Revision 11 spec.
+M10 architecture is implementation-ready only after a fresh exact-head Codex review reports no concrete contradiction or remaining V1 implementation-choice ambiguity in the Revision 12 spec.
