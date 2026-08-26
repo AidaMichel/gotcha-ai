@@ -1,6 +1,6 @@
 # M10 — Contract Remediation & Re-Attack
 
-Status: Architecture Locked — Revision 15
+Status: Architecture Locked — Revision 16
 Milestone: 10
 Branch: `milestone-10-contract-remediation`
 Base: `main@286c9fccc1d3a6107a1b16511aedef5f6265aa3f`
@@ -11,58 +11,71 @@ M10 turns one confirmed M8 survivor into a human-authorized declarative protecti
 
 AI never supplies executable evaluator code. Human confirmation is mandatory. The caller owns executable evaluator changes. Gotcha owns boundary validation, authority capture, replay ordering, artifact wire safety, and deterministic result semantics.
 
-Public callbacks are exactly:
+### Revision 16 simplification
+
+M10 core no longer executes a protection-generator callback.
+
+AI/model invocation is an adapter concern outside the trusted M10 core. The adapter may use any provider/runtime it chooses, then passes the resulting **declarative proposal data** into `draftContractProtection()`.
+
+This is intentional architecture, not a missing feature:
+
+```text
+external model/provider adapter
+  -> declarative proposal data
+  -> draftContractProtection()
+  -> human confirmation
+  -> verifyContractProtection()
+```
+
+The trusted core therefore never runs model callback code, never needs an async global-prototype transaction, never assimilates model-returned thenables, and never depends on callback realm semantics for proposal generation.
+
+Public APIs are exactly:
 
 ```js
-generator(input) -> value | genuine native Promise<value>
+draftContractProtection({ experiment, sourceAttackId, proposal })
+confirmContractProtection({ draft, decision })
+verifyContractProtection({ protection, evaluator, improvedEvaluator })
+```
+
+Only verification has executable callbacks:
+
+```js
 evaluator(output) -> boolean
 improvedEvaluator(output) -> boolean
 ```
 
-All three public M10 APIs always return a genuine local native Promise.
+All three public APIs always return a genuine local native Promise.
 
-## 2. Normative primitives
+## 2. Captured intrinsics and deterministic primitives
 
-Equivalent implementation code is allowed only when observable acceptance, rejection, callback execution, serialization, ownership, ordering, and completion behavior is identical.
+At module initialization Gotcha captures untampered references needed by this spec, including:
 
-### 2.1 `isExactRecordV1(value, exactKeys)`
+- `util.types.isProxy` and the intrinsic-brand probes named in Section 2.4;
+- `Object.getOwnPropertyDescriptors`;
+- `Object.getPrototypeOf`;
+- `Object.isExtensible`;
+- `Reflect.ownKeys`;
+- `Reflect.apply`;
+- `Array.isArray`;
+- `String.prototype.trim`;
+- `JSON.stringify` / `JSON.parse`;
+- local `Object.prototype`, `Array.prototype`, and their original prototype-chain identities;
+- local native `Promise` construction/brand machinery already used by M8.
 
-A schema record passes only when all are true:
+Dynamic lookups through mutable user-visible prototypes are not authoritative.
 
-1. captured `util.types.isProxy(value) === false`;
-2. captured `Object.getPrototypeOf(value) === Object.prototype` from Gotcha's local realm;
-3. captured `Reflect.ownKeys(value)` contains exactly `exactKeys`, with no symbols, omissions, or extras;
-4. each required key is an enumerable own data property;
-5. accessors and non-enumerable schema fields reject;
-6. semantic values are read only from captured own-property descriptors.
-
-This applies to every local public/artifact/schema record. The isolated generator projection has its own exact callback-realm rule in Section 10.
-
-### 2.2 `isExactArrayV1(value)`
-
-A schema array passes only when all are true:
-
-1. captured `util.types.isProxy(value) === false`;
-2. captured `Array.isArray(value) === true`;
-3. captured `Object.getPrototypeOf(value) === Array.prototype` from Gotcha's local realm;
-4. own keys are exactly canonical indices `0..length-1` plus `"length"`;
-5. every index is an enumerable own data property;
-6. no holes, symbols, accessors, non-enumerable indices, or extra named keys exist;
-7. `length` is the ordinary array length data property.
-
-This applies to all local schema arrays, including `rules`, `attacks`, `outcomes`, survivor IDs, diagnostic ID arrays, and `failureReasons`.
-
-### 2.3 `isNonEmptyStringV1(value)`
+### 2.1 `isNonEmptyStringV1(value)`
 
 Exactly:
 
 ```text
-typeof value === "string" && value.trim().length > 0
+typeof value === "string"
+&& Reflect.apply(capturedStringTrim, value, []).length > 0
 ```
 
-Whitespace-only strings reject. Accepted strings are preserved byte-for-byte; validation never silently trims or normalizes them.
+Whitespace-only strings reject. Accepted strings are preserved byte-for-byte; validation never trims or normalizes the stored value.
 
-### 2.4 `isWireNumberV1(value)`
+### 2.2 `isWireNumberV1(value)`
 
 Exactly:
 
@@ -72,59 +85,160 @@ Number.isFinite(value) === true
 Object.is(value, -0) === false
 ```
 
-Every serialized non-literal numeric field uses this primitive. Literal `version: 1` is validated as the literal value.
+Every serialized non-literal numeric field uses this rule. Literal `version: 1` is validated as the literal value.
 
-### 2.5 `isAcceptedCallbackV1(value)`
+### 2.3 `isAcceptedEvaluatorV1(value)`
 
-A callback is accepted iff `typeof value === "function"` and captured `util.types.isProxy(value) === false`.
+An evaluator is accepted iff:
 
-No realm or function-kind restriction is imposed. Ordinary, bound, native, async, and cross-realm functions are accepted if non-Proxy.
+```text
+typeof value === "function"
+captured util.types.isProxy(value) === false
+```
 
-### 2.6 `isWireValueV1(value)`
+No realm/function-kind restriction is imposed on evaluators. M8 remains responsible for evaluator execution and callback-surface safety.
+
+### 2.4 `isForbiddenIntrinsicBrandV1(value)`
+
+Before any non-array object is treated as a V1 data/schema record, Gotcha runs captured side-effect-free Node brand probes and rejects any positive intrinsic/exotic brand.
+
+The V1 rejection set includes at minimum all available probes for:
+
+```text
+Date, RegExp, Map, Set, WeakMap, WeakSet,
+Promise, native Error objects,
+ArrayBuffer, SharedArrayBuffer, DataView, typed arrays,
+boxed String/Number/Boolean/BigInt/Symbol values,
+arguments objects, generator objects, module namespace objects,
+map/set iterators, KeyObject/External values, and Buffer.
+```
+
+`util.types.isProxy` is checked first.
+
+This check is performed **before** prototype normalization/copying. A prototype-rewritten exotic such as `Object.setPrototypeOf(new Date(), Object.prototype)` still rejects because its Date brand remains observable to the captured brand probe.
+
+For host objects for which Node exposes no positive intrinsic-brand probe, V1 authority is defined by the exact current prototype/descriptor data boundary below; hidden host semantics are not preserved or relied upon.
+
+### 2.5 `isExactRecordV1(value, exactKeys)`
+
+A local schema record passes only when all are true:
+
+1. non-null object and not an Array;
+2. captured Proxy probe is false;
+3. `isForbiddenIntrinsicBrandV1(value) === false`;
+4. captured prototype is exactly Gotcha's local `Object.prototype`;
+5. captured own keys contain exactly `exactKeys`, with no symbols, omissions, or extras;
+6. every required key is an enumerable own data property;
+7. accessors and non-enumerable schema fields reject;
+8. semantic values are read only from captured own-property descriptors.
+
+Source own-key insertion order does not affect acceptance. When Gotcha normalizes/builds a record, it creates properties in the canonical order shown by that record's schema in this document.
+
+### 2.6 `isExactArrayV1(value)`
+
+A local schema array passes only when all are true:
+
+1. captured Proxy probe is false;
+2. captured `Array.isArray(value) === true`;
+3. captured prototype is exactly Gotcha's local `Array.prototype`;
+4. own keys are exactly canonical indices `0..length-1` plus `"length"`;
+5. every index is an enumerable own data property;
+6. there are no holes, symbols, accessors, or extra named keys;
+7. `length` has ordinary array-length descriptor semantics.
+
+Schema-array element order remains semantically authoritative where this spec says so.
+
+### 2.7 `isWireValueV1(value)`
 
 Allowed scalars are `null`, string, boolean, and `isWireNumberV1` numbers.
 
-Allowed arrays are exact dense local arrays containing only recursively allowed values.
+Allowed Arrays are exact dense local arrays containing recursively allowed values.
 
-Allowed objects are non-Proxy local ordinary objects with only enumerable string own data properties containing recursively allowed values.
+Allowed Objects must:
 
-Traversal uses one identity set for the entire value. Repeated Object/Array identity and cycles reject.
+- pass Proxy and forbidden-intrinsic-brand rejection;
+- have exactly local `Object.prototype`;
+- have only enumerable string own data properties;
+- contain recursively allowed values.
 
-Therefore `undefined`, bigint, symbol, functions, accessors, null/custom/cross-realm prototypes, sparse arrays, repeated identity, cycles, Date, Map, Set, RegExp, Promise, typed arrays, ArrayBuffer/DataView, non-finite numbers, and `-0` are non-replayable V1.
+Traversal uses one identity set for the complete value. Repeated Object/Array identity and cycles reject.
 
-### 2.7 `isTreeGraphV1(root)`
+Therefore V1 rejects `undefined`, bigint, symbols, functions, accessors, null/custom/cross-realm prototypes, sparse arrays, repeated identity, cycles, intrinsic/exotic brands, non-finite numbers, and `-0`.
 
-Traverse every Object/Array reachable from `root` using one shared identity set. Each reachable Object/Array identity MUST occur at exactly one path. Any repeated identity or cycle rejects.
+### 2.8 `isTreeGraphV1(root)`
 
-This primitive is applied to the complete replayable experiment and to every complete draft/confirmed/rejected protection artifact. It is not limited to case payloads. Thus aliases across fields such as `case.input.a === case.expectedOutput.b`, or `artifact.rule === artifact.experiment.attacks[0].rule`, are forbidden.
+Traverse every Object/Array reachable from `root` with one identity set. Each reachable identity must occur at exactly one path. Any repeated identity or cycle rejects.
 
-### 2.8 `deepOwnedSnapshotV1(value)`
+This applies to the complete replayable experiment and to every complete draft/confirmed/rejected artifact.
 
-A deep owned snapshot shares no mutable Object/Array reference with its source graph and preserves the exact V1 semantic value. A snapshot used as replayable experiment/artifact authority must itself satisfy `isTreeGraphV1`.
+Thus aliases such as:
 
-### 2.9 `captureInvocationV1(options, callbackKeys)`
+```text
+experiment.case.input.a === experiment.case.expectedOutput.b
+artifact.rule === artifact.experiment.attacks[0].rule
+```
 
-Public arguments become authoritative at invocation time, before the returned Promise is handed back.
+are forbidden.
 
-Capture is descriptor-only and side-effect-free with respect to user code. It uses captured `util.types.isProxy`, `Object.getOwnPropertyDescriptors`, `Object.getPrototypeOf`, `Reflect.ownKeys`, and `Array.isArray`.
+### 2.9 `deepOwnedSnapshotV1(value)`
 
-For every Object/Array encountered before copying:
+A deep owned snapshot shares no mutable Object/Array reference with its source graph, preserves exact accepted V1 scalar/data semantics, constructs schema properties in canonical schema order, and satisfies `isTreeGraphV1` whenever the source is required to be a tree.
+
+## 3. Invocation-time authority capture
+
+### 3.1 `captureInvocationV1(options, callbackKeys)`
+
+Public arguments become authoritative synchronously at invocation time, before the returned Promise is handed back.
+
+Capture is descriptor-only and does not execute getters/setters or Proxy traps.
+
+For every container encountered before copying:
 
 1. Proxy => capture-failure sentinel;
-2. Array => source prototype MUST be Gotcha's local `Array.prototype`; otherwise capture-failure sentinel;
-3. non-Array object => source prototype MUST be Gotcha's local `Object.prototype`; otherwise capture-failure sentinel;
+2. Array => source must satisfy the source-side Array prototype/descriptor rules;
+3. non-Array object => run `isForbiddenIntrinsicBrandV1` first, then require local `Object.prototype` and data descriptors;
 4. accessors, symbol keys, malformed dense-array descriptors, or unreadable descriptor state => capture-failure sentinel;
-5. only after these rejection-relevant facts pass is the container copied into a fresh local container.
+5. only after those rejection-relevant facts pass may data be copied into fresh local canonical containers.
 
-Therefore invocation capture never normalizes a forbidden custom, null, exotic, or cross-realm container into an acceptable local record. Rejection-relevant prototype facts are decided on the source before copying.
+Callback slots named by `callbackKeys` are captured by function identity and not traversed.
 
-Callback slots named by `callbackKeys` are captured by function identity and are not traversed. Repeated identity is preserved only long enough for later tree checks to reject where required. No getter/setter or Proxy trap is invoked. Any capture failure is stored internally and later becomes asynchronous `TypeError` rejection; capture never throws synchronously to the caller.
+Any capture failure is stored internally. The API still returns its native Promise; semantic validation later rejects that Promise with `TypeError`. No public validation error is thrown synchronously.
 
-Caller mutation after invocation cannot change captured option values, nested authority, decision text, or callback identity used by that invocation.
+Caller mutation immediately after invocation cannot change the values/callback identities used by that invocation.
 
-## 3. Exact confirmed contract
+Exact invocation captures are:
 
-The embedded contract is exactly:
+```text
+draft:   captureInvocationV1(options, [])
+confirm: captureInvocationV1(options, [])
+verify:  captureInvocationV1(options, ["evaluator", "improvedEvaluator"])
+```
+
+## 4. Prototype baseline for wire operations
+
+M10 does not attempt to transactionally mutate/restore global prototypes.
+
+Before every M10/M8 experiment or artifact JSON wire probe, Gotcha checks the captured local prototype baseline:
+
+```text
+Object.getPrototypeOf(Object.prototype) === captured original (null)
+Object.getPrototypeOf(Array.prototype) === captured local Object.prototype
+```
+
+and verifies that neither local `Object.prototype` nor local `Array.prototype` has an own `toJSON` property.
+
+If this baseline is not exact, JSON wire probing is not executed:
+
+- M8 experiment emission uses the non-replayable variant;
+- M10 draft/confirmation artifact completion rejects with `TypeError`.
+
+Gotcha never invokes an inherited prototype `toJSON` during an accepted wire probe.
+
+Because M10 no longer executes proposal-generator code, it introduces no async period in which its own proposal-generation callback can globally mutate these prototypes.
+
+## 5. Exact confirmed contract
+
+Embedded contract is exactly, in canonical build order:
 
 ```js
 {
@@ -135,34 +249,34 @@ The embedded contract is exactly:
 }
 ```
 
-`task` satisfies `isNonEmptyStringV1`. `rules` is an exact array with `1..MAX_RULES` exact records:
+`task` satisfies `isNonEmptyStringV1`.
+
+`rules` is an exact array with `1..MAX_RULES` records exactly:
 
 ```js
 { id, statement, kind, severity }
 ```
 
-`id` and `statement` satisfy `isNonEmptyStringV1`. Rule IDs are unique. `kind` is one of `required | forbidden | conditional`; `severity` is one of `critical | major | minor`. Extra contract/rule keys reject.
+`id` and `statement` are non-empty. Rule IDs are unique. `kind` is one of `required | forbidden | conditional`; `severity` is one of `critical | major | minor`.
 
-## 4. M8 pre-callback capture
+## 6. M8 pre-callback capture and experiment emission
 
-Before the first evaluator or generator callback of a `runContractAttacks()` attempt, M8 MUST:
+Before the first evaluator or attack-generator callback of a `runContractAttacks()` attempt, M8 MUST:
 
 1. validate the confirmed contract;
-2. determine structural V1 eligibility of original pre-canonicalization `input` and `expectedOutput`;
+2. determine structural V1 eligibility of original pre-canonicalization `input` and `expectedOutput`, including intrinsic-brand/prototype rules;
 3. capture independently owned canonical evaluator-case snapshots;
-4. freeze that eligibility decision and those snapshots for the run.
+4. freeze that eligibility decision and snapshots for the run.
 
-Later caller/generator mutation cannot change case replayability or emitted case authority.
+Later caller/callback mutation cannot change that run's case authority.
 
-Each retained attack output is independently snapshotted at retention time before its evaluator attack callback can affect later artifact construction.
-
-## 5. Required experiment variants
+Each retained attack output is independently snapshotted at retention time.
 
 Every successful M8 run emits exactly one own `experiment` field.
 
-### 5.1 Non-replayable
+### 6.1 Non-replayable experiment
 
-If any V1 eligibility, numeric, tree-graph, or wire-safety check fails, emit exactly:
+If any eligibility, tree, numeric, prototype-baseline, or wire-safety check fails:
 
 ```js
 {
@@ -174,9 +288,9 @@ If any V1 eligibility, numeric, tree-graph, or wire-safety check fails, emit exa
 }
 ```
 
-No contract/case/attack/baseline payload is exposed. Drafting rejects this variant before generator invocation.
+Drafting rejects this variant before processing a proposal.
 
-### 5.2 Replayable
+### 6.2 Replayable experiment
 
 Exactly:
 
@@ -205,21 +319,17 @@ Exactly:
 }
 ```
 
-Exact keys are those shown. `task === contract.task`. The complete experiment MUST satisfy `isTreeGraphV1`; no Object/Array identity may appear at two paths anywhere in the experiment.
+Exact keys are those shown. `task === contract.task`. The complete experiment satisfies `isTreeGraphV1`.
 
-## 6. Experiment wire probe and inherited `toJSON` hardening
-
-After M8 constructs the complete candidate experiment and before classifying it replayable, Gotcha verifies from captured descriptors that local `Object.prototype` and `Array.prototype` have no own `toJSON` property. If either exists, the experiment is non-replayable and `JSON.stringify` is not invoked.
-
-Using captured untampered `JSON.stringify` / `JSON.parse`, Gotcha probes:
+After construction, Gotcha checks Section 4 then probes:
 
 ```js
 { experiment: completeCandidateExperiment }
 ```
 
-A run is replayable only if stringify and parse succeed, the parsed envelope/experiment fully revalidate, the complete parsed experiment satisfies `isTreeGraphV1`, parsed case/attack payloads are M8-deep-equal to candidate snapshots, all signed-zero-safe numeric checks hold, and every cross-field invariant holds.
+with captured JSON intrinsics.
 
-This does not replace the completed-artifact probe in Section 13.
+Replayable requires successful stringify/parse, complete parsed revalidation, parsed whole-experiment tree validity, deep equality of case/attack payloads, exact signed-zero-safe numerics, and every cross-field invariant.
 
 ## 7. Exact attack and baseline schemas
 
@@ -242,11 +352,11 @@ Each attack is exactly:
 }
 ```
 
-Attack count is `0..20`. `id`, `ruleId`, `type`, `description`, and `rationale` satisfy `isNonEmptyStringV1`. Attack IDs are unique.
+Attack count is `0..20`. `id`, `ruleId`, `type`, `description`, and `rationale` are non-empty. Attack IDs are unique.
 
-Each score `realism`, `subtlety`, `novelty`, `fixability` satisfies `isWireNumberV1` and `0 <= value <= 1`; `-0` rejects.
+`realism`, `subtlety`, `novelty`, `fixability` each satisfy `isWireNumberV1` and `0 <= value <= 1`.
 
-`attack.severity` is exactly derived from rule severity:
+`attack.severity` is exactly:
 
 ```text
 critical -> 1.0
@@ -254,9 +364,9 @@ major    -> 0.7
 minor    -> 0.4
 ```
 
-The embedded attack rule exactly matches the active contract rule. `attack.ruleId === attack.rule.id`.
+The embedded attack rule exactly matches the active contract rule and `attack.ruleId === attack.rule.id`.
 
-`output` passes current M8 AI-data validation and `isWireValueV1`, differs from `expectedOutput`, and retained attacks contain no same-rule/deep-equal duplicate.
+`output` passes current M8 AI-data validation plus `isWireValueV1`, differs from `expectedOutput`, and retained attacks contain no same-rule/deep-equal duplicate.
 
 Each baseline outcome is exactly:
 
@@ -264,123 +374,15 @@ Each baseline outcome is exactly:
 { attackId, evaluatorResult: "PASS" | "FAIL", survived: boolean }
 ```
 
-`outcomes[i].attackId === attacks[i].id`. There is exactly one outcome per attack. `evaluatorResult === "PASS"` iff `survived === true`.
+`outcomes[i].attackId === attacks[i].id`; there is exactly one outcome per attack. `evaluatorResult === "PASS"` iff `survived === true`.
 
-`survivorOrderIds` contains exactly survived IDs in M8 rank order. `topFindingId` is the first survivor ID or `null`.
+`survivorOrderIds` contains exactly survived IDs in M8 rank order. `topFindingId` is first survivor ID or `null`.
 
-## 8. Public API options and invocation authority
+## 8. Exact declarative proposal boundary
 
-Exact options are:
+`draftContractProtection()` accepts proposal data, not executable proposal-generation logic.
 
-```js
-// draftContractProtection
-{ experiment, sourceAttackId, generator }
-
-// confirmContractProtection
-{ draft, decision }
-
-// verifyContractProtection
-{ protection, evaluator, improvedEvaluator }
-```
-
-Before returning the Promise:
-
-```text
-draft:   captureInvocationV1(options, ["generator"])
-confirm: captureInvocationV1(options, [])
-verify:  captureInvocationV1(options, ["evaluator", "improvedEvaluator"])
-```
-
-No callback executes synchronously. Capture failure becomes asynchronous `TypeError` rejection. All later work uses only invocation capture; caller options are never reread.
-
-## 9. Public completion contract
-
-All three APIs always return a genuine local native Promise created from captured local Promise intrinsics.
-
-Boundary/schema/value/status/authority errors reject that Promise with `TypeError`. Error text is non-authoritative.
-
-`draftContractProtection` generator synchronous throw rejects with the exact thrown value; a genuine native generator Promise rejection rejects with the exact reason, subject to the prototype-guard precedence in Section 11. Arbitrary thenables are never assimilated.
-
-Evaluator failures classified in Section 16 resolve semantic verification results and do not reject.
-
-## 10. Drafting authority and exact isolated generator projection
-
-The drafting continuation performs exactly:
-
-1. validate invocation capture;
-2. validate replayable experiment completely, including `isTreeGraphV1`;
-3. require `sourceAttackId` to identify exactly one original baseline survivor;
-4. create `experimentAuthority = deepOwnedSnapshotV1(experiment)`;
-5. derive all source/rule/case values only from `experimentAuthority`;
-6. create a fresh dedicated callback realm for this drafting invocation;
-7. project exact generator input into that realm using Section 10.1;
-8. execute generator under the exclusive prototype guard in Section 11;
-9. validate generator output;
-10. construct a fresh local draft from independent snapshots of authority and validated generator output, with no aliases across artifact fields;
-11. set `status: "draft"`;
-12. run the completed-artifact wire probe in Section 13 before resolving.
-
-### 10.1 Exact callback-realm container semantics
-
-Every projected generator-input record is created in the fresh callback realm with:
-
-- prototype exactly that realm's `%Object.prototype%`;
-- exactly the specified own string keys and no symbols;
-- every schema property an own data property with `{ writable: true, enumerable: true, configurable: true }`;
-- `Object.isExtensible(record) === true`.
-
-Every projected array is created in that realm with:
-
-- prototype exactly that realm's `%Array.prototype%`;
-- dense canonical indices `0..length-1` only plus ordinary `length`;
-- every index `{ writable: true, enumerable: true, configurable: true }`;
-- ordinary array `length` descriptor `{ writable: true, enumerable: false, configurable: false }`;
-- `Object.isExtensible(array) === true`.
-
-Nested records/arrays follow the same rule recursively. Scalars preserve exact V1 value. The projection is a tree and shares no Object/Array identity or Object/Array prototype with `experimentAuthority` or Gotcha local authority containers.
-
-Thus a generator observing `Object.getPrototypeOf`, `Reflect.ownKeys`, property descriptors, extensibility, or mutation sees one deterministic callback boundary.
-
-Generator input semantic fields are exactly:
-
-```js
-{ contract, input, expectedOutput, finding, instructions }
-```
-
-`finding` is the selected attack. `instructions` is exactly:
-
-```text
-The confirmed Quality Contract and selected rule are authoritative. Propose one narrow declarative evaluator-protection intent for the selected finding. Preserve unrelated correct behavior. Prefer a rule-level protection over exact-output blacklisting. Return only the required declarative schema. Do not return executable code, callbacks, ASTs, shell commands, patches, contract edits, rule-authority edits, or claims that the protection is already proven effective. Do not claim the production model produced the attack candidate.
-```
-
-## 11. Generator completion and Gotcha prototype guard
-
-A fresh callback realm isolates prototypes reachable through generator input, but callback code executes in the function's own ECMAScript realm. Therefore M10 also guards Gotcha's local authority prototypes.
-
-All generator callback executions share one module-level exclusive async guard. Only one generator may hold this guard at a time, and the guard remains held through settlement of a genuine native Promise returned by that generator.
-
-Immediately after acquiring the guard and before callback invocation, Gotcha captures the complete `Reflect.ownKeys` set and every own property descriptor of local `Object.prototype` and local `Array.prototype` using captured intrinsics.
-
-Then:
-
-1. invoke `generator(generatorInput)` exactly once;
-2. if it returns a genuine native Promise recognized by the captured M8 Promise brand probe, await that Promise while retaining the exclusive guard;
-3. arbitrary thenables are direct values and `.then` is never invoked;
-4. in a `finally` path, before releasing the guard, compare both local prototype surfaces to the captured snapshots and restore them exactly: delete added own keys and redefine every original own property to its captured descriptor;
-5. verify after restoration that both surfaces exactly equal the pre-callback snapshots;
-6. release the guard only after verification.
-
-Completion precedence is exact:
-
-- if exact restoration cannot be completed/verified, reject drafting with `TypeError`;
-- else if generator threw synchronously, reject with that exact thrown value;
-- else if awaited genuine native Promise rejected, reject with that exact reason;
-- else if either guarded prototype surface was mutated during callback lifetime, reject with `TypeError` after successful restoration;
-- otherwise validate the produced direct/fulfilled value.
-
-This guard prevents local-realm generator code such as `Object.prototype.toJSON = ...` or `Array.prototype.x = ...` from changing experiment authority, artifact serialization, or another concurrent drafting invocation.
-
-Generator output is exactly:
+Proposal is exactly:
 
 ```js
 {
@@ -388,13 +390,55 @@ Generator output is exactly:
   task,
   sourceAttackId,
   ruleId,
-  protection: { statement, rationale }
+  protection: {
+    statement,
+    rationale
+  }
 }
 ```
 
-`task`, `sourceAttackId`, `ruleId`, `protection.statement`, and `protection.rationale` each satisfy `isNonEmptyStringV1`. Authority IDs exactly match `experimentAuthority`. Extra/executable values reject.
+Every shown string satisfies `isNonEmptyStringV1`.
 
-## 12. Draft, decision, confirmation, rejection
+Authority bindings are exact:
+
+```text
+proposal.task === experiment.task
+proposal.sourceAttackId === requested sourceAttackId
+proposal.ruleId === selectedAttack.ruleId
+```
+
+Extra fields, executable values, accessors, Proxies, exotic brands, custom/cross-realm prototypes, and aliases reject.
+
+The external model/provider adapter is responsible only for obtaining this declarative value. It has no authority to alter the contract, selected source, rule, baseline history, verification evaluator, or human confirmation result.
+
+## 9. Public completion contract
+
+All three APIs always return a genuine local native Promise from captured local Promise machinery.
+
+Boundary/schema/value/status/authority errors reject with `TypeError`. Error text is non-authoritative.
+
+There is no proposal-generator throw/rejection channel in M10 core because M10 core executes no proposal generator.
+
+Evaluator failures classified in Section 16 resolve semantic verification results and do not reject.
+
+## 10. Drafting algorithm
+
+The drafting Promise continuation performs exactly:
+
+1. validate invocation capture;
+2. validate replayable experiment completely, including whole-experiment tree semantics;
+3. require `sourceAttackId` to identify exactly one original baseline survivor;
+4. create `experimentAuthority = deepOwnedSnapshotV1(experiment)`;
+5. validate the captured declarative proposal against Section 8;
+6. construct a fresh local draft from independent snapshots of experiment authority and proposal text, allocating every artifact container independently;
+7. set `status: "draft"`;
+8. validate complete artifact and whole-artifact tree semantics;
+9. perform Section 13 completed-artifact wire probe;
+10. resolve the draft.
+
+No model/provider/user callback executes in this operation.
+
+## 11. Draft, decision, confirmation, rejection
 
 Artifact shape is exactly:
 
@@ -411,13 +455,15 @@ Artifact shape is exactly:
 }
 ```
 
-For every artifact status, `task`, `source.attackId`, `source.ruleId`, `rule.id`, `rule.statement`, `protection.statement`, and `protection.rationale` satisfy `isNonEmptyStringV1`. `rule.kind` and `rule.severity` satisfy the exact contract-rule enums. This validation is reapplied to reconstructed/serialized draft, confirmed, and rejected artifacts; it is not inferred only from prior generator output.
+For every status, `task`, `source.attackId`, `source.ruleId`, `rule.id`, `rule.statement`, `protection.statement`, and `protection.rationale` satisfy `isNonEmptyStringV1`.
 
-The complete artifact MUST satisfy `isTreeGraphV1` before it can be returned or accepted by a later API.
+`rule.kind` and `rule.severity` satisfy exact contract-rule enums.
+
+Complete artifact must satisfy `isTreeGraphV1` before return and whenever accepted by a later API.
 
 `draftContractProtection()` resolves only `status: "draft"`.
 
-`confirmContractProtection()` accepts only `status: "draft"`; confirmed/rejected artifacts cannot be reconfirmed.
+`confirmContractProtection()` accepts only `status: "draft"`.
 
 Decisions are exactly:
 
@@ -427,7 +473,7 @@ Decisions are exactly:
 { type: "reject" }
 ```
 
-`edit.statement` satisfies `isNonEmptyStringV1` and changes only `protection.statement`.
+`edit.statement` is non-empty and changes only `protection.statement`.
 
 Exact mapping:
 
@@ -437,9 +483,9 @@ edit   -> confirmed
 reject -> rejected
 ```
 
-Confirmation outputs are deep-owned tree snapshots sharing no mutable nested reference with captured draft or decision. Builders MUST allocate fresh top-level `source`, `rule`, `protection`, and nested experiment containers rather than aliasing any object already reachable elsewhere in the returned artifact.
+Confirmation outputs are deep-owned tree snapshots sharing no mutable nested reference with captured draft or decision.
 
-Cross-field invariants at draft/confirmation/verification are:
+Cross-field invariants at draft/confirmation/verification:
 
 ```text
 task === experiment.task === experiment.contract.task
@@ -450,34 +496,48 @@ rule statement/kind/severity === selected attack rule snapshot
 selected attack rule snapshot === active embedded contract rule
 ```
 
+## 12. Canonical object construction order
+
+Gotcha-created records use exactly the key order shown in their schemas in this document.
+
+This includes experiment, contract, rules, attacks, outcomes, proposal normalization, protection artifacts, source/rule/protection nested records, normalized replay payloads, and verification results.
+
+Caller/reloaded input key order is not authority and does not alter acceptance when the exact key set/descriptors are otherwise valid; normalization/building establishes canonical output order.
+
+Array order remains semantic according to Sections 7, 17, 18, and 21.
+
 ## 13. Completed-artifact wire safety
 
-Every draft, confirmed artifact, and rejected artifact is wire-probed after final protection text/status is known and immediately before the public Promise resolves.
+Every draft/confirmed/rejected artifact is wire-probed after final text/status is known and immediately before its public Promise resolves.
 
-Before serialization, the complete artifact itself MUST satisfy `isTreeGraphV1`. The probe then repeats the inherited `toJSON` hardening check: local `Object.prototype` and `Array.prototype` must have no own `toJSON` property.
+Before serialization:
 
-Using captured `JSON.stringify` / `JSON.parse`, Gotcha stringifies and parses the exact completed artifact.
+1. complete artifact satisfies `isTreeGraphV1`;
+2. Section 4 prototype baseline passes.
 
-Resolution is allowed only if:
+Using captured JSON intrinsics, Gotcha stringifies/parses the exact completed artifact.
 
-1. pre-probe artifact satisfies `isTreeGraphV1`;
-2. stringify succeeds, including escaping and runtime maximum string-size constraints;
-3. parse succeeds;
-4. parsed artifact fully revalidates for its exact status and all local schemas;
-5. the COMPLETE parsed artifact satisfies `isTreeGraphV1`, not merely `parsedArtifact.experiment`;
-6. parsed experiment remains a valid replayable experiment;
-7. cross-field bindings remain exact;
-8. parsed protection strings equal pre-probe strings byte-for-byte.
+Resolution requires:
 
-Any failure rejects corresponding drafting/confirmation Promise with `TypeError`; no unserializable or identity-drifting artifact is returned.
+1. stringify succeeds, including runtime nesting/string-size limits;
+2. parse succeeds;
+3. parsed artifact fully revalidates for exact status/schemas;
+4. complete parsed artifact satisfies `isTreeGraphV1`;
+5. parsed experiment remains a valid replayable experiment;
+6. cross-field bindings remain exact;
+7. parsed protection strings equal pre-probe strings byte-for-byte.
 
-This probe is mandatory after generator output and after every accept/edit/reject construction. Therefore model/editor text length and top-level-to-nested aliasing cannot bypass the supported serialized/reloaded flow.
+Any failure rejects drafting/confirmation with `TypeError`.
+
+This probe occurs after proposal text and after every accept/edit/reject construction.
 
 ## 14. Verification authority snapshot
 
-Verification accepts only `status: "confirmed"` whose complete artifact satisfies Section 12 and `isTreeGraphV1`.
+Verification accepts only `status: "confirmed"` artifacts satisfying Sections 11–13.
 
-Because `captureInvocationV1` deep-captured caller protection at invocation, the verification continuation validates that capture and creates one further independent `verificationAuthority` before the first baseline callback. Both phases derive all case, attack, result-protection, baseline-history, and source data only from `verificationAuthority`.
+Invocation capture fixes caller protection/evaluator identities before Promise return.
+
+Before first baseline callback, verification creates one independent `verificationAuthority`. Baseline and improved phases derive every case, attack, result-protection, baseline-history, and source value only from that authority.
 
 No caller object is reread after invocation and no baseline callback can alter Phase B authority.
 
@@ -513,7 +573,7 @@ phase = positive-control | attack-evaluation
 reason = returned-false | threw | non-boolean
 ```
 
-`returned-false` is a failure reason only in `positive-control`; an attack callback returning `false` is a normal caught result.
+`returned-false` is failure only in positive control; an attack callback returning `false` is a normal caught result.
 
 Baseline mapping:
 
@@ -525,7 +585,7 @@ attack-evaluation + threw         -> baseline-execution-failed
 attack-evaluation + non-boolean   -> baseline-execution-failed
 ```
 
-For baseline execution failure during positive control, `baselinePositiveControlPassed = null`; for attack-evaluation failure after passed control, `true`.
+Baseline execution failure during positive control has `baselinePositiveControlPassed = null`; attack-evaluation failure after passed control has `true`.
 
 Improved mapping:
 
@@ -537,9 +597,9 @@ attack-evaluation + threw         -> improved-execution-failed
 attack-evaluation + non-boolean   -> improved-execution-failed
 ```
 
-For improved execution failure during positive control, `improvedPositiveControlPassed = null`; for attack-evaluation failure after passed control, `true`.
+Improved execution failure during positive control has `improvedPositiveControlPassed = null`; attack-evaluation failure after passed control has `true`.
 
-Every classified failure resolves the verification Promise with corresponding uniform partial result.
+Every classified failure resolves verification with the corresponding uniform partial result.
 
 ## 17. Strict baseline identity gate
 
@@ -547,11 +607,11 @@ Baseline runs first. Improved evaluation never starts until baseline positive co
 
 Historical identity requires every per-attack classification, survivor rank order, and top finding to match.
 
-`baselineMismatchAttackIds` contains exactly IDs whose replayed `evaluatorResult` or `survived` differs from bound outcome, in bound attack order. A pure ranking/top-finding mismatch with identical per-attack classifications yields `[]`.
+`baselineMismatchAttackIds` contains exactly IDs whose replayed `evaluatorResult` or `survived` differs from bound outcome, in bound attack order. Pure ranking/top-finding mismatch with identical per-attack classifications yields `[]`.
 
 ## 18. Exact normalized replay payload
 
-Whenever a replay completes, `baseline` or `after` is exactly:
+Whenever replay completes, `baseline` or `after` is exactly:
 
 ```js
 {
@@ -563,7 +623,7 @@ Whenever a replay completes, `baseline` or `after` is exactly:
 }
 ```
 
-Outcome order is bound attack order. Survivor order is M8 rank order. Payloads are independent snapshots and never expose full mutable M8 result.
+Outcome order is bound attack order. Survivor order is M8 rank order. Payloads are independent snapshots and never expose full mutable M8 results.
 
 ## 19. Uniform verification result
 
@@ -592,7 +652,16 @@ Every semantic result has exactly:
 }
 ```
 
-Fixed: `version: 1`, `kind: "contract-protection-verification"`. `task`, `sourceAttackId`, `sourceRuleId`, `protection.statement`, and `protection.rationale` satisfy `isNonEmptyStringV1`. `protection` is an independent exact `{ statement, rationale }` snapshot. No field is omitted and `undefined` is never used.
+Fixed:
+
+```text
+version = 1
+kind = "contract-protection-verification"
+```
+
+`task`, `sourceAttackId`, `sourceRuleId`, `protection.statement`, and `protection.rationale` are non-empty.
+
+`protection` is an independent exact `{ statement, rationale }` snapshot. No field is omitted and `undefined` is never used.
 
 ### 19.1 Partial states
 
@@ -604,7 +673,13 @@ Fixed: `version: 1`, `kind: "contract-protection-verification"`. `task`, `source
 | `improved-positive-control-failed` | `true` | `false` | completed | `null` | `[]` | `false` | `null` | `["improved-positive-control-failed"]` |
 | `improved-execution-failed` | `true` | Section 16 (`null` or `true`) | completed | `null` | `[]` | `false` | `null` | `["improved-execution-failed"]` |
 
-For every partial state: `verificationPassed === false`, `eliminatedAttackIds === []`, and `regressionAttackIds === []`.
+For every partial state:
+
+```text
+verificationPassed = false
+eliminatedAttackIds = []
+regressionAttackIds = []
+```
 
 ## 20. Complete replay semantics
 
@@ -634,37 +709,42 @@ no regression + survives    -> ["source-finding-still-survives"]
 no regression + caught      -> []
 ```
 
-`sourceFindingCaught` reflects only source classification and may be `true` while verification fails because another attack regressed.
+`sourceFindingCaught` reflects only selected-source after classification and may be `true` while verification fails because another attack regressed.
 
 ## 21. Ordering
 
-`baselineMismatchAttackIds`, `eliminatedAttackIds`, `regressionAttackIds`, experiment baseline outcomes, and normalized replay outcomes use bound attack order. `survivorOrderIds` uses M8 rank order. `failureReasons` uses Sections 19–20 order and contains no duplicates.
+`baselineMismatchAttackIds`, `eliminatedAttackIds`, `regressionAttackIds`, experiment baseline outcomes, and normalized replay outcomes use bound attack order.
+
+`survivorOrderIds` uses M8 rank order.
+
+`failureReasons` uses Sections 19–20 order and contains no duplicates.
+
+Record property construction order follows Section 12.
 
 ## 22. Required proof matrix
 
 Implementation is not complete until tests prove at least:
 
-- invocation capture rejects/marks invalid cross-realm, null-prototype, custom-prototype, Proxy, accessor, and malformed-array containers before copying; none can be normalized into valid local records;
-- caller mutation immediately after API return cannot replace experiment/draft/protection/decision/callback authority;
-- all public validation failures remain asynchronous Promise rejections;
-- complete experiment tree traversal rejects aliases across input/expectedOutput/attack/contract fields and cycles;
-- complete protection-artifact tree traversal rejects aliases between top-level `rule`/`source`/`protection` and any nested experiment object, both before and after JSON round trip;
-- JSON reload cannot de-alias any accepted experiment or artifact because both are trees;
+- `isNonEmptyStringV1` uses captured trim semantics; replacing `String.prototype.trim` cannot make whitespace-only authority pass;
+- invocation capture rejects Proxies/accessors/cross-realm/null/custom-prototype containers before copying;
+- prototype-rewritten intrinsic exotics such as Date/Map/typed-array values reject via captured brand probes before normalization;
+- immediate caller mutation after API return cannot replace experiment/proposal/draft/protection/decision/evaluator authority;
+- all public validation failures remain asynchronous native-Promise rejections;
+- M10 drafting executes no proposal/model callback and has no generator thenable/reentrancy/prototype-guard lifetime;
+- exact proposal schema/authority binding rejects extra/executable/rebound data;
+- external adapter output must cross the local declarative-data boundary before M10 authority is established;
+- complete experiment tree traversal rejects aliases/cycles across all experiment fields;
+- complete protection artifact tree traversal rejects top-level-to-nested aliases before and after JSON round trip;
+- JSON reload cannot de-alias accepted experiment/artifact authority because accepted graphs are trees;
 - `-0` rejects in case/output values and every score field;
 - pre-callback M8 case eligibility is frozen;
-- generator projection has exact callback-realm prototypes, own keys, writable/enumerable/configurable data descriptors, ordinary array length descriptor, and extensibility;
-- generator input shares neither data objects nor Object/Array prototypes with experiment authority;
-- module-level generator guard serializes overlapping generator callback lifetimes;
-- local `Object.prototype` / `Array.prototype` mutation during synchronous or native-Promise generator execution is detected, exactly restored, and rejects successful mutated completion with `TypeError`;
-- callback throw/rejection is preserved after successful prototype restoration; restoration failure has `TypeError` precedence;
-- generator direct/native-Promise semantics and arbitrary-thenable non-assimilation are exact;
-- artifact `protection.statement` and `protection.rationale` reject empty/whitespace-only values for draft, confirmed, and rejected reconstructed artifacts;
-- drafting resolves only `draft`; confirmation accepts only draft and maps accept/edit/reject exactly;
+- prototype baseline checks include prototype-chain identity and own `toJSON`, and wire probing fails closed when baseline differs;
+- canonical Gotcha-built record key order matches Section 12 and source key insertion order cannot alter normalized output;
+- artifact protection statement/rationale reject empty/whitespace-only values for every status and reconstructed artifact;
+- drafting resolves only draft; confirmation accepts only draft and maps accept/edit/reject exactly;
 - every draft/confirmed/rejected artifact is probed after final text/status and whole-artifact tree validation;
-- huge/escape-heavy generator or edit text that cannot stringify rejects rather than returning unserializable artifact;
-- inherited local `toJSON` is rechecked before each wire probe and never executed;
-- baseline and improved evaluator phase/reason mappings are exact per Section 16;
-- attack-evaluation throw/non-boolean preserves passed-control fact;
+- huge/escape-heavy proposal/edit text that cannot stringify rejects rather than returning an unserializable artifact;
+- baseline/improved evaluator phase/reason mappings are exact;
 - baseline identity gates improved execution;
 - all partial results have exact field values;
 - simultaneous regression + source survival reports both reasons in canonical order;
@@ -681,8 +761,12 @@ src/contract-attacks.js
 test/contract-remediation.test.js
 ```
 
-A small internal callback-realm/prototype-guard helper may be added under `src/`. `src/engine.js` and `src/mutation-pack.js` remain unchanged by default.
+No callback-realm/prototype-guard helper is required by Revision 16.
 
-M10 is implementation-ready only when a fresh exact-head architecture review finds no concrete contradiction or V1 implementation-choice ambiguity in boundary primitives, invocation capture, experiment/artifact tree semantics, callback projection, prototype guarding, completed-artifact wire safety, evaluator-state mapping, ownership, replay ordering, or result semantics.
+Provider/model adapters remain outside the trusted M10 core and may be added later without changing the artifact/verification authority model.
 
-Out of scope: lossless arbitrary graph/prototype serialization, cryptographic provenance, provider adapters, dashboards, production-model execution, AI-generated executable code, automatic patching, universal future-attack proof, and unrelated engine redesign.
+`src/engine.js` and `src/mutation-pack.js` remain unchanged by default.
+
+M10 is implementation-ready only when a fresh exact-head architecture review finds no concrete contradiction or remaining V1 implementation-choice ambiguity in proposal-data authority, invocation capture, intrinsic-brand handling, experiment/artifact tree semantics, prototype-baseline wire safety, ownership, replay ordering, evaluator-state mapping, or result semantics.
+
+Out of scope: provider adapters, lossless arbitrary graph/prototype serialization, cryptographic provenance, dashboards, production-model execution inside M10 core, AI-generated executable code, automatic patching, universal future-attack proof, and unrelated engine redesign.
