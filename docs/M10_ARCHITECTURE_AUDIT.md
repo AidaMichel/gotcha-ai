@@ -1,125 +1,143 @@
 # M10 — Contract Remediation Architecture Audit
 
-Status: Complete — Revision 16
+Status: Complete — Revision 17
 Milestone: 10
 Audit base: `main@286c9fccc1d3a6107a1b16511aedef5f6265aa3f`
 Companion spec: `docs/M10_CONTRACT_REMEDIATION_SPEC.md`
 
 ## 1. Audit question
 
-What is the smallest deterministic architecture that can turn one confirmed M8 survivor into a human-authorized declarative protection and verify an externally supplied improved evaluator against the exact bound experiment without serialization drift, prototype ambiguity, identity aliasing, callback-global corruption, post-call authority races, confirmation bypass, or implementation-dependent result states?
+What is the smallest deterministic architecture that can turn one confirmed M8 survivor into a human-authorized declarative protection and verify an externally supplied improved evaluator against the exact bound experiment without serialization drift, prototype ambiguity, identity normalization, callback-global corruption, post-call authority races, confirmation bypass, key-order drift, or implementation-dependent result ownership?
 
-## 2. Revision 16 principle
+## 2. Revision 17 principle
 
-Revision 16 removes the source of the Revision 15 loop instead of extending the prototype guard.
+Revision 16 removed proposal-generator execution from the trusted M10 core. Revision 17 keeps that simplification and closes the five exact-head Revision 16 P1 findings without reopening callback architecture.
 
-The trusted M10 core no longer executes a proposal-generator callback. Model/provider execution is explicitly outside the core; M10 consumes only exact declarative proposal data.
+The five closures are:
 
-That change eliminates, by construction, the Revision 15 concerns about:
+1. the forbidden intrinsic-brand set is now a closed mandatory probe list with one exact unavailable-probe fallback;
+2. invocation capture uses one identity set across the entire non-callback options graph and rejects repeated identities before copying;
+3. schema-less evaluator-facing records preserve one exact recursive captured own-key order instead of allowing sorting/implementation choice;
+4. every complete verification result is itself a tree with independently allocated nested containers and diagnostic arrays;
+5. numeric validation uses captured module-start `Number.isFinite` and `Object.is` references.
 
-- prototype `[[Prototype]]` / extensibility restoration;
-- async global visibility while a generator Promise is pending;
-- reentrant generator-guard deadlock;
-- callback-projection observable key order;
-- cross-realm generator-return records;
-- transient prototype mutation detection.
+No proposal callback, prototype guard, callback realm, restoration transaction, or reentrancy policy has been reintroduced.
 
-The two remaining generic boundary concerns are handled directly:
+## 3. Closed mandatory forbidden-brand set
 
-- invocation/replay data uses captured intrinsic-brand probes before any normalization, so prototype-rewritten intrinsic exotics cannot masquerade as ordinary authority;
-- non-empty-string validation uses captured `String.prototype.trim` through captured `Reflect.apply`, so mutable global trim behavior is irrelevant.
+Revision 16's phrase “at minimum all available probes” was nondeterministic because newer Node runtimes can expose additional probes.
 
-## 3. Why proposal generation moved outside the trusted core
-
-M10's product invariant is that AI proposes declarative protection intent and humans authorize it. The core does not need to own provider execution to enforce that invariant.
-
-The final flow is:
+Revision 17 names the exact mandatory set:
 
 ```text
-external model/provider adapter
-  -> exact declarative proposal value
-  -> M10 boundary validation + authority binding
-  -> draft artifact
-  -> mandatory human confirmation
-  -> baseline identity gate
-  -> improved evaluator re-attack
+isDate
+isRegExp
+isMap
+isSet
+isWeakMap
+isWeakSet
+isPromise
+isNativeError
+isAnyArrayBuffer
+isDataView
+isTypedArray
+isBoxedPrimitive
+isArgumentsObject
+isGeneratorObject
+isModuleNamespaceObject
+isMapIterator
+isSetIterator
+isExternal
+Buffer.isBuffer
 ```
 
-This is smaller and safer than attempting to make arbitrary JavaScript callback execution transactional across ambient globals for an unbounded async lifetime.
+Only these probes affect Revision-17 forbidden-brand acceptance. New runtime probes do not silently widen the rejection set.
 
-The adapter has no authority over contract/rule/source identity, baseline history, confirmation status, or verification result. It can only propose `{ statement, rationale }` under IDs that M10 independently rebinds to the selected experiment authority.
+If any mandatory probe is unavailable/non-callable at module initialization, the fallback is exact and fail-closed: M8 can emit only the non-replayable M10 experiment variant and every M10 public API asynchronously rejects with `TypeError` before semantic processing.
 
-## 4. Closure of Revision 15 findings
+This gives the same V1 result independent of whether a runtime adds unrelated probes such as `isCryptoKey` later.
 
-### 4.1 Prototype internal-slot restoration is no longer required
+## 4. Aliases cannot be normalized away during capture
 
-There is no M10 proposal callback and therefore no M10-owned callback lifetime during which the core must snapshot, restore, or compare `Object.prototype` / `Array.prototype` internal state.
+Invocation-time capture now owns one identity set for the complete non-callback options graph.
 
-Wire operations instead fail closed against one captured prototype baseline: local Object/Array prototype-chain identities must match module-start authority and neither may expose an own `toJSON`.
+The first encounter of a container registers its identity before descendant traversal. Any second encounter fails capture immediately. Cycles fail by the same rule.
 
-M10 does not mutate or restore these globals.
-
-### 4.2 No async global prototype exposure window
-
-The removed generator callback means drafting never holds an async callback open while global prototype mutations are visible.
-
-M8 evaluator/attack-generator callback safety remains owned by M8. M10's proposal path is pure data validation/construction.
-
-### 4.3 No reentrant proposal-generation deadlock
-
-`draftContractProtection()` invokes no proposal callback. Recursive/reentrant model execution is outside M10 core and cannot deadlock an M10 global guard because no such guard exists.
-
-### 4.4 No callback projection key-order ambiguity
-
-The generator-input projection was deleted with the generator callback.
-
-For core-created records, Revision 16 separately defines canonical property construction order as the schema order shown in the spec. Caller/reloaded record insertion order is not authority and is normalized by core construction.
-
-### 4.5 Prototype-rewritten exotics are deterministic
-
-Prototype identity alone is not used as an ordinary-object proof.
-
-Before treating a non-array object as V1 schema/data authority, Gotcha runs captured Node intrinsic-brand probes for Date, RegExp, collection types, Promise, native errors, ArrayBuffer/views/typed arrays, boxed primitives, arguments/generator/module-namespace/iterator objects, KeyObject/External values, Buffer, and other available covered intrinsic brands.
-
-A value such as:
-
-```js
-Object.setPrototypeOf(new Date(), Object.prototype)
-```
-
-still fails because the captured Date brand probe remains positive.
-
-For unbranded host objects not recognized by Node's captured probes, V1 semantics are explicitly the exact current prototype/descriptor data boundary; hidden host semantics are not preserved or authoritative.
-
-### 4.6 Cross-realm generator output ambiguity is gone
-
-There is no generator callback output inside core.
-
-External adapters must pass proposal data through the normal local declarative-data public boundary. Cross-realm/custom-prototype/exotic/Proxy/accessor proposal containers reject rather than being silently normalized after callback return.
-
-### 4.7 Transient mutation detection is gone
-
-Because M10 does not run a proposal callback, it makes no unimplementable claim about detecting every intermediate write to global prototypes.
-
-Wire operations inspect current captured-baseline facts immediately before serialization and fail closed if the baseline is not exact.
-
-### 4.8 Trim semantics are captured
-
-`isNonEmptyStringV1` uses the captured module-start `String.prototype.trim` via captured `Reflect.apply`.
-
-Replacing `String.prototype.trim` later cannot turn whitespace-only task/ID/protection text into valid authority.
-
-## 5. Final authority chain
+Therefore an input such as:
 
 ```text
-validated M8 case before callbacks
+experiment.case.input.a === experiment.case.expectedOutput.b
+```
+
+cannot be copied twice into two fresh independent records and later pass the whole-experiment tree check. The invalid alias is rejected at the first authority boundary rather than normalized into valid-looking data.
+
+Callback function identities are captured directly and excluded from data-graph traversal.
+
+## 5. Schema-less wire key order is evaluator-facing authority
+
+Schema records still use canonical schema property order.
+
+The important exception is arbitrary wire data inside:
+
+```text
+case.input
+case.expectedOutput
+attack.output
+```
+
+These records have no schema that can define a replacement order, and evaluators may observe `Object.keys` or `Reflect.ownKeys`.
+
+Revision 17 therefore makes their captured string own-key sequence part of V1 semantic authority:
+
+- validate the captured `Reflect.ownKeys` sequence;
+- preserve that sequence exactly when deep-snapshotting;
+- recurse with the same rule into nested schema-less records;
+- require JSON-reloaded records to reproduce the same sequence;
+- never lexically sort or schema-normalize schema-less keys.
+
+This preserves historical evaluator-facing key order instead of creating a replay-dependent normalization choice.
+
+## 6. Complete verification-result ownership
+
+Revision 17 applies the same tree invariant used for experiments and protection artifacts to the entire public verification result.
+
+Every non-null nested record and Array is allocated for one path only. In particular, empty arrays are not shared merely because their contents are equal.
+
+This rejects/forbids constructions such as:
+
+```text
+result.baselineMismatchAttackIds === result.eliminatedAttackIds
+```
+
+Before verification resolves, the complete result must satisfy `isTreeGraphV1`. Internal construction that violates the invariant rejects with `TypeError`; an aliasing result is never exposed.
+
+JSON therefore cannot silently de-alias a valid public result and change its mutation semantics.
+
+## 7. Numeric validation is captured
+
+`isWireNumberV1` now uses only captured module-start references:
+
+```text
+capturedNumberIsFinite(value)
+capturedObjectIs(value, -0)
+```
+
+Mutating `Number.isFinite` or `Object.is` later cannot alter replayability or allow `Infinity`, `NaN`, or signed zero to cross the wire boundary.
+
+This matches the existing captured-intrinsic treatment of trim, JSON, descriptor access, Proxy detection, and other authority-sensitive operations.
+
+## 8. Final authority chain
+
+```text
+module-start captured intrinsics + mandatory probe capability
+  -> validated M8 case before callbacks
   -> frozen case eligibility + owned canonical case snapshots
-  -> retained attack/output snapshots
+  -> schema-less key-order-preserving retained attack/output snapshots
   -> complete tree candidate experiment
   -> prototype-baseline + JSON experiment probe
   -> emitted replayable experiment
   -> external adapter obtains declarative proposal
-  -> invocation-time descriptor/brand capture
+  -> invocation-time descriptor/brand/identity capture
   -> owned experimentAuthority
   -> exact proposal authority binding
   -> complete tree draft
@@ -129,41 +147,40 @@ validated M8 case before callbacks
   -> final artifact JSON probe
   -> invocation-time verification capture
   -> owned verificationAuthority
-  -> baseline replay
+  -> baseline replay with preserved evaluator-facing wire order
   -> exact historical identity gate
   -> improved replay
-  -> normalized deterministic result
+  -> independently allocated complete-tree verification result
 ```
 
-No later phase rereads mutable caller authority. No M10 proposal-generation callback can mutate core authority or ambient prototype state because none is executed.
+No later phase rereads mutable caller authority. No M10 proposal-generation callback executes.
 
-## 6. Replayability and data boundary
+## 9. Replayability and data boundary
 
 Replayable V1 remains intentionally narrow:
 
 - null/string/boolean;
-- finite numbers except `-0`;
+- finite numbers except `-0` using captured numeric intrinsics;
 - dense local Arrays;
-- local Object-prototype data records that pass captured intrinsic-brand rejection;
+- local Object-prototype data records that pass the exact mandatory forbidden-brand set;
 - no accessors, symbols, custom/null/cross-realm prototypes;
 - no cycles or repeated identity;
+- schema-less wire records preserve captured recursive own-key order;
 - exact signed-zero-safe attack scores.
 
-Experiments and protection artifacts are complete trees and must survive the supported JSON round trip without semantic/identity drift.
+Experiments, protection artifacts, and verification results are complete trees. Experiments and protection artifacts must survive the supported JSON round trip without semantic, order, or identity drift.
 
-Prototype-rewritten known intrinsics reject before normalization.
-
-## 7. Public completion model
+## 10. Public completion model
 
 All three public APIs remain genuine-local-native-Promise-only.
 
-Invocation capture happens synchronously before Promise return but executes no user callback and exposes no synchronous validation-error channel. Capture/schema/authority errors reject asynchronously with `TypeError`.
+Invocation capture occurs synchronously before Promise return but exposes no synchronous validation-error channel. Capture/schema/authority failures reject asynchronously with `TypeError`.
 
-Drafting has no model callback throw/rejection/thenable channel.
+Drafting executes no model/provider/proposal callback.
 
-Only evaluator callbacks remain executable in M10, and they are delegated to the existing M8 evaluator execution boundary. Classified evaluator failures resolve deterministic semantic verification states.
+Only evaluator callbacks remain executable in M10 and are delegated to the existing M8 evaluator execution boundary. Classified evaluator failures resolve deterministic semantic states.
 
-## 8. Human and historical authority
+## 11. Human and historical authority
 
 Drafting returns only `draft`.
 
@@ -177,26 +194,30 @@ reject -> rejected
 
 Verification accepts only a valid confirmed complete-tree artifact.
 
-The baseline evaluator is a compatibility witness; the bound experiment remains historical authority. Per-attack classifications, survivor order, and top finding must match before improved evaluation begins.
+The baseline evaluator is a compatibility witness. Historical authority remains the bound experiment: every per-attack classification, survivor order, and top finding must match before improved evaluation begins.
 
-## 9. Required proof obligations
+## 12. Required proof obligations
 
 Implementation must prove at least:
 
-- replacing `String.prototype.trim` cannot alter non-empty-string validation;
-- Proxy/accessor/cross-realm/null/custom-prototype containers fail before authority copying;
-- prototype-rewritten covered intrinsics (Date/Map/typed arrays/etc.) fail captured brand checks before normalization;
-- immediate caller mutation after API return cannot alter experiment/proposal/draft/protection/decision/evaluator authority;
+- the forbidden-brand list is exactly the Revision-17 mandatory list and extra runtime probes do not alter V1 acceptance;
+- missing any mandatory probe triggers the exact fail-closed fallback;
+- prototype-rewritten covered intrinsic exotics reject before normalization;
+- captured `Number.isFinite`, captured `Object.is`, and captured trim remain authoritative after global mutation;
+- invocation capture rejects repeated identities/cycles across the complete non-callback options graph before copying;
+- no invalid alias can be normalized into a valid tree;
+- immediate caller mutation after API return cannot alter captured authority;
 - drafting executes no provider/model/proposal callback;
 - proposal data is exact, local, declarative, and rebound to experiment task/source/rule authority;
-- accepted experiments and artifacts are whole trees, with aliases/cycles rejected before and after JSON round trip;
-- canonical Gotcha-built record key order is stable and independent of caller insertion order;
+- schema-less wire records preserve recursive captured own-key order through snapshot, JSON reload, and evaluator replay;
+- accepted experiments and protection artifacts are whole trees before and after JSON round trip;
+- every verification result is a complete tree, with independently allocated diagnostic arrays and replay payloads;
 - prototype-baseline checks include Object/Array prototype-chain identity plus own `toJSON` absence before wire operations;
 - empty/whitespace protection text rejects on every artifact boundary;
 - huge/escape-heavy proposal/edit text cannot yield an unserializable returned artifact;
 - signed-zero, severity, ordering, draft-only confirmation, evaluator-state mapping, baseline identity, and complete failure-reason semantics remain exact.
 
-## 10. Scope
+## 13. Scope
 
 Expected implementation files:
 
@@ -215,6 +236,6 @@ Provider/model adapters are outside this architecture PR and can be implemented 
 
 Lossless arbitrary graph/prototype serialization, cryptographic attestation, dashboards, production-model execution inside M10 core, generated evaluator code, automatic patching, and unrelated engine redesign remain out of scope.
 
-## 11. Stopping rule
+## 14. Stopping rule
 
-M10 architecture is implementation-ready only after a fresh exact-head Codex review reports no concrete contradiction or remaining V1 implementation-choice ambiguity in the Revision 16 spec.
+M10 architecture is implementation-ready only after a fresh exact-head Codex review reports no concrete contradiction or remaining V1 implementation-choice ambiguity in the Revision 17 spec.
