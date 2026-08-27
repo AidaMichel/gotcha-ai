@@ -5,39 +5,20 @@ const {
   captureGeneratorOutputForActiveExperiment,
   createExperimentCapture,
   withExperimentCapture
-} = require("./contract-experiment");
+} = require("./contract-experiment-safe");
 
-const aiData = require("./ai-data");
-const originalSnapshotAiData =
-  aiData.snapshotAiData;
+const {
+  setSnapshotCaptureListener
+} = require("./contract-experiment-hook");
 
-aiData.snapshotAiData =
-  function experimentAwareSnapshotAiData(
-    value,
-    label
-  ) {
-    captureGeneratorOutputForActiveExperiment(
-      value,
-      label
-    );
+setSnapshotCaptureListener(
+  captureGeneratorOutputForActiveExperiment
+);
 
-    return originalSnapshotAiData(
-      value,
-      label
-    );
-  };
-
-let runContractAttacksCore;
-
-try {
-  ({
-    runContractAttacks:
-      runContractAttacksCore
-  } = require("./contract-attacks-core"));
-} finally {
-  aiData.snapshotAiData =
-    originalSnapshotAiData;
-}
+const {
+  runContractAttacks:
+    runContractAttacksCore
+} = require("./contract-attacks-core");
 
 const defineProperty =
   Object.defineProperty;
