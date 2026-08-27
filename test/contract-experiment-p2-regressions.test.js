@@ -337,3 +337,117 @@ test(
     );
   }
 );
+
+test(
+  "snapshot listener survives selective hook cache eviction",
+  () => {
+    const repoRoot = path.resolve(
+      __dirname,
+      ".."
+    );
+
+    const script = String.raw`
+      "use strict";
+      require("./src/ai-data");
+      require("./src/contract-attacks-core");
+      const hookPath = require.resolve("./src/contract-experiment-hook");
+      delete require.cache[hookPath];
+      const { runContractAttacks } = require("./src/contract-attacks");
+      const contract = {
+        version: 1,
+        status: "confirmed",
+        task: "Return the approved time.",
+        rules: [{
+          id: "time-rule",
+          statement: "Time must be 3 PM.",
+          kind: "required",
+          severity: "major"
+        }]
+      };
+      runContractAttacks({
+        contract,
+        input: { request: "Schedule the meeting." },
+        expectedOutput: { time: "3 PM" },
+        evaluator(output) {
+          return output.time === "3 PM";
+        },
+        generator() {
+          return { version: 1, task: contract.task, attacks: [] };
+        }
+      }).then((result) => {
+        if (result.experiment.replayable !== true) process.exitCode = 2;
+      }).catch((error) => {
+        console.error(error);
+        process.exitCode = 1;
+      });
+    `;
+
+    const child = spawnSync(
+      process.execPath,
+      ["-e", script],
+      {
+        cwd: repoRoot,
+        encoding: "utf8"
+      }
+    );
+
+    assert.equal(child.status, 0, child.stderr || child.stdout);
+  }
+);
+
+test(
+  "later matching-label snapshots cannot overwrite genuine generator evidence",
+  async () => {
+    const {
+      snapshotAiData
+    } = require("../src/ai-data");
+    const contract = makeContract();
+
+    const result = await runContractAttacks(
+      makeOptions({
+        contract,
+        generator() {
+          queueMicrotask(() => {
+            const fake = {
+              version: 1,
+              task: contract.task
+            };
+
+            Object.defineProperty(
+              fake,
+              "attacks",
+              {
+                get() {
+                  throw new Error(
+                    "fake generator evidence must be ignored"
+                  );
+                },
+                configurable: true
+              }
+            );
+
+            try {
+              snapshotAiData(
+                fake,
+                "Generator output"
+              );
+            } catch {
+              // The fake snapshot may reject independently; it must not alter captured evidence.
+            }
+          });
+
+          return {
+            version: 1,
+            task: contract.task,
+            attacks: []
+          };
+        }
+      })
+    );
+
+    assert.equal(
+      result.experiment.replayable,
+      true
+    );
+  }
+);
