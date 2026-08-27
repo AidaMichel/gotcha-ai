@@ -8,12 +8,8 @@ const {
 } = require("./contract-experiment-safe");
 
 const {
-  setSnapshotCaptureListener
+  withSnapshotCaptureListener
 } = require("./contract-experiment-hook");
-
-setSnapshotCaptureListener(
-  captureGeneratorOutputForActiveExperiment
-);
 
 const {
   runContractAttacks:
@@ -33,8 +29,12 @@ async function runContractAttacks(
     await withExperimentCapture(
       experimentCapture,
       () =>
-        runContractAttacksCore(
-          options
+        withSnapshotCaptureListener(
+          captureGeneratorOutputForActiveExperiment,
+          () =>
+            runContractAttacksCore(
+              options
+            )
         )
     );
 
