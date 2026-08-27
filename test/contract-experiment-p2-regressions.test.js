@@ -1,0 +1,453 @@
+"use strict";
+
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const path = require("node:path");
+const {
+  spawnSync
+} = require("node:child_process");
+
+const {
+  runContractAttacks
+} = require("../src/contract-attacks");
+
+function makeContract() {
+  return {
+    version: 1,
+    status: "confirmed",
+    task: "Return the approved time.",
+    rules: [
+      {
+        id: "time-rule",
+        statement: "Time must be 3 PM.",
+        kind: "required",
+        severity: "major"
+      }
+    ]
+  };
+}
+
+function makeOptions(overrides = {}) {
+  const contract = makeContract();
+
+  return {
+    contract,
+    input: {
+      request: "Schedule the meeting."
+    },
+    expectedOutput: {
+      time: "3 PM"
+    },
+    evaluator(output) {
+      return output.time === "3 PM";
+    },
+    generator() {
+      return {
+        version: 1,
+        task: contract.task,
+        attacks: []
+      };
+    },
+    ...overrides
+  };
+}
+
+test(
+  "seed capture ignores a tampered Array iterator",
+  async () => {
+    const previousIterator =
+      Array.prototype[Symbol.iterator];
+
+    Array.prototype[Symbol.iterator] =
+      function poisonedIterator() {
+        if (
+          this.length === 3 &&
+          this[0] === "contract" &&
+          this[1] === "input" &&
+          this[2] === "expectedOutput"
+        ) {
+          throw new Error(
+            "mutable Array iterator must not run"
+          );
+        }
+
+        return Reflect.apply(
+          previousIterator,
+          this,
+          []
+        );
+      };
+
+    try {
+      const result = await runContractAttacks(
+        makeOptions()
+      );
+
+      assert.equal(
+        result.experiment.replayable,
+        true
+      );
+    } finally {
+      Array.prototype[Symbol.iterator] =
+        previousIterator;
+    }
+  }
+);
+
+test(
+  "seed capture ignores a non-configurable writable poisoned Array iterator",
+  () => {
+    const repoRoot = path.resolve(
+      __dirname,
+      ".."
+    );
+
+    const script = String.raw`
+      "use strict";
+      const previous = Object.getOwnPropertyDescriptor(
+        Array.prototype,
+        Symbol.iterator
+      );
+      Object.defineProperty(
+        Array.prototype,
+        Symbol.iterator,
+        {
+          value: function poisonedIterator() {
+            if (
+              this.length === 3 &&
+              this[0] === "contract" &&
+              this[1] === "input" &&
+              this[2] === "expectedOutput"
+            ) {
+              throw new Error("iterator must not run");
+            }
+            return Reflect.apply(previous.value, this, []);
+          },
+          writable: true,
+          enumerable: previous.enumerable,
+          configurable: false
+        }
+      );
+      const { runContractAttacks } = require("./src/contract-attacks");
+      const contract = {
+        version: 1,
+        status: "confirmed",
+        task: "Return the approved time.",
+        rules: [{
+          id: "time-rule",
+          statement: "Time must be 3 PM.",
+          kind: "required",
+          severity: "major"
+        }]
+      };
+      runContractAttacks({
+        contract,
+        input: { request: "Schedule the meeting." },
+        expectedOutput: { time: "3 PM" },
+        evaluator(output) {
+          return output.time === "3 PM";
+        },
+        generator() {
+          return {
+            version: 1,
+            task: contract.task,
+            attacks: []
+          };
+        }
+      }).then((result) => {
+        if (result.experiment.replayable !== true) {
+          process.exitCode = 2;
+        }
+      }).catch((error) => {
+        console.error(error);
+        process.exitCode = 1;
+      });
+    `;
+
+    const child = spawnSync(
+      process.execPath,
+      ["-e", script],
+      {
+        cwd: repoRoot,
+        encoding: "utf8"
+      }
+    );
+
+    assert.equal(
+      child.status,
+      0,
+      child.stderr || child.stdout
+    );
+  }
+);
+
+test(
+  "missing generator attacks does not invoke an inherited getter",
+  async () => {
+    const previous =
+      Object.getOwnPropertyDescriptor(
+        Object.prototype,
+        "attacks"
+      );
+    let getterCalls = 0;
+
+    Object.defineProperty(
+      Object.prototype,
+      "attacks",
+      {
+        get() {
+          getterCalls += 1;
+          throw new Error(
+            "inherited attacks getter must not run"
+          );
+        },
+        configurable: true
+      }
+    );
+
+    try {
+      await assert.rejects(
+        () =>
+          runContractAttacks(
+            makeOptions({
+              generator() {
+                return {
+                  version: 1,
+                  task:
+                    "Return the approved time."
+                };
+              }
+            })
+          )
+      );
+
+      assert.equal(getterCalls, 0);
+    } finally {
+      if (previous === undefined) {
+        delete Object.prototype.attacks;
+      } else {
+        Object.defineProperty(
+          Object.prototype,
+          "attacks",
+          previous
+        );
+      }
+    }
+  }
+);
+
+test(
+  "proxied attacks array is rejected before descriptor traps execute",
+  async () => {
+    let trapCalls = 0;
+    const attacks = new Proxy([], {
+      ownKeys(target) {
+        trapCalls += 1;
+        return Reflect.ownKeys(target);
+      },
+      getOwnPropertyDescriptor(target, key) {
+        trapCalls += 1;
+        return Reflect.getOwnPropertyDescriptor(
+          target,
+          key
+        );
+      }
+    });
+
+    await assert.rejects(
+      () =>
+        runContractAttacks(
+          makeOptions({
+            generator() {
+              return {
+                version: 1,
+                task:
+                  "Return the approved time.",
+                attacks
+              };
+            }
+          })
+        )
+    );
+
+    assert.equal(trapCalls, 0);
+  }
+);
+
+test(
+  "experiment capture works when the M8 core is already cached",
+  () => {
+    const repoRoot = path.resolve(
+      __dirname,
+      ".."
+    );
+
+    const script = String.raw`
+      "use strict";
+      require("./src/contract-attacks-core");
+      const { runContractAttacks } = require("./src/contract-attacks");
+      const contract = {
+        version: 1,
+        status: "confirmed",
+        task: "Return the approved time.",
+        rules: [{
+          id: "time-rule",
+          statement: "Time must be 3 PM.",
+          kind: "required",
+          severity: "major"
+        }]
+      };
+      runContractAttacks({
+        contract,
+        input: { request: "Schedule the meeting." },
+        expectedOutput: { time: "3 PM" },
+        evaluator(output) {
+          return output.time === "3 PM";
+        },
+        generator() {
+          return {
+            version: 1,
+            task: contract.task,
+            attacks: []
+          };
+        }
+      }).then((result) => {
+        if (result.experiment.replayable !== true) {
+          process.exitCode = 2;
+        }
+      }).catch((error) => {
+        console.error(error);
+        process.exitCode = 1;
+      });
+    `;
+
+    const child = spawnSync(
+      process.execPath,
+      ["-e", script],
+      {
+        cwd: repoRoot,
+        encoding: "utf8"
+      }
+    );
+
+    assert.equal(
+      child.status,
+      0,
+      child.stderr || child.stdout
+    );
+  }
+);
+
+test(
+  "snapshot listener survives selective hook cache eviction",
+  () => {
+    const repoRoot = path.resolve(
+      __dirname,
+      ".."
+    );
+
+    const script = String.raw`
+      "use strict";
+      require("./src/ai-data");
+      require("./src/contract-attacks-core");
+      const hookPath = require.resolve("./src/contract-experiment-hook");
+      delete require.cache[hookPath];
+      const { runContractAttacks } = require("./src/contract-attacks");
+      const contract = {
+        version: 1,
+        status: "confirmed",
+        task: "Return the approved time.",
+        rules: [{
+          id: "time-rule",
+          statement: "Time must be 3 PM.",
+          kind: "required",
+          severity: "major"
+        }]
+      };
+      runContractAttacks({
+        contract,
+        input: { request: "Schedule the meeting." },
+        expectedOutput: { time: "3 PM" },
+        evaluator(output) {
+          return output.time === "3 PM";
+        },
+        generator() {
+          return { version: 1, task: contract.task, attacks: [] };
+        }
+      }).then((result) => {
+        if (result.experiment.replayable !== true) process.exitCode = 2;
+      }).catch((error) => {
+        console.error(error);
+        process.exitCode = 1;
+      });
+    `;
+
+    const child = spawnSync(
+      process.execPath,
+      ["-e", script],
+      {
+        cwd: repoRoot,
+        encoding: "utf8"
+      }
+    );
+
+    assert.equal(child.status, 0, child.stderr || child.stdout);
+  }
+);
+
+test(
+  "later matching-label snapshots cannot overwrite genuine generator evidence",
+  async () => {
+    const {
+      snapshotAiData
+    } = require("../src/ai-data");
+    const contract = makeContract();
+
+    const result = await runContractAttacks(
+      makeOptions({
+        contract,
+        generator() {
+          queueMicrotask(() => {
+            const fake = {
+              version: 1,
+              task: contract.task
+            };
+
+            Object.defineProperty(
+              fake,
+              "attacks",
+              {
+                get() {
+                  throw new Error(
+                    "fake generator evidence must be ignored"
+                  );
+                },
+                configurable: true
+              }
+            );
+
+            try {
+              snapshotAiData(
+                fake,
+                "Generator output"
+              );
+            } catch {
+              // The fake snapshot may reject independently; it must not alter captured evidence.
+            }
+          });
+
+          return {
+            version: 1,
+            task: contract.task,
+            attacks: []
+          };
+        }
+      })
+    );
+
+    assert.equal(
+      result.experiment.replayable,
+      true
+    );
+  }
+);
