@@ -1,0 +1,41 @@
+name: M10FinalP2Fix
+
+'on':
+  push:
+    branches:
+      - milestone-10-remediation-r20-impl
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message == 'chore: run final Slice-A P2 fix'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: milestone-10-remediation-r20-impl
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Apply final Slice-A P2 patch
+        run: python3 scripts/qa/m10-p2-final-fix.py
+      - name: Validate full implementation
+        run: |
+          node --check src/contract-experiment.js
+          node --check src/contract-experiment-safe.js
+          node --check src/contract-attacks.js
+          node --check src/contract-attacks-core.js
+          npm test
+          git diff --check
+      - name: Commit tested fix and remove one-shot files
+        run: |
+          rm -f .github/workflows/m10-p2-final-fix.yml
+          rm -f scripts/qa/m10-p2-final-fix.py
+          git config user.name AidaMichel
+          git config user.email 126730924+AidaMichel@users.noreply.github.com
+          git add -A
+          git commit -m "fix: close final Slice-A P2 findings"
+          git push origin HEAD:milestone-10-remediation-r20-impl
