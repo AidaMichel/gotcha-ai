@@ -55,6 +55,8 @@ function withSnapshotCaptureListener(
 
   const scope = {
     listener,
+    authorizedGeneratorOutput: undefined,
+    generatorOutputAuthorized: false,
     generatorOutputCaptured: false
   };
 
@@ -63,6 +65,21 @@ function withSnapshotCaptureListener(
     state.storage,
     [scope, callback]
   );
+}
+
+function authorizeGeneratorOutput(value) {
+  const scope = reflectApply(
+    asyncStorageGetStore,
+    state.storage,
+    []
+  );
+
+  if (scope === undefined) {
+    return;
+  }
+
+  scope.authorizedGeneratorOutput = value;
+  scope.generatorOutputAuthorized = true;
 }
 
 function notifySnapshotCapture(
@@ -80,7 +97,11 @@ function notifySnapshotCapture(
   }
 
   if (label === "Generator output") {
-    if (scope.generatorOutputCaptured) {
+    if (
+      scope.generatorOutputAuthorized !== true ||
+      scope.generatorOutputCaptured === true ||
+      value !== scope.authorizedGeneratorOutput
+    ) {
       return;
     }
 
@@ -94,6 +115,7 @@ function notifySnapshotCapture(
 }
 
 module.exports = {
+  authorizeGeneratorOutput,
   notifySnapshotCapture,
   withSnapshotCaptureListener
 };
