@@ -12,11 +12,6 @@ const {
 } = require("./contract-experiment-safe");
 
 const {
-  authorizeGeneratorOutput,
-  withSnapshotCaptureListener
-} = require("./contract-experiment-hook");
-
-const {
   runContractAttacks:
     runContractAttacksCore
 } = require("./contract-attacks-core");
@@ -73,7 +68,7 @@ function makeCoreOptions(options) {
     {
       value: {
         value:
-          function authorizedGenerator(
+          function experimentCapturingGenerator(
             ...args
           ) {
             const rawOutput =
@@ -83,9 +78,14 @@ function makeCoreOptions(options) {
                 args
               );
 
-            authorizeGeneratorOutput(
-              rawOutput
-            );
+            try {
+              captureGeneratorOutputForActiveExperiment(
+                rawOutput,
+                "Generator output"
+              );
+            } catch {
+              // Experiment evidence is observational only and must never change M8 behavior.
+            }
 
             return rawOutput;
           },
@@ -120,12 +120,8 @@ async function runContractAttacks(
     await withExperimentCapture(
       experimentCapture,
       () =>
-        withSnapshotCaptureListener(
-          captureGeneratorOutputForActiveExperiment,
-          () =>
-            runContractAttacksCore(
-              coreOptions
-            )
+        runContractAttacksCore(
+          coreOptions
         )
     );
 
