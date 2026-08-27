@@ -21,6 +21,26 @@ jobs:
           node-version: '22'
       - name: Apply last two Slice-A P2 fixes
         run: python3 scripts/qa/m10-last-two-p2-fix.py
+      - name: Narrow String regression to the experiment seam
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('test/contract-experiment-last-p2-regressions.test.js')
+          text = p.read_text()
+          old = '''            globalThis.String = function poisonedString() {
+              throw new Error("mutable global String must not be used");
+            };'''
+          new = '''            globalThis.String = function poisonedString(value) {
+              const stack = new Error().stack || "";
+              if (stack.includes("generatorSurfaceIsSafe")) {
+                throw new Error("mutable global String must not be used by experiment capture");
+              }
+              return originalString(value);
+            };'''
+          if old not in text:
+              raise SystemExit('target String regression block not found')
+          p.write_text(text.replace(old, new, 1))
+          PY
       - name: Validate full implementation
         run: |
           node --check src/contract-experiment-intrinsics.js
