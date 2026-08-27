@@ -95,6 +95,93 @@ test(
 );
 
 test(
+  "seed capture ignores a non-configurable writable poisoned Array iterator",
+  () => {
+    const repoRoot = path.resolve(
+      __dirname,
+      ".."
+    );
+
+    const script = String.raw`
+      "use strict";
+      const previous = Object.getOwnPropertyDescriptor(
+        Array.prototype,
+        Symbol.iterator
+      );
+      Object.defineProperty(
+        Array.prototype,
+        Symbol.iterator,
+        {
+          value: function poisonedIterator() {
+            if (
+              this.length === 3 &&
+              this[0] === "contract" &&
+              this[1] === "input" &&
+              this[2] === "expectedOutput"
+            ) {
+              throw new Error("iterator must not run");
+            }
+            return Reflect.apply(previous.value, this, []);
+          },
+          writable: true,
+          enumerable: previous.enumerable,
+          configurable: false
+        }
+      );
+      const { runContractAttacks } = require("./src/contract-attacks");
+      const contract = {
+        version: 1,
+        status: "confirmed",
+        task: "Return the approved time.",
+        rules: [{
+          id: "time-rule",
+          statement: "Time must be 3 PM.",
+          kind: "required",
+          severity: "major"
+        }]
+      };
+      runContractAttacks({
+        contract,
+        input: { request: "Schedule the meeting." },
+        expectedOutput: { time: "3 PM" },
+        evaluator(output) {
+          return output.time === "3 PM";
+        },
+        generator() {
+          return {
+            version: 1,
+            task: contract.task,
+            attacks: []
+          };
+        }
+      }).then((result) => {
+        if (result.experiment.replayable !== true) {
+          process.exitCode = 2;
+        }
+      }).catch((error) => {
+        console.error(error);
+        process.exitCode = 1;
+      });
+    `;
+
+    const child = spawnSync(
+      process.execPath,
+      ["-e", script],
+      {
+        cwd: repoRoot,
+        encoding: "utf8"
+      }
+    );
+
+    assert.equal(
+      child.status,
+      0,
+      child.stderr || child.stdout
+    );
+  }
+);
+
+test(
   "missing generator attacks does not invoke an inherited getter",
   async () => {
     const previous =
@@ -146,6 +233,44 @@ test(
         );
       }
     }
+  }
+);
+
+test(
+  "proxied attacks array is rejected before descriptor traps execute",
+  async () => {
+    let trapCalls = 0;
+    const attacks = new Proxy([], {
+      ownKeys(target) {
+        trapCalls += 1;
+        return Reflect.ownKeys(target);
+      },
+      getOwnPropertyDescriptor(target, key) {
+        trapCalls += 1;
+        return Reflect.getOwnPropertyDescriptor(
+          target,
+          key
+        );
+      }
+    });
+
+    await assert.rejects(
+      () =>
+        runContractAttacks(
+          makeOptions({
+            generator() {
+              return {
+                version: 1,
+                task:
+                  "Return the approved time.",
+                attacks
+              };
+            }
+          })
+        )
+    );
+
+    assert.equal(trapCalls, 0);
   }
 );
 
