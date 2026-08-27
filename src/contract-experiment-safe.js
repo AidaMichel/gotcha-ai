@@ -67,18 +67,17 @@ function sameDescriptor(left, right) {
   );
 }
 
-function makeNonReplayableCapture() {
-  return {
-    seed: {
-      replayable: false,
-      contract: null,
-      input: null,
-      expectedOutput: null
-    },
-    generatorCaptured: false,
-    generatorEvidenceValid: false,
-    rawAttackById: new MapConstructor()
-  };
+function canSwapIteratorValue(descriptor) {
+  return (
+    descriptor !== undefined &&
+    hasOwn(descriptor, "value") &&
+    descriptor.writable === true &&
+    capturedArrayIteratorDescriptor !== undefined &&
+    hasOwn(
+      capturedArrayIteratorDescriptor,
+      "value"
+    )
+  );
 }
 
 function createExperimentCapture(options) {
@@ -99,26 +98,42 @@ function createExperimentCapture(options) {
     );
   }
 
-  if (
-    currentDescriptor !== undefined &&
-    currentDescriptor.configurable !== true
-  ) {
-    return makeNonReplayableCapture();
+  const configurable =
+    currentDescriptor === undefined ||
+    currentDescriptor.configurable === true;
+  const valueSwappable =
+    canSwapIteratorValue(currentDescriptor);
+
+  if (!configurable && !valueSwappable) {
+    return experiment.createExperimentCapture(
+      options
+    );
   }
 
   try {
-    if (
-      capturedArrayIteratorDescriptor ===
-        undefined
-    ) {
-      delete arrayPrototype[
-        arrayIteratorSymbol
-      ];
+    if (configurable) {
+      if (
+        capturedArrayIteratorDescriptor ===
+          undefined
+      ) {
+        delete arrayPrototype[
+          arrayIteratorSymbol
+        ];
+      } else {
+        defineProperty(
+          arrayPrototype,
+          arrayIteratorSymbol,
+          capturedArrayIteratorDescriptor
+        );
+      }
     } else {
       defineProperty(
         arrayPrototype,
         arrayIteratorSymbol,
-        capturedArrayIteratorDescriptor
+        {
+          value:
+            capturedArrayIteratorDescriptor.value
+        }
       );
     }
 
@@ -126,15 +141,25 @@ function createExperimentCapture(options) {
       options
     );
   } finally {
-    if (currentDescriptor === undefined) {
-      delete arrayPrototype[
-        arrayIteratorSymbol
-      ];
+    if (configurable) {
+      if (currentDescriptor === undefined) {
+        delete arrayPrototype[
+          arrayIteratorSymbol
+        ];
+      } else {
+        defineProperty(
+          arrayPrototype,
+          arrayIteratorSymbol,
+          currentDescriptor
+        );
+      }
     } else {
       defineProperty(
         arrayPrototype,
         arrayIteratorSymbol,
-        currentDescriptor
+        {
+          value: currentDescriptor.value
+        }
       );
     }
   }
@@ -228,8 +253,11 @@ function generatorSurfaceIsSafe(value) {
 
   const attacks = attacksDescriptor.value;
 
-  if (!arrayIsArray(attacks)) {
-    return true;
+  if (
+    isProxy(attacks) ||
+    !arrayIsArray(attacks)
+  ) {
+    return !isProxy(attacks);
   }
 
   const attackDescriptors =
