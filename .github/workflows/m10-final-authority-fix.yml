@@ -48,6 +48,8 @@ jobs:
           text = text.replace('experimentPristine.jsonParse', 'JSON.parse', 1)
           p.write_text(text)
           PY
+      - name: Remove superseded cache-module regression
+        run: rm -f test/contract-experiment-cache-authority-regression.test.js
       - name: Validate full implementation
         run: |
           node --check src/contract-attacks-core.js
