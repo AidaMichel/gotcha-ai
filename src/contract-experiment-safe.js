@@ -11,6 +11,18 @@ const experiment = require(
   "./contract-experiment"
 );
 
+// Capture every underlying experiment authority before any trusted callback can
+// replace the module's exported properties. Recorder closures use only these
+// lexical references afterwards.
+const experimentBuildExperiment =
+  experiment.buildExperiment;
+const experimentCreateExperimentCapture =
+  experiment.createExperimentCapture;
+const experimentWithExperimentCapture =
+  experiment.withExperimentCapture;
+const experimentCaptureGeneratorOutput =
+  experiment.captureGeneratorOutputForActiveExperiment;
+
 const arrayPrototype = Array.prototype;
 const arrayIteratorSymbol = Symbol.iterator;
 const defineProperty = Object.defineProperty;
@@ -23,6 +35,8 @@ const hasOwnProperty =
 const reflectApply = Reflect.apply;
 const arrayIsArray = Array.isArray;
 const isProxy = utilTypes.isProxy;
+const numberIsFinite = Number.isFinite;
+const objectIs = Object.is;
 
 const pristineArrayIterator =
   runInNewContext(
@@ -102,7 +116,7 @@ function createExperimentCapture(options) {
   if (!canInstallPristineIterator(
     currentDescriptor
   )) {
-    return experiment.createExperimentCapture(
+    return experimentCreateExperimentCapture(
       options
     );
   }
@@ -116,7 +130,7 @@ function createExperimentCapture(options) {
       )
     );
 
-    return experiment.createExperimentCapture(
+    return experimentCreateExperimentCapture(
       options
     );
   } finally {
@@ -132,6 +146,16 @@ function createExperimentCapture(options) {
       );
     }
   }
+}
+
+function isWireScore(value) {
+  return (
+    typeof value === "number" &&
+    numberIsFinite(value) &&
+    !objectIs(value, -0) &&
+    value >= 0 &&
+    value <= 1
+  );
 }
 
 function rawAttackSurfaceIsSafe(rawAttack) {
@@ -179,15 +203,24 @@ function rawAttackSurfaceIsSafe(rawAttack) {
       scoresDescriptor.value
     );
 
+  // Index-based validation here is an authenticated precondition for the
+  // underlying recorder. Ambient Array iteration cannot skip raw signed-zero
+  // or invalid score evidence before M8 normalizes it.
   for (
     let index = 0;
     index < SCORE_KEYS.length;
     index += 1
   ) {
+    const key = SCORE_KEYS[index];
+
     if (
+      !hasOwn(scoreDescriptors, key) ||
       !hasOwn(
-        scoreDescriptors,
-        SCORE_KEYS[index]
+        scoreDescriptors[key],
+        "value"
+      ) ||
+      !isWireScore(
+        scoreDescriptors[key].value
       )
     ) {
       return false;
@@ -271,14 +304,13 @@ function createGeneratorEvidenceRecorder(
       return value;
     }
 
-    experiment.withExperimentCapture(
+    experimentWithExperimentCapture(
       context,
       () =>
-        experiment
-          .captureGeneratorOutputForActiveExperiment(
-            value,
-            "Generator output"
-          )
+        experimentCaptureGeneratorOutput(
+          value,
+          "Generator output"
+        )
     );
 
     return value;
@@ -286,7 +318,7 @@ function createGeneratorEvidenceRecorder(
 }
 
 module.exports = {
-  buildExperiment: experiment.buildExperiment,
+  buildExperiment: experimentBuildExperiment,
   createExperimentCapture,
   createGeneratorEvidenceRecorder
 };
