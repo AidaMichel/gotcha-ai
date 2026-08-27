@@ -37,3 +37,5 @@ jobs:
           git add -A
           git commit -m "fix: seal core-owned prototype authority"
           git push origin HEAD:milestone-10-remediation-r20-impl
+
+# one-shot trigger
