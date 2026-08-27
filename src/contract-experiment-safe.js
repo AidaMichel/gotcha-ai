@@ -23,27 +23,29 @@ const experimentWithExperimentCapture =
 const experimentCaptureGeneratorOutput =
   experiment.captureGeneratorOutputForActiveExperiment;
 
-const arrayPrototype = Array.prototype;
-const arrayIteratorSymbol = Symbol.iterator;
-const defineProperty = Object.defineProperty;
-const getOwnPropertyDescriptor =
-  Object.getOwnPropertyDescriptor;
+const pristineIntrinsics =
+  runInNewContext(`({
+    getOwnPropertyDescriptors: Object.getOwnPropertyDescriptors,
+    hasOwnProperty: Object.prototype.hasOwnProperty,
+    reflectApply: Reflect.apply,
+    arrayIsArray: Array.isArray,
+    numberIsFinite: Number.isFinite,
+    objectIs: Object.is
+  })`);
+
 const getOwnPropertyDescriptors =
-  Object.getOwnPropertyDescriptors;
+  pristineIntrinsics.getOwnPropertyDescriptors;
 const hasOwnProperty =
-  Object.prototype.hasOwnProperty;
-const reflectApply = Reflect.apply;
-const arrayIsArray = Array.isArray;
+  pristineIntrinsics.hasOwnProperty;
+const reflectApply =
+  pristineIntrinsics.reflectApply;
+const arrayIsArray =
+  pristineIntrinsics.arrayIsArray;
 const isProxy = utilTypes.isProxy;
 const numberIsFinite =
-  runInNewContext("Number.isFinite");
+  pristineIntrinsics.numberIsFinite;
 const objectIs =
-  runInNewContext("Object.is");
-
-const pristineArrayIterator =
-  runInNewContext(
-    "Array.prototype[Symbol.iterator]"
-  );
+  pristineIntrinsics.objectIs;
 
 const RAW_ATTACK_KEYS = [
   "id",
@@ -66,88 +68,10 @@ function hasOwn(value, key) {
   );
 }
 
-function makePristineIteratorDescriptor(
-  currentDescriptor
-) {
-  if (currentDescriptor === undefined) {
-    return {
-      value: pristineArrayIterator,
-      writable: true,
-      enumerable: false,
-      configurable: true
-    };
-  }
-
-  if (hasOwn(currentDescriptor, "value")) {
-    return {
-      value: pristineArrayIterator,
-      writable: currentDescriptor.writable,
-      enumerable: currentDescriptor.enumerable,
-      configurable: currentDescriptor.configurable
-    };
-  }
-
-  return {
-    value: pristineArrayIterator,
-    writable: true,
-    enumerable: currentDescriptor.enumerable,
-    configurable: currentDescriptor.configurable
-  };
-}
-
-function canInstallPristineIterator(
-  descriptor
-) {
-  return (
-    descriptor === undefined ||
-    descriptor.configurable === true ||
-    (
-      hasOwn(descriptor, "value") &&
-      descriptor.writable === true
-    )
-  );
-}
-
 function createExperimentCapture(options) {
-  const currentDescriptor =
-    getOwnPropertyDescriptor(
-      arrayPrototype,
-      arrayIteratorSymbol
-    );
-
-  if (!canInstallPristineIterator(
-    currentDescriptor
-  )) {
-    return experimentCreateExperimentCapture(
-      options
-    );
-  }
-
-  try {
-    defineProperty(
-      arrayPrototype,
-      arrayIteratorSymbol,
-      makePristineIteratorDescriptor(
-        currentDescriptor
-      )
-    );
-
-    return experimentCreateExperimentCapture(
-      options
-    );
-  } finally {
-    if (currentDescriptor === undefined) {
-      delete arrayPrototype[
-        arrayIteratorSymbol
-      ];
-    } else {
-      defineProperty(
-        arrayPrototype,
-        arrayIteratorSymbol,
-        currentDescriptor
-      );
-    }
-  }
+  return experimentCreateExperimentCapture(
+    options
+  );
 }
 
 function isWireScore(value) {

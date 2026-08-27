@@ -92,8 +92,6 @@ const objectPrototype = Object.prototype;
 const arrayPrototype = Array.prototype;
 const objectPrototypeParent =
   getPrototypeOf(objectPrototype);
-const arrayPrototypeParent =
-  getPrototypeOf(arrayPrototype);
 const SetConstructor =
   pristineIntrinsics.SetConstructor;
 const MapConstructor =
@@ -708,13 +706,19 @@ function captureSeed(options) {
     const descriptors =
       getOwnPropertyDescriptors(options);
 
+    const seedKeys = [
+      "contract",
+      "input",
+      "expectedOutput"
+    ];
+
     for (
-      const key of [
-        "contract",
-        "input",
-        "expectedOutput"
-      ]
+      let keyIndex = 0;
+      keyIndex < seedKeys.length;
+      keyIndex += 1
     ) {
+      const key = seedKeys[keyIndex];
+
       if (
         !hasOwn(descriptors, key) ||
         !hasOwn(descriptors[key], "value")
@@ -985,7 +989,7 @@ function isPrototypeBaselineExact() {
     getPrototypeOf(objectPrototype) ===
       objectPrototypeParent &&
     getPrototypeOf(arrayPrototype) ===
-      arrayPrototypeParent &&
+      objectPrototype &&
     getOwnPropertyDescriptor(
       objectPrototype,
       "toJSON"
@@ -1364,14 +1368,19 @@ function cloneAttackForExperiment(
     throw new Error("invalid-retained-attack");
   }
 
+  const retainedScoreKeys = [
+    "realism",
+    "subtlety",
+    "novelty",
+    "fixability"
+  ];
+
   for (
-    const key of [
-      "realism",
-      "subtlety",
-      "novelty",
-      "fixability"
-    ]
+    let scoreIndex = 0;
+    scoreIndex < retainedScoreKeys.length;
+    scoreIndex += 1
   ) {
+    const key = retainedScoreKeys[scoreIndex];
     const value = attack[key];
 
     if (
