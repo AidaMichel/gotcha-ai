@@ -1,0 +1,22 @@
+name: Slice B validation
+
+on:
+  push:
+    branches:
+      - milestone-10-remediation-slice-b
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --check src/contract-remediation.js
+      - run: node --check src/index.js
+      - run: node --test test/contract-remediation-draft.test.js
+      - run: npm test
+      - run: git diff --check HEAD^ HEAD
