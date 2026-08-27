@@ -4,6 +4,9 @@ const {
   types: utilTypes
 } = require("node:util");
 
+// Initialize cache-stable experiment authorities alongside the M8 core.
+require("./contract-experiment-intrinsics");
+
 const utilIsPromise =
   utilTypes["isPromise"];
 

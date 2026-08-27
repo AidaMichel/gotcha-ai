@@ -5,37 +5,13 @@ const {
 } = require("node:async_hooks");
 
 const {
-  types: utilTypes
-} = require("node:util");
-const {
   runInNewContext
 } = require("node:vm");
 const {
-  Buffer: BufferConstructor
-} = require("node:buffer");
-
-const isProxy = utilTypes.isProxy;
-const forbiddenProbes = [
-  utilTypes.isDate,
-  utilTypes.isRegExp,
-  utilTypes.isMap,
-  utilTypes.isSet,
-  utilTypes.isWeakMap,
-  utilTypes.isWeakSet,
-  utilTypes.isPromise,
-  utilTypes.isNativeError,
-  utilTypes.isAnyArrayBuffer,
-  utilTypes.isDataView,
-  utilTypes.isTypedArray,
-  utilTypes.isBoxedPrimitive,
-  utilTypes.isArgumentsObject,
-  utilTypes.isGeneratorObject,
-  utilTypes.isModuleNamespaceObject,
-  utilTypes.isMapIterator,
-  utilTypes.isSetIterator,
-  utilTypes.isExternal,
-  BufferConstructor.isBuffer
-];
+  isProxy,
+  forbiddenProbes,
+  stringConstructor
+} = require("./contract-experiment-intrinsics");
 
 const pristineIntrinsics =
   runInNewContext(`({
@@ -291,7 +267,7 @@ function validateExactArraySurface(value) {
     index < length;
     index += 1
   ) {
-    const key = String(index);
+    const key = stringConstructor(index);
 
     if (
       keys[index] !== key ||
@@ -399,9 +375,9 @@ function prepareWireNode(
       index += 1
     ) {
       push(entries, {
-        key: String(index),
+        key: stringConstructor(index),
         value:
-          descriptors[String(index)].value
+          descriptors[stringConstructor(index)].value
       });
     }
 
@@ -662,7 +638,7 @@ function cloneContract(value) {
     index += 1
   ) {
     const rule = cloneRule(
-      ruleDescriptors[String(index)].value
+      ruleDescriptors[stringConstructor(index)].value
     );
 
     if (setHasValue(ids, rule.id)) {
@@ -921,7 +897,7 @@ function captureGeneratorOutput(
       index += 1
     ) {
       const descriptor =
-        attackDescriptors[String(index)];
+        attackDescriptors[stringConstructor(index)];
 
       if (
         descriptor === undefined ||
@@ -1249,7 +1225,7 @@ function stringifyWireTreeStackSafe(root) {
         push(operations, {
           kind: "value",
           value:
-            descriptors[String(index)].value
+            descriptors[stringConstructor(index)].value
         });
 
         if (index > 0) {

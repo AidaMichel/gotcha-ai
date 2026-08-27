@@ -1,15 +1,15 @@
 "use strict";
 
 const {
+  runContractAttacks:
+    runContractAttacksCore
+} = require("./contract-attacks-core");
+
+const {
   buildExperiment,
   createExperimentCapture,
   createGeneratorEvidenceRecorder
 } = require("./contract-experiment-safe");
-
-const {
-  runContractAttacks:
-    runContractAttacksCore
-} = require("./contract-attacks-core");
 
 const defineProperty =
   Object.defineProperty;

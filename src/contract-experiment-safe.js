@@ -1,11 +1,12 @@
 "use strict";
 
 const {
-  types: utilTypes
-} = require("node:util");
-const {
   runInNewContext
 } = require("node:vm");
+const {
+  isProxy,
+  stringConstructor
+} = require("./contract-experiment-intrinsics");
 
 const experiment = require(
   "./contract-experiment"
@@ -41,7 +42,6 @@ const reflectApply =
   pristineIntrinsics.reflectApply;
 const arrayIsArray =
   pristineIntrinsics.arrayIsArray;
-const isProxy = utilTypes.isProxy;
 const numberIsFinite =
   pristineIntrinsics.numberIsFinite;
 const objectIs =
@@ -201,7 +201,7 @@ function generatorSurfaceIsSafe(value) {
     index < attacks.length;
     index += 1
   ) {
-    const key = String(index);
+    const key = stringConstructor(index);
 
     if (
       !hasOwn(attackDescriptors, key) ||
