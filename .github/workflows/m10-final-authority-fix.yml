@@ -21,6 +21,33 @@ jobs:
           node-version: '22'
       - name: Apply final authority fixes
         run: python3 scripts/qa/m10-final-authority-fix.py
+      - name: Preserve main-realm behavior in the core-owned authority
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/contract-attacks-core.js')
+          text = p.read_text()
+          old = '''const experimentPristine =
+            runInNewContext(`({
+              freeze: Object.freeze,
+              stringConstructor: String,
+              defineProperty: Object.defineProperty,
+              jsonStringify: JSON.stringify,
+              jsonParse: JSON.parse
+            })`);'''
+          new = '''const experimentFreeze =
+            runInNewContext("Object.freeze");'''
+          if old not in text:
+              raise SystemExit('experiment pristine block not found')
+          text = text.replace(old, new, 1)
+          text = text.replace('experimentPristine.freeze([', 'experimentFreeze([', 1)
+          text = text.replace('experimentPristine.freeze({', 'experimentFreeze({', 1)
+          text = text.replace('experimentPristine.stringConstructor', 'String', 1)
+          text = text.replace('experimentPristine.defineProperty', 'Object.defineProperty', 1)
+          text = text.replace('experimentPristine.jsonStringify', 'JSON.stringify', 1)
+          text = text.replace('experimentPristine.jsonParse', 'JSON.parse', 1)
+          p.write_text(text)
+          PY
       - name: Validate full implementation
         run: |
           node --check src/contract-attacks-core.js
