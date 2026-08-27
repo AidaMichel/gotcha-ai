@@ -47,18 +47,24 @@ function run(script) {
 }
 
 const baseRun = `
+const contract = {
+  version: 1,
+  status: "confirmed",
+  task: "Return the approved time.",
+  rules: [{ id: "time-rule", statement: "Time must be 3 PM.", kind: "required", severity: "major" }]
+};
 const options = {
-  task: "authority regression",
-  expectedOutput: { ok: true },
-  rules: [],
-  evaluator: async () => ({ pass: true, score: 1, reason: "ok" }),
-  generateAttacks: async () => ({ attacks: [] })
+  contract,
+  input: { request: "Schedule the meeting." },
+  expectedOutput: { time: "3 PM" },
+  evaluator(output) { return output.time === "3 PM"; },
+  generator() { return { version: 1, task: contract.task, attacks: [] }; }
 };
 `;
 
 test("cached core owns Array prototype authority across wrapper load tampering", () => {
   run(`
-    const core = require("./src/contract-attacks-core");
+    require("./src/contract-attacks-core");
     const RealArray = globalThis.Array;
     function FakeArray() {}
     FakeArray.prototype = Object.create(null);
@@ -68,13 +74,13 @@ test("cached core owns Array prototype authority across wrapper load tampering",
     ${baseRun}
     publicApi.runContractAttacks(options).then((result) => {
       if (!result.experiment || result.experiment.replayable !== true) process.exit(2);
-    }).catch(() => process.exit(3));
+    }).catch((error) => { console.error(error); process.exit(3); });
   `);
 });
 
 test("cached core owns Object prototype authority across wrapper load tampering", () => {
   run(`
-    const core = require("./src/contract-attacks-core");
+    require("./src/contract-attacks-core");
     const RealObject = globalThis.Object;
     function FakeObject() {}
     FakeObject.prototype = Object.create(null);
@@ -84,7 +90,7 @@ test("cached core owns Object prototype authority across wrapper load tampering"
     ${baseRun}
     publicApi.runContractAttacks(options).then((result) => {
       if (!result.experiment || result.experiment.replayable !== true) process.exit(2);
-    }).catch(() => process.exit(3));
+    }).catch((error) => { console.error(error); process.exit(3); });
   `);
 });
 
@@ -102,7 +108,7 @@ test("core experiment authority export is immutable", () => {
     ${baseRun}
     publicApi.runContractAttacks(options).then((result) => {
       if (!result.experiment || result.experiment.replayable !== true) process.exit(4);
-    }).catch(() => process.exit(5));
+    }).catch((error) => { console.error(error); process.exit(5); });
   `);
 });
 ''')
