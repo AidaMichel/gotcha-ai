@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 
 def replace_once(path, old, new):
@@ -8,6 +9,15 @@ def replace_once(path, old, new):
     if count != 1:
         raise SystemExit(f"{path}: expected exactly one match, found {count}")
     p.write_text(text.replace(old, new, 1))
+
+
+def regex_once(path, pattern, replacement):
+    p = Path(path)
+    text = p.read_text()
+    updated, count = re.subn(pattern, replacement, text, count=1, flags=re.MULTILINE)
+    if count != 1:
+        raise SystemExit(f"{path}: expected exactly one regex match, found {count}")
+    p.write_text(updated)
 
 
 replace_once(
@@ -24,10 +34,10 @@ replace_once(
 
 Path("src/contract-attacks.js").write_text('''"use strict";\n\nconst {\n  buildExperiment,\n  createExperimentCapture,\n  createGeneratorEvidenceRecorder\n} = require("./contract-experiment-safe");\n\nconst {\n  runContractAttacks:\n    runContractAttacksCore\n} = require("./contract-attacks-core");\n\nconst defineProperty =\n  Object.defineProperty;\n\nasync function runContractAttacks(\n  options = {}\n) {\n  const experimentCapture =\n    createExperimentCapture(options);\n  const recordGeneratorEvidence =\n    createGeneratorEvidenceRecorder(\n      experimentCapture\n    );\n\n  const result =\n    await runContractAttacksCore(\n      options,\n      recordGeneratorEvidence\n    );\n\n  const experiment =\n    buildExperiment(\n      experimentCapture,\n      result\n    );\n\n  defineProperty(\n    result,\n    "experiment",\n    {\n      value: experiment,\n      writable: true,\n      enumerable: true,\n      configurable: true\n    }\n  );\n\n  return result;\n}\n\nmodule.exports = {\n  runContractAttacks\n};\n''')
 
-replace_once(
+regex_once(
     "src/contract-experiment.js",
-    "  for (const scoreKey of SCORE_KEYS) {\n    const descriptor =\n      scoreDescriptors[scoreKey];",
-    '''  for (\n    let scoreIndex = 0;\n    scoreIndex < SCORE_KEYS.length;\n    scoreIndex += 1\n  ) {\n    const scoreKey =\n      SCORE_KEYS[scoreIndex];\n    const descriptor =\n      scoreDescriptors[scoreKey];''',
+    r'''    for \(\n      const key of \[\n        "realism",\n        "subtlety",\n        "novelty",\n        "fixability"\n      \]\n    \) \{\n      const descriptor =\n        scoreDescriptors\[key\];''',
+    '''    const scoreKeys = [\n      "realism",\n      "subtlety",\n      "novelty",\n      "fixability"\n    ];\n\n    for (\n      let scoreIndex = 0;\n      scoreIndex < scoreKeys.length;\n      scoreIndex += 1\n    ) {\n      const key = scoreKeys[scoreIndex];\n      const descriptor =\n        scoreDescriptors[key];''',
 )
 
 replace_once(
@@ -35,7 +45,6 @@ replace_once(
     'const {\n  types: utilTypes\n} = require("node:util");',
     'const {\n  types: utilTypes\n} = require("node:util");\nconst {\n  runInNewContext\n} = require("node:vm");\nconst {\n  Buffer: BufferConstructor\n} = require("node:buffer");',
 )
-
 replace_once(
     "src/contract-experiment.js",
     "  Buffer.isBuffer\n];",
@@ -47,7 +56,6 @@ replace_once(
     '''const arrayIsArray = Array.isArray;\nconst getOwnPropertyDescriptors =\n  Object.getOwnPropertyDescriptors;\nconst getOwnPropertyDescriptor =\n  Object.getOwnPropertyDescriptor;\nconst getPrototypeOf = Object.getPrototypeOf;\nconst isExtensible = Object.isExtensible;\nconst objectIs = Object.is;\nconst defineProperty = Object.defineProperty;\nconst ownKeys = Reflect.ownKeys;\nconst reflectApply = Reflect.apply;\nconst numberIsFinite = Number.isFinite;\nconst stringTrim = String.prototype.trim;''',
     '''const pristineIntrinsics =\n  runInNewContext(`({\n    arrayIsArray: Array.isArray,\n    getOwnPropertyDescriptors: Object.getOwnPropertyDescriptors,\n    getOwnPropertyDescriptor: Object.getOwnPropertyDescriptor,\n    getPrototypeOf: Object.getPrototypeOf,\n    isExtensible: Object.isExtensible,\n    objectIs: Object.is,\n    defineProperty: Object.defineProperty,\n    ownKeys: Reflect.ownKeys,\n    reflectApply: Reflect.apply,\n    numberIsFinite: Number.isFinite,\n    stringTrim: String.prototype.trim,\n    hasOwnProperty: Object.prototype.hasOwnProperty,\n    setHas: Set.prototype.has,\n    setAdd: Set.prototype.add,\n    mapGet: Map.prototype.get,\n    mapSet: Map.prototype.set,\n    arrayPush: Array.prototype.push,\n    arrayPop: Array.prototype.pop,\n    arrayJoin: Array.prototype.join,\n    SetConstructor: Set,\n    MapConstructor: Map\n  })`);\n\nconst arrayIsArray =\n  pristineIntrinsics.arrayIsArray;\nconst getOwnPropertyDescriptors =\n  pristineIntrinsics.getOwnPropertyDescriptors;\nconst getOwnPropertyDescriptor =\n  pristineIntrinsics.getOwnPropertyDescriptor;\nconst getPrototypeOf =\n  pristineIntrinsics.getPrototypeOf;\nconst isExtensible =\n  pristineIntrinsics.isExtensible;\nconst objectIs =\n  pristineIntrinsics.objectIs;\nconst defineProperty =\n  pristineIntrinsics.defineProperty;\nconst ownKeys =\n  pristineIntrinsics.ownKeys;\nconst reflectApply =\n  pristineIntrinsics.reflectApply;\nconst numberIsFinite =\n  pristineIntrinsics.numberIsFinite;\nconst stringTrim =\n  pristineIntrinsics.stringTrim;''',
 )
-
 replace_once(
     "src/contract-experiment.js",
     "const hasOwnProperty =\n  Object.prototype.hasOwnProperty;",
