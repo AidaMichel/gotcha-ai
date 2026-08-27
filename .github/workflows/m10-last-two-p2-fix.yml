@@ -25,21 +25,21 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
           p = Path('test/contract-experiment-last-p2-regressions.test.js')
           text = p.read_text()
-          old = '''            globalThis.String = function poisonedString() {
-              throw new Error("mutable global String must not be used");
-            };'''
-          new = '''            globalThis.String = function poisonedString(value) {
+          pattern = r'''globalThis\.String = function poisonedString\(\) \{\s*throw new Error\("mutable global String must not be used"\);\s*\};'''
+          replacement = '''globalThis.String = function poisonedString(value) {
               const stack = new Error().stack || "";
               if (stack.includes("generatorSurfaceIsSafe")) {
                 throw new Error("mutable global String must not be used by experiment capture");
               }
               return originalString(value);
             };'''
-          if old not in text:
-              raise SystemExit('target String regression block not found')
-          p.write_text(text.replace(old, new, 1))
+          updated, count = re.subn(pattern, replacement, text, count=1)
+          if count != 1:
+              raise SystemExit(f'target String regression block matches: {count}')
+          p.write_text(updated)
           PY
       - name: Validate full implementation
         run: |
