@@ -1,42 +1,78 @@
 "use strict";
 
 const {
-  runContractAttacks:
-    runContractAttacksCore
-} = require("./contract-attacks-core");
-
-const {
   buildExperiment,
-  captureExperimentSeed
+  captureGeneratorOutputForActiveExperiment,
+  createExperimentCapture,
+  withExperimentCapture
 } = require("./contract-experiment");
 
-const {
-  makeExperimentResultView
-} = require(
-  "./contract-experiment-normalize"
-);
+const aiData = require("./ai-data");
+const originalSnapshotAiData =
+  aiData.snapshotAiData;
+
+aiData.snapshotAiData =
+  function experimentAwareSnapshotAiData(
+    value,
+    label
+  ) {
+    captureGeneratorOutputForActiveExperiment(
+      value,
+      label
+    );
+
+    return originalSnapshotAiData(
+      value,
+      label
+    );
+  };
+
+let runContractAttacksCore;
+
+try {
+  ({
+    runContractAttacks:
+      runContractAttacksCore
+  } = require("./contract-attacks-core"));
+} finally {
+  aiData.snapshotAiData =
+    originalSnapshotAiData;
+}
+
+const defineProperty =
+  Object.defineProperty;
 
 async function runContractAttacks(
   options = {}
 ) {
-  const experimentSeed =
-    captureExperimentSeed(options);
+  const experimentCapture =
+    createExperimentCapture(options);
 
   const result =
-    await runContractAttacksCore(
-      options
+    await withExperimentCapture(
+      experimentCapture,
+      () =>
+        runContractAttacksCore(
+          options
+        )
     );
 
-  const experimentResultView =
-    makeExperimentResultView(
+  const experiment =
+    buildExperiment(
+      experimentCapture,
       result
     );
 
-  result.experiment =
-    buildExperiment(
-      experimentSeed,
-      experimentResultView
-    );
+  defineProperty(
+    result,
+    "experiment",
+    {
+      value: experiment,
+      writable: true,
+      enumerable: true,
+      configurable: true
+    }
+  );
 
   return result;
 }
