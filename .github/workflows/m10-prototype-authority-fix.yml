@@ -1,0 +1,39 @@
+name: M10PrototypeAuthorityFix
+
+'on':
+  push:
+    branches:
+      - milestone-10-remediation-r20-impl
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: milestone-10-remediation-r20-impl
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Apply prototype authority fix
+        run: python3 scripts/qa/m10-prototype-authority-fix.py
+      - name: Validate
+        run: |
+          node --check src/contract-attacks-core.js
+          node --check src/contract-experiment.js
+          node --test test/contract-experiment-prototype-authority-regressions.test.js
+          npm test
+          git diff --check
+      - name: Commit tested fix and clean runner
+        run: |
+          rm -f .github/workflows/m10-prototype-authority-fix.yml
+          rm -f scripts/qa/m10-prototype-authority-fix.py
+          git config user.name AidaMichel
+          git config user.email 126730924+AidaMichel@users.noreply.github.com
+          git add -A
+          git commit -m "fix: seal core-owned prototype authority"
+          git push origin HEAD:milestone-10-remediation-r20-impl
