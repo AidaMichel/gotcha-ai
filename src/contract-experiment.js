@@ -8,10 +8,13 @@ const {
   runInNewContext
 } = require("node:vm");
 const {
+  experimentIntrinsics
+} = require("./contract-attacks-core");
+const {
   isProxy,
   forbiddenProbes,
   stringConstructor
-} = require("./contract-experiment-intrinsics");
+} = experimentIntrinsics;
 
 const pristineIntrinsics =
   runInNewContext(`({

@@ -4,8 +4,12 @@ const {
   types: utilTypes
 } = require("node:util");
 
-// Initialize cache-stable experiment authorities alongside the M8 core.
-require("./contract-experiment-intrinsics");
+// Initialize and retain experiment authorities on the M8 core instance.
+// Consumers must retrieve this exact object from the cached core rather than
+// re-requiring the dependency, so selective dependency-cache eviction cannot
+// create a divergent authority.
+const experimentIntrinsics =
+  require("./contract-experiment-intrinsics");
 
 const utilIsPromise =
   utilTypes["isPromise"];
@@ -4524,5 +4528,6 @@ async function runContractAttacks(
 }
 
 module.exports = {
-  runContractAttacks
+  runContractAttacks,
+  experimentIntrinsics
 };

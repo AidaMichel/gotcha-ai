@@ -4,9 +4,12 @@ const {
   runInNewContext
 } = require("node:vm");
 const {
+  experimentIntrinsics
+} = require("./contract-attacks-core");
+const {
   isProxy,
   stringConstructor
-} = require("./contract-experiment-intrinsics");
+} = experimentIntrinsics;
 
 const experiment = require(
   "./contract-experiment"
