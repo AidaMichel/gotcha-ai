@@ -10,6 +10,12 @@ const {
   captureExperimentSeed
 } = require("./contract-experiment");
 
+const {
+  makeExperimentResultView
+} = require(
+  "./contract-experiment-normalize"
+);
+
 async function runContractAttacks(
   options = {}
 ) {
@@ -21,10 +27,15 @@ async function runContractAttacks(
       options
     );
 
+  const experimentResultView =
+    makeExperimentResultView(
+      result
+    );
+
   result.experiment =
     buildExperiment(
       experimentSeed,
-      result
+      experimentResultView
     );
 
   return result;
