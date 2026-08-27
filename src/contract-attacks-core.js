@@ -4290,7 +4290,8 @@ function buildEmptyAttackResult() {
 }
 
 async function runContractAttacks(
-  options = {}
+  options = {},
+  experimentEvidenceRecorder = null
 ) {
   const runScope =
     enterCallbackIntrinsicScope();
@@ -4454,6 +4455,20 @@ async function runContractAttacks(
   } else {
     rawGeneratorOutput =
       generatorInvocation.returned;
+  }
+
+  if (
+    typeof experimentEvidenceRecorder ===
+      "function"
+  ) {
+    try {
+      experimentEvidenceRecorder(
+        rawGeneratorOutput
+      );
+    } catch {
+      // Experiment evidence is observational only.
+      // It must never change legacy M8 behavior.
+    }
   }
 
   const generated =

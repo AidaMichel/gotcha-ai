@@ -35,8 +35,10 @@ const hasOwnProperty =
 const reflectApply = Reflect.apply;
 const arrayIsArray = Array.isArray;
 const isProxy = utilTypes.isProxy;
-const numberIsFinite = Number.isFinite;
-const objectIs = Object.is;
+const numberIsFinite =
+  runInNewContext("Number.isFinite");
+const objectIs =
+  runInNewContext("Object.is");
 
 const pristineArrayIterator =
   runInNewContext(

@@ -7,6 +7,12 @@ const {
 const {
   types: utilTypes
 } = require("node:util");
+const {
+  runInNewContext
+} = require("node:vm");
+const {
+  Buffer: BufferConstructor
+} = require("node:buffer");
 
 const isProxy = utilTypes.isProxy;
 const forbiddenProbes = [
@@ -28,42 +34,85 @@ const forbiddenProbes = [
   utilTypes.isMapIterator,
   utilTypes.isSetIterator,
   utilTypes.isExternal,
-  Buffer.isBuffer
+  BufferConstructor.isBuffer
 ];
 
-const arrayIsArray = Array.isArray;
+const pristineIntrinsics =
+  runInNewContext(`({
+    arrayIsArray: Array.isArray,
+    getOwnPropertyDescriptors: Object.getOwnPropertyDescriptors,
+    getOwnPropertyDescriptor: Object.getOwnPropertyDescriptor,
+    getPrototypeOf: Object.getPrototypeOf,
+    isExtensible: Object.isExtensible,
+    objectIs: Object.is,
+    defineProperty: Object.defineProperty,
+    ownKeys: Reflect.ownKeys,
+    reflectApply: Reflect.apply,
+    numberIsFinite: Number.isFinite,
+    stringTrim: String.prototype.trim,
+    hasOwnProperty: Object.prototype.hasOwnProperty,
+    setHas: Set.prototype.has,
+    setAdd: Set.prototype.add,
+    mapGet: Map.prototype.get,
+    mapSet: Map.prototype.set,
+    arrayPush: Array.prototype.push,
+    arrayPop: Array.prototype.pop,
+    arrayJoin: Array.prototype.join,
+    SetConstructor: Set,
+    MapConstructor: Map
+  })`);
+
+const arrayIsArray =
+  pristineIntrinsics.arrayIsArray;
 const getOwnPropertyDescriptors =
-  Object.getOwnPropertyDescriptors;
+  pristineIntrinsics.getOwnPropertyDescriptors;
 const getOwnPropertyDescriptor =
-  Object.getOwnPropertyDescriptor;
-const getPrototypeOf = Object.getPrototypeOf;
-const isExtensible = Object.isExtensible;
-const objectIs = Object.is;
-const defineProperty = Object.defineProperty;
-const ownKeys = Reflect.ownKeys;
-const reflectApply = Reflect.apply;
-const numberIsFinite = Number.isFinite;
-const stringTrim = String.prototype.trim;
+  pristineIntrinsics.getOwnPropertyDescriptor;
+const getPrototypeOf =
+  pristineIntrinsics.getPrototypeOf;
+const isExtensible =
+  pristineIntrinsics.isExtensible;
+const objectIs =
+  pristineIntrinsics.objectIs;
+const defineProperty =
+  pristineIntrinsics.defineProperty;
+const ownKeys =
+  pristineIntrinsics.ownKeys;
+const reflectApply =
+  pristineIntrinsics.reflectApply;
+const numberIsFinite =
+  pristineIntrinsics.numberIsFinite;
+const stringTrim =
+  pristineIntrinsics.stringTrim;
 const jsonStringify = JSON.stringify;
 const jsonParse = JSON.parse;
 const hasOwnProperty =
-  Object.prototype.hasOwnProperty;
+  pristineIntrinsics.hasOwnProperty;
 const objectPrototype = Object.prototype;
 const arrayPrototype = Array.prototype;
 const objectPrototypeParent =
   getPrototypeOf(objectPrototype);
 const arrayPrototypeParent =
   getPrototypeOf(arrayPrototype);
-const SetConstructor = Set;
-const MapConstructor = Map;
+const SetConstructor =
+  pristineIntrinsics.SetConstructor;
+const MapConstructor =
+  pristineIntrinsics.MapConstructor;
 const ArrayConstructor = Array;
-const setHas = Set.prototype.has;
-const setAdd = Set.prototype.add;
-const mapGet = Map.prototype.get;
-const mapSet = Map.prototype.set;
-const arrayPush = Array.prototype.push;
-const arrayPop = Array.prototype.pop;
-const arrayJoin = Array.prototype.join;
+const setHas =
+  pristineIntrinsics.setHas;
+const setAdd =
+  pristineIntrinsics.setAdd;
+const mapGet =
+  pristineIntrinsics.mapGet;
+const mapSet =
+  pristineIntrinsics.mapSet;
+const arrayPush =
+  pristineIntrinsics.arrayPush;
+const arrayPop =
+  pristineIntrinsics.arrayPop;
+const arrayJoin =
+  pristineIntrinsics.arrayJoin;
 const asyncStorageRun =
   AsyncLocalStorage.prototype.run;
 const asyncStorageGetStore =
@@ -769,14 +818,19 @@ function captureRawAttackEvidence(
     const scoreDescriptors =
       getOwnPropertyDescriptors(scores);
 
+    const scoreKeys = [
+      "realism",
+      "subtlety",
+      "novelty",
+      "fixability"
+    ];
+
     for (
-      const key of [
-        "realism",
-        "subtlety",
-        "novelty",
-        "fixability"
-      ]
+      let scoreIndex = 0;
+      scoreIndex < scoreKeys.length;
+      scoreIndex += 1
     ) {
+      const key = scoreKeys[scoreIndex];
       const descriptor =
         scoreDescriptors[key];
       const value =
