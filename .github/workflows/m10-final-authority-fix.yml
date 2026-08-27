@@ -1,0 +1,41 @@
+name: M10FinalAuthorityFix
+
+'on':
+  push:
+    branches:
+      - milestone-10-remediation-r20-impl
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: milestone-10-remediation-r20-impl
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Apply final authority fixes
+        run: python3 scripts/qa/m10-final-authority-fix.py
+      - name: Validate full implementation
+        run: |
+          node --check src/contract-attacks-core.js
+          node --check src/contract-attacks.js
+          node --check src/contract-experiment.js
+          node --check src/contract-experiment-safe.js
+          node --test test/contract-experiment-final-authority-regressions.test.js
+          npm test
+          git diff --check
+      - name: Commit tested fix and remove one-shot files
+        run: |
+          rm -f .github/workflows/m10-final-authority-fix.yml
+          rm -f scripts/qa/m10-final-authority-fix.py
+          git config user.name AidaMichel
+          git config user.email 126730924+AidaMichel@users.noreply.github.com
+          git add -A
+          git commit -m "fix: make M8 core own experiment authorities"
+          git push origin HEAD:milestone-10-remediation-r20-impl
