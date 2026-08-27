@@ -3,6 +3,9 @@
 const {
   types: utilTypes
 } = require("node:util");
+const {
+  runInNewContext
+} = require("node:vm");
 
 const experiment = require(
   "./contract-experiment"
@@ -20,12 +23,10 @@ const hasOwnProperty =
 const reflectApply = Reflect.apply;
 const arrayIsArray = Array.isArray;
 const isProxy = utilTypes.isProxy;
-const MapConstructor = Map;
 
-const capturedArrayIteratorDescriptor =
-  getOwnPropertyDescriptor(
-    arrayPrototype,
-    arrayIteratorSymbol
+const pristineArrayIterator =
+  runInNewContext(
+    "Array.prototype[Symbol.iterator]"
   );
 
 const RAW_ATTACK_KEYS = [
@@ -49,33 +50,44 @@ function hasOwn(value, key) {
   );
 }
 
-function sameDescriptor(left, right) {
-  if (
-    left === undefined ||
-    right === undefined
-  ) {
-    return left === right;
+function makePristineIteratorDescriptor(
+  currentDescriptor
+) {
+  if (currentDescriptor === undefined) {
+    return {
+      value: pristineArrayIterator,
+      writable: true,
+      enumerable: false,
+      configurable: true
+    };
   }
 
-  return (
-    left.value === right.value &&
-    left.get === right.get &&
-    left.set === right.set &&
-    left.writable === right.writable &&
-    left.enumerable === right.enumerable &&
-    left.configurable === right.configurable
-  );
+  if (hasOwn(currentDescriptor, "value")) {
+    return {
+      value: pristineArrayIterator,
+      writable: currentDescriptor.writable,
+      enumerable: currentDescriptor.enumerable,
+      configurable: currentDescriptor.configurable
+    };
+  }
+
+  return {
+    value: pristineArrayIterator,
+    writable: true,
+    enumerable: currentDescriptor.enumerable,
+    configurable: currentDescriptor.configurable
+  };
 }
 
-function canSwapIteratorValue(descriptor) {
+function canInstallPristineIterator(
+  descriptor
+) {
   return (
-    descriptor !== undefined &&
-    hasOwn(descriptor, "value") &&
-    descriptor.writable === true &&
-    capturedArrayIteratorDescriptor !== undefined &&
-    hasOwn(
-      capturedArrayIteratorDescriptor,
-      "value"
+    descriptor === undefined ||
+    descriptor.configurable === true ||
+    (
+      hasOwn(descriptor, "value") &&
+      descriptor.writable === true
     )
   );
 }
@@ -87,79 +99,36 @@ function createExperimentCapture(options) {
       arrayIteratorSymbol
     );
 
-  if (
-    sameDescriptor(
-      currentDescriptor,
-      capturedArrayIteratorDescriptor
-    )
-  ) {
-    return experiment.createExperimentCapture(
-      options
-    );
-  }
-
-  const configurable =
-    currentDescriptor === undefined ||
-    currentDescriptor.configurable === true;
-  const valueSwappable =
-    canSwapIteratorValue(currentDescriptor);
-
-  if (!configurable && !valueSwappable) {
+  if (!canInstallPristineIterator(
+    currentDescriptor
+  )) {
     return experiment.createExperimentCapture(
       options
     );
   }
 
   try {
-    if (configurable) {
-      if (
-        capturedArrayIteratorDescriptor ===
-          undefined
-      ) {
-        delete arrayPrototype[
-          arrayIteratorSymbol
-        ];
-      } else {
-        defineProperty(
-          arrayPrototype,
-          arrayIteratorSymbol,
-          capturedArrayIteratorDescriptor
-        );
-      }
-    } else {
-      defineProperty(
-        arrayPrototype,
-        arrayIteratorSymbol,
-        {
-          value:
-            capturedArrayIteratorDescriptor.value
-        }
-      );
-    }
+    defineProperty(
+      arrayPrototype,
+      arrayIteratorSymbol,
+      makePristineIteratorDescriptor(
+        currentDescriptor
+      )
+    );
 
     return experiment.createExperimentCapture(
       options
     );
   } finally {
-    if (configurable) {
-      if (currentDescriptor === undefined) {
-        delete arrayPrototype[
-          arrayIteratorSymbol
-        ];
-      } else {
-        defineProperty(
-          arrayPrototype,
-          arrayIteratorSymbol,
-          currentDescriptor
-        );
-      }
+    if (currentDescriptor === undefined) {
+      delete arrayPrototype[
+        arrayIteratorSymbol
+      ];
     } else {
       defineProperty(
         arrayPrototype,
         arrayIteratorSymbol,
-        {
-          value: currentDescriptor.value
-        }
+        currentDescriptor
       );
     }
   }
@@ -253,11 +222,12 @@ function generatorSurfaceIsSafe(value) {
 
   const attacks = attacksDescriptor.value;
 
-  if (
-    isProxy(attacks) ||
-    !arrayIsArray(attacks)
-  ) {
-    return !isProxy(attacks);
+  if (isProxy(attacks)) {
+    return false;
+  }
+
+  if (!arrayIsArray(attacks)) {
+    return true;
   }
 
   const attackDescriptors =
