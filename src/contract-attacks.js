@@ -2,7 +2,8 @@
 
 const {
   runContractAttacks:
-    runContractAttacksCore
+    runContractAttacksCore,
+  experimentIntrinsics
 } = require("./contract-attacks-core");
 
 const {
@@ -12,7 +13,7 @@ const {
 } = require("./contract-experiment-safe");
 
 const defineProperty =
-  Object.defineProperty;
+  experimentIntrinsics.defineProperty;
 
 async function runContractAttacks(
   options = {}

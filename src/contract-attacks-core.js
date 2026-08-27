@@ -3,13 +3,56 @@
 const {
   types: utilTypes
 } = require("node:util");
+const {
+  Buffer: BufferConstructor
+} = require("node:buffer");
+const {
+  runInNewContext
+} = require("node:vm");
 
-// Initialize and retain experiment authorities on the M8 core instance.
-// Consumers must retrieve this exact object from the cached core rather than
-// re-requiring the dependency, so selective dependency-cache eviction cannot
-// create a divergent authority.
+// The M8 core owns the experiment authority. It is created from the same
+// util.types instance observed by this core plus pristine VM operations at
+// core initialization, then retained on the cached core export. No separately
+// cacheable dependency can predate or outlive this authority.
+const experimentFreeze =
+  runInNewContext("Object.freeze");
+
+const experimentForbiddenProbes =
+  experimentFreeze([
+    utilTypes.isDate,
+    utilTypes.isRegExp,
+    utilTypes.isMap,
+    utilTypes.isSet,
+    utilTypes.isWeakMap,
+    utilTypes.isWeakSet,
+    utilTypes.isPromise,
+    utilTypes.isNativeError,
+    utilTypes.isAnyArrayBuffer,
+    utilTypes.isDataView,
+    utilTypes.isTypedArray,
+    utilTypes.isBoxedPrimitive,
+    utilTypes.isArgumentsObject,
+    utilTypes.isGeneratorObject,
+    utilTypes.isModuleNamespaceObject,
+    utilTypes.isMapIterator,
+    utilTypes.isSetIterator,
+    utilTypes.isExternal,
+    BufferConstructor.isBuffer
+  ]);
+
 const experimentIntrinsics =
-  require("./contract-experiment-intrinsics");
+  experimentFreeze({
+    isProxy: utilTypes.isProxy,
+    forbiddenProbes: experimentForbiddenProbes,
+    stringConstructor:
+      String,
+    defineProperty:
+      Object.defineProperty,
+    jsonStringify:
+      JSON.stringify,
+    jsonParse:
+      JSON.parse
+  });
 
 const utilIsPromise =
   utilTypes["isPromise"];

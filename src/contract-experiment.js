@@ -13,7 +13,9 @@ const {
 const {
   isProxy,
   forbiddenProbes,
-  stringConstructor
+  stringConstructor,
+  jsonStringify,
+  jsonParse
 } = experimentIntrinsics;
 
 const pristineIntrinsics =
@@ -63,8 +65,6 @@ const numberIsFinite =
   pristineIntrinsics.numberIsFinite;
 const stringTrim =
   pristineIntrinsics.stringTrim;
-const jsonStringify = JSON.stringify;
-const jsonParse = JSON.parse;
 const hasOwnProperty =
   pristineIntrinsics.hasOwnProperty;
 const objectPrototype = Object.prototype;
