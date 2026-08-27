@@ -28,6 +28,19 @@ const capturedArrayIteratorDescriptor =
     arrayIteratorSymbol
   );
 
+const RAW_ATTACK_KEYS = [
+  "id",
+  "mutatedOutput",
+  "scores"
+];
+
+const SCORE_KEYS = [
+  "realism",
+  "subtlety",
+  "novelty",
+  "fixability"
+];
+
 function hasOwn(value, key) {
   return reflectApply(
     hasOwnProperty,
@@ -140,13 +153,16 @@ function rawAttackSurfaceIsSafe(rawAttack) {
     getOwnPropertyDescriptors(rawAttack);
 
   for (
-    const key of [
-      "id",
-      "mutatedOutput",
-      "scores"
-    ]
+    let index = 0;
+    index < RAW_ATTACK_KEYS.length;
+    index += 1
   ) {
-    if (!hasOwn(descriptors, key)) {
+    if (
+      !hasOwn(
+        descriptors,
+        RAW_ATTACK_KEYS[index]
+      )
+    ) {
       return false;
     }
   }
@@ -170,14 +186,16 @@ function rawAttackSurfaceIsSafe(rawAttack) {
     );
 
   for (
-    const key of [
-      "realism",
-      "subtlety",
-      "novelty",
-      "fixability"
-    ]
+    let index = 0;
+    index < SCORE_KEYS.length;
+    index += 1
   ) {
-    if (!hasOwn(scoreDescriptors, key)) {
+    if (
+      !hasOwn(
+        scoreDescriptors,
+        SCORE_KEYS[index]
+      )
+    ) {
       return false;
     }
   }
