@@ -261,33 +261,32 @@ function generatorSurfaceIsSafe(value) {
   return true;
 }
 
-function captureGeneratorOutputForActiveExperiment(
-  value,
-  label
+function createGeneratorEvidenceRecorder(
+  context
 ) {
-  if (label !== "Generator output") {
-    return experiment
-      .captureGeneratorOutputForActiveExperiment(
-        value,
-        label
-      );
-  }
+  return function recordGeneratorEvidence(
+    value
+  ) {
+    if (!generatorSurfaceIsSafe(value)) {
+      return value;
+    }
 
-  if (!generatorSurfaceIsSafe(value)) {
-    return;
-  }
-
-  return experiment
-    .captureGeneratorOutputForActiveExperiment(
-      value,
-      label
+    experiment.withExperimentCapture(
+      context,
+      () =>
+        experiment
+          .captureGeneratorOutputForActiveExperiment(
+            value,
+            "Generator output"
+          )
     );
+
+    return value;
+  };
 }
 
 module.exports = {
   buildExperiment: experiment.buildExperiment,
-  captureGeneratorOutputForActiveExperiment,
   createExperimentCapture,
-  withExperimentCapture:
-    experiment.withExperimentCapture
+  createGeneratorEvidenceRecorder
 };
