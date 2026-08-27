@@ -6,9 +6,8 @@ const {
 
 const {
   buildExperiment,
-  captureGeneratorOutputForActiveExperiment,
   createExperimentCapture,
-  withExperimentCapture
+  createGeneratorEvidenceRecorder
 } = require("./contract-experiment-safe");
 
 const {
@@ -30,8 +29,15 @@ const reflectApply =
   Reflect.apply;
 const isProxy =
   utilTypes.isProxy;
+const isPromise =
+  utilTypes.isPromise;
+const promiseThen =
+  Promise.prototype.then;
 
-function makeCoreOptions(options) {
+function makeCoreOptions(
+  options,
+  recordGeneratorEvidence
+) {
   if (
     options === null ||
     typeof options !== "object" ||
@@ -62,6 +68,16 @@ function makeCoreOptions(options) {
   const descriptors =
     getOwnPropertyDescriptors(options);
 
+  function captureAndReturn(value) {
+    try {
+      recordGeneratorEvidence(value);
+    } catch {
+      // Experiment evidence is observational only and must never change M8 behavior.
+    }
+
+    return value;
+  }
+
   defineProperty(
     descriptors,
     "generator",
@@ -78,16 +94,20 @@ function makeCoreOptions(options) {
                 args
               );
 
-            try {
-              captureGeneratorOutputForActiveExperiment(
+            if (
+              typeof isPromise === "function" &&
+              isPromise(rawOutput)
+            ) {
+              return reflectApply(
+                promiseThen,
                 rawOutput,
-                "Generator output"
+                [captureAndReturn]
               );
-            } catch {
-              // Experiment evidence is observational only and must never change M8 behavior.
             }
 
-            return rawOutput;
+            return captureAndReturn(
+              rawOutput
+            );
           },
         writable:
           generatorDescriptor.writable,
@@ -113,16 +133,19 @@ async function runContractAttacks(
 ) {
   const experimentCapture =
     createExperimentCapture(options);
+  const recordGeneratorEvidence =
+    createGeneratorEvidenceRecorder(
+      experimentCapture
+    );
   const coreOptions =
-    makeCoreOptions(options);
+    makeCoreOptions(
+      options,
+      recordGeneratorEvidence
+    );
 
   const result =
-    await withExperimentCapture(
-      experimentCapture,
-      () =>
-        runContractAttacksCore(
-          coreOptions
-        )
+    await runContractAttacksCore(
+      coreOptions
     );
 
   const experiment =
