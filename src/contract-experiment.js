@@ -15,7 +15,8 @@ const {
   forbiddenProbes,
   stringConstructor,
   jsonStringify,
-  jsonParse
+  jsonParse,
+  ArrayConstructor
 } = experimentIntrinsics;
 
 const pristineIntrinsics =
@@ -75,7 +76,6 @@ const SetConstructor =
   pristineIntrinsics.SetConstructor;
 const MapConstructor =
   pristineIntrinsics.MapConstructor;
-const ArrayConstructor = Array;
 const setHas =
   pristineIntrinsics.setHas;
 const setAdd =

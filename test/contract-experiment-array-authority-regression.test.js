@@ -1,33 +1,4 @@
-from pathlib import Path
-
-
-def replace_once(path, old, new):
-    p = Path(path)
-    text = p.read_text()
-    count = text.count(old)
-    if count != 1:
-        raise SystemExit(f"{path}: expected one match, found {count}")
-    p.write_text(text.replace(old, new, 1))
-
-replace_once(
-    "src/contract-attacks-core.js",
-    '''    jsonParse:\n      JSON.parse\n  });''',
-    '''    jsonParse:\n      JSON.parse,\n    ArrayConstructor:\n      Array\n  });'''
-)
-
-replace_once(
-    "src/contract-experiment.js",
-    '''  stringConstructor,\n  jsonStringify,\n  jsonParse\n} = experimentIntrinsics;''',
-    '''  stringConstructor,\n  jsonStringify,\n  jsonParse,\n  ArrayConstructor\n} = experimentIntrinsics;'''
-)
-
-replace_once(
-    "src/contract-experiment.js",
-    '''const ArrayConstructor = Array;\n''',
-    ''''''
-)
-
-Path("test/contract-experiment-array-authority-regression.test.js").write_text(r'''"use strict";
+"use strict";
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
@@ -91,4 +62,3 @@ test("experiment array construction stays aligned with an already-cached M8 core
 
   assert.equal(child.status, 0, child.stderr || child.stdout);
 });
-''')

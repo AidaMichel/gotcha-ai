@@ -51,7 +51,9 @@ const experimentIntrinsics =
     jsonStringify:
       JSON.stringify,
     jsonParse:
-      JSON.parse
+      JSON.parse,
+    ArrayConstructor:
+      Array
   });
 
 const utilIsPromise =
