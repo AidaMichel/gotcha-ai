@@ -53,7 +53,11 @@ const experimentIntrinsics =
     jsonParse:
       JSON.parse,
     ArrayConstructor:
-      Array
+      Array,
+    ArrayPrototype:
+      Array.prototype,
+    ObjectPrototype:
+      Object.prototype
   });
 
 const utilIsPromise =
@@ -4573,6 +4577,16 @@ async function runContractAttacks(
 }
 
 module.exports = {
-  runContractAttacks,
-  experimentIntrinsics
+  runContractAttacks
 };
+
+experimentIntrinsics.defineProperty(
+  module.exports,
+  "experimentIntrinsics",
+  {
+    value: experimentIntrinsics,
+    enumerable: true,
+    writable: false,
+    configurable: false
+  }
+);

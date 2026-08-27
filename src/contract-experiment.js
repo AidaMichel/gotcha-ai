@@ -16,7 +16,9 @@ const {
   stringConstructor,
   jsonStringify,
   jsonParse,
-  ArrayConstructor
+  ArrayConstructor,
+  ArrayPrototype,
+  ObjectPrototype
 } = experimentIntrinsics;
 
 const pristineIntrinsics =
@@ -68,8 +70,8 @@ const stringTrim =
   pristineIntrinsics.stringTrim;
 const hasOwnProperty =
   pristineIntrinsics.hasOwnProperty;
-const objectPrototype = Object.prototype;
-const arrayPrototype = Array.prototype;
+const objectPrototype = ObjectPrototype;
+const arrayPrototype = ArrayPrototype;
 const objectPrototypeParent =
   getPrototypeOf(objectPrototype);
 const SetConstructor =

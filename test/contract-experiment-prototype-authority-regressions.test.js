@@ -1,35 +1,4 @@
-from pathlib import Path
-
-core = Path('src/contract-attacks-core.js')
-text = core.read_text()
-old = '''    jsonParse:\n      JSON.parse,\n    ArrayConstructor:\n      Array\n  });'''
-new = '''    jsonParse:\n      JSON.parse,\n    ArrayConstructor:\n      Array,\n    ArrayPrototype:\n      Array.prototype,\n    ObjectPrototype:\n      Object.prototype\n  });'''
-if old not in text:
-    raise SystemExit('core authority block not found')
-text = text.replace(old, new, 1)
-old_export = '''module.exports = {\n  runContractAttacks,\n  experimentIntrinsics\n};'''
-new_export = '''module.exports = {\n  runContractAttacks\n};\n\nexperimentIntrinsics.defineProperty(\n  module.exports,\n  "experimentIntrinsics",\n  {\n    value: experimentIntrinsics,\n    enumerable: true,\n    writable: false,\n    configurable: false\n  }\n);'''
-if old_export not in text:
-    raise SystemExit('core export block not found')
-text = text.replace(old_export, new_export, 1)
-core.write_text(text)
-
-experiment = Path('src/contract-experiment.js')
-text = experiment.read_text()
-old_destructure = '''  jsonStringify,\n  jsonParse,\n  ArrayConstructor\n} = experimentIntrinsics;'''
-new_destructure = '''  jsonStringify,\n  jsonParse,\n  ArrayConstructor,\n  ArrayPrototype,\n  ObjectPrototype\n} = experimentIntrinsics;'''
-if old_destructure not in text:
-    raise SystemExit('experiment destructure not found')
-text = text.replace(old_destructure, new_destructure, 1)
-old_proto = '''const objectPrototype = Object.prototype;\nconst arrayPrototype = Array.prototype;'''
-new_proto = '''const objectPrototype = ObjectPrototype;\nconst arrayPrototype = ArrayPrototype;'''
-if old_proto not in text:
-    raise SystemExit('ambient prototype captures not found')
-text = text.replace(old_proto, new_proto, 1)
-experiment.write_text(text)
-
-reg = Path('test/contract-experiment-prototype-authority-regressions.test.js')
-reg.write_text(r'''"use strict";
+"use strict";
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
@@ -111,4 +80,3 @@ test("core experiment authority export is immutable", () => {
     }).catch((error) => { console.error(error); process.exit(5); });
   `);
 });
-''')
