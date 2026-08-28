@@ -1,81 +1,161 @@
 "use strict";
 
 const {
-  types: utilTypes
-} = require("node:util");
+  experimentIntrinsics: authority
+} = require("./contract-attacks-core");
 
-const CapturedPromise = Promise;
-const CapturedTypeError = TypeError;
-const getOwnPropertyDescriptors = Object.getOwnPropertyDescriptors;
-const getPrototypeOf = Object.getPrototypeOf;
-const isExtensible = Object.isExtensible;
-const objectIs = Object.is;
-const defineProperty = Object.defineProperty;
-const ownKeys = Reflect.ownKeys;
-const reflectApply = Reflect.apply;
-const arrayIsArray = Array.isArray;
-const stringTrim = String.prototype.trim;
-const numberIsFinite = Number.isFinite;
-const jsonStringify = JSON.stringify;
-const jsonParse = JSON.parse;
-const objectPrototype = Object.prototype;
-const arrayPrototype = Array.prototype;
-const objectPrototypeParent = getPrototypeOf(objectPrototype);
-const bufferIsBuffer = Buffer.isBuffer;
+const {
+  isProxy,
+  forbiddenProbes,
+  stringConstructor,
+  defineProperty,
+  jsonStringify,
+  jsonParse,
+  ArrayConstructor,
+  ArrayPrototype: arrayPrototype,
+  ObjectPrototype: objectPrototype,
+  ObjectPrototypeParent: objectPrototypeParent,
+  PromiseConstructor,
+  TypeErrorConstructor,
+  getOwnPropertyDescriptors,
+  getOwnPropertyDescriptor,
+  getPrototypeOf,
+  isExtensible,
+  objectIs,
+  ownKeys,
+  reflectApply,
+  deleteProperty,
+  arrayIsArray,
+  stringTrim,
+  numberIsFinite,
+  numberIsInteger,
+  SetConstructor,
+  setHas,
+  setAdd,
+  MapConstructor,
+  mapGet,
+  mapSet
+} = authority;
 
-const mandatoryBrandProbeNames = [
-  "isDate",
-  "isRegExp",
-  "isMap",
-  "isSet",
-  "isWeakMap",
-  "isWeakSet",
-  "isPromise",
-  "isNativeError",
-  "isAnyArrayBuffer",
-  "isDataView",
-  "isTypedArray",
-  "isBoxedPrimitive",
-  "isArgumentsObject",
-  "isGeneratorObject",
-  "isModuleNamespaceObject",
-  "isMapIterator",
-  "isSetIterator",
-  "isExternal"
+const MAX_RULES_V1 = 7;
+const MAX_ATTACKS_V1 = 20;
+
+let wireAuthorityAvailable = true;
+
+const requiredFunctions = [
+  isProxy,
+  stringConstructor,
+  defineProperty,
+  jsonStringify,
+  jsonParse,
+  PromiseConstructor,
+  TypeErrorConstructor,
+  getOwnPropertyDescriptors,
+  getOwnPropertyDescriptor,
+  getPrototypeOf,
+  isExtensible,
+  objectIs,
+  ownKeys,
+  reflectApply,
+  deleteProperty,
+  arrayIsArray,
+  stringTrim,
+  numberIsFinite,
+  numberIsInteger,
+  SetConstructor,
+  setHas,
+  setAdd,
+  MapConstructor,
+  mapGet,
+  mapSet
 ];
 
-const mandatoryBrandProbes = [];
-let wireAuthorityAvailable =
-  typeof utilTypes.isProxy === "function" &&
-  typeof bufferIsBuffer === "function";
-
-for (
-  let index = 0;
-  index < mandatoryBrandProbeNames.length;
-  index += 1
-) {
-  const probe = utilTypes[mandatoryBrandProbeNames[index]];
-  mandatoryBrandProbes.push(probe);
-
-  if (typeof probe !== "function") {
+for (let index = 0; index < requiredFunctions.length; index += 1) {
+  if (typeof requiredFunctions[index] !== "function") {
     wireAuthorityAvailable = false;
+    break;
+  }
+}
+
+if (!arrayIsArray(forbiddenProbes)) {
+  wireAuthorityAvailable = false;
+} else {
+  for (let index = 0; index < forbiddenProbes.length; index += 1) {
+    if (typeof forbiddenProbes[index] !== "function") {
+      wireAuthorityAvailable = false;
+      break;
+    }
   }
 }
 
 function boundaryError() {
-  return new CapturedTypeError(
+  return new TypeErrorConstructor(
     "Invalid M10 contract-remediation boundary."
   );
+}
+
+function call(method, receiver, args) {
+  return reflectApply(method, receiver, args);
+}
+
+function setHasValue(set, value) {
+  return call(setHas, set, [value]);
+}
+
+function setAddValue(set, value) {
+  call(setAdd, set, [value]);
+}
+
+function mapGetValue(map, key) {
+  return call(mapGet, map, [key]);
+}
+
+function mapSetValue(map, key, value) {
+  call(mapSet, map, [key, value]);
+}
+
+function append(array, value) {
+  defineProperty(array, stringConstructor(array.length), {
+    value,
+    writable: true,
+    enumerable: true,
+    configurable: true
+  });
+}
+
+function defineOrdinary(record, key, value) {
+  defineProperty(record, key, {
+    value,
+    writable: true,
+    enumerable: true,
+    configurable: true
+  });
+}
+
+function makeRecord(entries) {
+  const record = {};
+
+  for (let index = 0; index < entries.length; index += 1) {
+    defineOrdinary(record, entries[index][0], entries[index][1]);
+  }
+
+  return record;
+}
+
+function makeArray(values) {
+  const array = new ArrayConstructor();
+
+  for (let index = 0; index < values.length; index += 1) {
+    append(array, values[index]);
+  }
+
+  return array;
 }
 
 function isNonEmptyString(value) {
   return (
     typeof value === "string" &&
-    reflectApply(
-      stringTrim,
-      value,
-      []
-    ).length > 0
+    call(stringTrim, value, []).length > 0
   );
 }
 
@@ -88,17 +168,17 @@ function isWireNumber(value) {
 }
 
 function hasForbiddenBrand(value) {
-  for (
-    let index = 0;
-    index < mandatoryBrandProbes.length;
-    index += 1
-  ) {
-    if (mandatoryBrandProbes[index](value) === true) {
-      return true;
+  try {
+    for (let index = 0; index < forbiddenProbes.length; index += 1) {
+      if (forbiddenProbes[index](value) === true) {
+        return true;
+      }
     }
+  } catch {
+    throw boundaryError();
   }
 
-  return bufferIsBuffer(value) === true;
+  return false;
 }
 
 function assertPrototypeBaseline() {
@@ -109,10 +189,8 @@ function assertPrototypeBaseline() {
     throw boundaryError();
   }
 
-  const objectDescriptors =
-    getOwnPropertyDescriptors(objectPrototype);
-  const arrayDescriptors =
-    getOwnPropertyDescriptors(arrayPrototype);
+  const objectDescriptors = getOwnPropertyDescriptors(objectPrototype);
+  const arrayDescriptors = getOwnPropertyDescriptors(arrayPrototype);
 
   if (
     objectDescriptors.toJSON !== undefined ||
@@ -133,6 +211,91 @@ function ordinaryDescriptor(descriptor) {
   );
 }
 
+function exactArray(value) {
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    isProxy(value) === true ||
+    arrayIsArray(value) !== true ||
+    getPrototypeOf(value) !== arrayPrototype ||
+    isExtensible(value) !== true
+  ) {
+    return false;
+  }
+
+  const descriptors = getOwnPropertyDescriptors(value);
+  const keys = ownKeys(descriptors);
+  const lengthDescriptor = descriptors.length;
+
+  if (
+    lengthDescriptor === undefined ||
+    lengthDescriptor.writable !== true ||
+    lengthDescriptor.enumerable !== false ||
+    lengthDescriptor.configurable !== false ||
+    numberIsInteger(lengthDescriptor.value) !== true ||
+    lengthDescriptor.value < 0 ||
+    keys.length !== lengthDescriptor.value + 1
+  ) {
+    return false;
+  }
+
+  for (let index = 0; index < lengthDescriptor.value; index += 1) {
+    if (!ordinaryDescriptor(descriptors[stringConstructor(index)])) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function exactRecord(value, keys) {
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    isProxy(value) === true ||
+    arrayIsArray(value) === true ||
+    hasForbiddenBrand(value) ||
+    getPrototypeOf(value) !== objectPrototype ||
+    isExtensible(value) !== true
+  ) {
+    return false;
+  }
+
+  const descriptors = getOwnPropertyDescriptors(value);
+  const own = ownKeys(descriptors);
+
+  if (own.length !== keys.length) {
+    return false;
+  }
+
+  for (let index = 0; index < keys.length; index += 1) {
+    if (!ordinaryDescriptor(descriptors[keys[index]])) {
+      return false;
+    }
+  }
+
+  for (let index = 0; index < own.length; index += 1) {
+    let found = false;
+
+    if (typeof own[index] !== "string") {
+      return false;
+    }
+
+    for (let keyIndex = 0; keyIndex < keys.length; keyIndex += 1) {
+      if (own[index] === keys[keyIndex]) {
+        found = true;
+        break;
+      }
+    }
+
+    if (!found) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 function cloneCapturedValue(value, seen) {
   if (
     value === null ||
@@ -146,63 +309,35 @@ function cloneCapturedValue(value, seen) {
     if (!isWireNumber(value)) {
       throw boundaryError();
     }
-
     return value;
   }
 
   if (
     typeof value !== "object" ||
-    utilTypes.isProxy(value) === true
+    isProxy(value) === true
   ) {
     throw boundaryError();
   }
 
-  if (seen.has(value)) {
+  if (setHasValue(seen, value)) {
     throw boundaryError();
   }
-  seen.add(value);
+  setAddValue(seen, value);
 
-  if (arrayIsArray(value)) {
-    if (
-      getPrototypeOf(value) !== arrayPrototype ||
-      isExtensible(value) !== true
-    ) {
+  if (arrayIsArray(value) === true) {
+    if (!exactArray(value)) {
       throw boundaryError();
     }
 
     const descriptors = getOwnPropertyDescriptors(value);
-    const keys = ownKeys(descriptors);
-    const lengthDescriptor = descriptors.length;
+    const length = descriptors.length.value;
+    const copy = new ArrayConstructor();
 
-    if (
-      lengthDescriptor === undefined ||
-      lengthDescriptor.writable !== true ||
-      lengthDescriptor.enumerable !== false ||
-      lengthDescriptor.configurable !== false ||
-      !Number.isInteger(lengthDescriptor.value) ||
-      lengthDescriptor.value < 0 ||
-      keys.length !== lengthDescriptor.value + 1
-    ) {
-      throw boundaryError();
-    }
-
-    const copy = [];
-
-    for (
-      let index = 0;
-      index < lengthDescriptor.value;
-      index += 1
-    ) {
-      const key = String(index);
-      const descriptor = descriptors[key];
-
-      if (!ordinaryDescriptor(descriptor)) {
-        throw boundaryError();
-      }
-
-      copy[index] = cloneCapturedValue(
-        descriptor.value,
-        seen
+    for (let index = 0; index < length; index += 1) {
+      const descriptor = descriptors[stringConstructor(index)];
+      append(
+        copy,
+        cloneCapturedValue(descriptor.value, seen)
       );
     }
 
@@ -221,11 +356,7 @@ function cloneCapturedValue(value, seen) {
   const keys = ownKeys(descriptors);
   const copy = {};
 
-  for (
-    let index = 0;
-    index < keys.length;
-    index += 1
-  ) {
+  for (let index = 0; index < keys.length; index += 1) {
     const key = keys[index];
     const descriptor = descriptors[key];
 
@@ -236,18 +367,10 @@ function cloneCapturedValue(value, seen) {
       throw boundaryError();
     }
 
-    defineProperty(
+    defineOrdinary(
       copy,
       key,
-      {
-        value: cloneCapturedValue(
-          descriptor.value,
-          seen
-        ),
-        writable: true,
-        enumerable: true,
-        configurable: true
-      }
+      cloneCapturedValue(descriptor.value, seen)
     );
   }
 
@@ -262,8 +385,9 @@ function captureDraftInvocation(options) {
   if (
     options === null ||
     typeof options !== "object" ||
-    arrayIsArray(options) ||
-    utilTypes.isProxy(options) === true ||
+    isProxy(options) === true ||
+    arrayIsArray(options) === true ||
+    hasForbiddenBrand(options) ||
     getPrototypeOf(options) !== objectPrototype ||
     isExtensible(options) !== true
   ) {
@@ -282,118 +406,143 @@ function captureDraftInvocation(options) {
     throw boundaryError();
   }
 
-  for (
-    let index = 0;
-    index < expectedKeys.length;
-    index += 1
-  ) {
-    const descriptor = descriptors[expectedKeys[index]];
-
-    if (!ordinaryDescriptor(descriptor)) {
+  for (let index = 0; index < expectedKeys.length; index += 1) {
+    if (!ordinaryDescriptor(descriptors[expectedKeys[index]])) {
       throw boundaryError();
     }
   }
 
-  for (
-    let index = 0;
-    index < keys.length;
-    index += 1
-  ) {
-    if (!expectedKeys.includes(keys[index])) {
+  for (let index = 0; index < keys.length; index += 1) {
+    let found = false;
+
+    for (let expectedIndex = 0; expectedIndex < expectedKeys.length; expectedIndex += 1) {
+      if (keys[index] === expectedKeys[expectedIndex]) {
+        found = true;
+        break;
+      }
+    }
+
+    if (!found) {
       throw boundaryError();
     }
   }
 
-  const seen = new Set([options]);
+  const seen = new SetConstructor();
+  setAddValue(seen, options);
 
-  return {
-    experiment: cloneCapturedValue(
-      descriptors.experiment.value,
-      seen
-    ),
-    sourceAttackId:
-      descriptors.sourceAttackId.value,
-    proposal: cloneCapturedValue(
-      descriptors.proposal.value,
-      seen
-    )
-  };
+  return makeRecord([
+    ["experiment", cloneCapturedValue(descriptors.experiment.value, seen)],
+    ["sourceAttackId", descriptors.sourceAttackId.value],
+    ["proposal", cloneCapturedValue(descriptors.proposal.value, seen)]
+  ]);
 }
 
-function exactRecord(value, keys) {
+function validateRule(rule) {
   if (
-    value === null ||
-    typeof value !== "object" ||
-    arrayIsArray(value) ||
-    getPrototypeOf(value) !== objectPrototype ||
-    isExtensible(value) !== true
+    !exactRecord(rule, ["id", "statement", "kind", "severity"]) ||
+    !isNonEmptyString(rule.id) ||
+    !isNonEmptyString(rule.statement)
   ) {
     return false;
   }
 
-  const descriptors = getOwnPropertyDescriptors(value);
-  const own = ownKeys(descriptors);
+  const kindOk =
+    rule.kind === "required" ||
+    rule.kind === "forbidden" ||
+    rule.kind === "conditional";
+  const severityOk =
+    rule.severity === "critical" ||
+    rule.severity === "major" ||
+    rule.severity === "minor";
 
-  if (own.length !== keys.length) {
-    return false;
-  }
+  return kindOk && severityOk;
+}
 
-  for (
-    let index = 0;
-    index < keys.length;
-    index += 1
-  ) {
-    if (!ordinaryDescriptor(descriptors[keys[index]])) {
+function wireEqualM8(a, b) {
+  const stack = new ArrayConstructor();
+  append(stack, makeRecord([["a", a], ["b", b]]));
+
+  for (let cursor = 0; cursor < stack.length; cursor += 1) {
+    const pair = stack[cursor];
+    const left = pair.a;
+    const right = pair.b;
+
+    if (left === null || typeof left !== "object") {
+      if (!objectIs(left, right)) {
+        return false;
+      }
+      continue;
+    }
+
+    if (right === null || typeof right !== "object") {
       return false;
     }
-  }
 
-  for (
-    let index = 0;
-    index < own.length;
-    index += 1
-  ) {
-    if (
-      typeof own[index] !== "string" ||
-      !keys.includes(own[index])
-    ) {
+    const leftArray = arrayIsArray(left) === true;
+    const rightArray = arrayIsArray(right) === true;
+
+    if (leftArray !== rightArray) {
       return false;
+    }
+
+    const leftDescriptors = getOwnPropertyDescriptors(left);
+    const rightDescriptors = getOwnPropertyDescriptors(right);
+
+    if (leftArray) {
+      if (left.length !== right.length) {
+        return false;
+      }
+
+      for (let index = 0; index < left.length; index += 1) {
+        append(stack, makeRecord([
+          ["a", leftDescriptors[stringConstructor(index)].value],
+          ["b", rightDescriptors[stringConstructor(index)].value]
+        ]));
+      }
+      continue;
+    }
+
+    const leftKeys = ownKeys(leftDescriptors);
+    const rightKeys = ownKeys(rightDescriptors);
+
+    if (leftKeys.length !== rightKeys.length) {
+      return false;
+    }
+
+    for (let index = 0; index < leftKeys.length; index += 1) {
+      const key = leftKeys[index];
+      const rightDescriptor = getOwnPropertyDescriptor(right, key);
+
+      if (rightDescriptor === undefined) {
+        return false;
+      }
+
+      append(stack, makeRecord([
+        ["a", leftDescriptors[key].value],
+        ["b", rightDescriptor.value]
+      ]));
     }
   }
 
   return true;
 }
 
-function validateRule(rule) {
+function rankScore(attack) {
   return (
-    exactRecord(
-      rule,
-      ["id", "statement", "kind", "severity"]
-    ) &&
-    isNonEmptyString(rule.id) &&
-    isNonEmptyString(rule.statement) &&
-    ["required", "forbidden", "conditional"]
-      .includes(rule.kind) &&
-    ["critical", "major", "minor"]
-      .includes(rule.severity)
+    0.30 * attack.severity +
+    0.25 * attack.realism +
+    0.20 * attack.subtlety +
+    0.15 * attack.novelty +
+    0.10 * attack.fixability
   );
 }
 
 function validateExperiment(experiment) {
   if (
-    !exactRecord(
-      experiment,
-      [
-        "version",
-        "kind",
-        "replayable",
-        "task",
-        "contract",
-        "case",
-        "attacks",
-        "baseline"
-      ]
-    ) ||
+    !exactRecord(experiment, [
+      "version", "kind", "replayable", "task",
+      "contract", "case", "attacks", "baseline"
+    ]) ||
     experiment.version !== 1 ||
     experiment.kind !== "contract-attack-experiment" ||
     experiment.replayable !== true ||
@@ -405,87 +554,54 @@ function validateExperiment(experiment) {
   const contract = experiment.contract;
 
   if (
-    !exactRecord(
-      contract,
-      ["version", "status", "task", "rules"]
-    ) ||
+    !exactRecord(contract, ["version", "status", "task", "rules"]) ||
     contract.version !== 1 ||
     contract.status !== "confirmed" ||
     contract.task !== experiment.task ||
-    !arrayIsArray(contract.rules) ||
+    !exactArray(contract.rules) ||
     contract.rules.length < 1 ||
-    contract.rules.length > 7
+    contract.rules.length > MAX_RULES_V1
   ) {
     throw boundaryError();
   }
 
-  const ruleIds = new Set();
+  const ruleIds = new SetConstructor();
+  const rulesById = new MapConstructor();
 
-  for (
-    let index = 0;
-    index < contract.rules.length;
-    index += 1
-  ) {
+  for (let index = 0; index < contract.rules.length; index += 1) {
     const rule = contract.rules[index];
 
-    if (
-      !validateRule(rule) ||
-      ruleIds.has(rule.id)
-    ) {
+    if (!validateRule(rule) || setHasValue(ruleIds, rule.id)) {
       throw boundaryError();
     }
 
-    ruleIds.add(rule.id);
+    setAddValue(ruleIds, rule.id);
+    mapSetValue(rulesById, rule.id, rule);
   }
 
   if (
-    !exactRecord(
-      experiment.case,
-      ["input", "expectedOutput", "replay"]
-    ) ||
-    !exactRecord(
-      experiment.case.replay,
-      ["version", "kind", "strategy"]
-    ) ||
+    !exactRecord(experiment.case, ["input", "expectedOutput", "replay"]) ||
+    !exactRecord(experiment.case.replay, ["version", "kind", "strategy"]) ||
     experiment.case.replay.version !== 1 ||
     experiment.case.replay.kind !== "m8-evaluator-case" ||
-    experiment.case.replay.strategy !== "json-wire-v1"
+    experiment.case.replay.strategy !== "json-wire-v1" ||
+    !exactArray(experiment.attacks) ||
+    experiment.attacks.length > MAX_ATTACKS_V1
   ) {
     throw boundaryError();
   }
 
-  if (!arrayIsArray(experiment.attacks)) {
-    throw boundaryError();
-  }
+  const attackIds = new SetConstructor();
+  const attacksById = new MapConstructor();
 
-  const attackIds = new Set();
-  const attacksById = new Map();
-
-  for (
-    let index = 0;
-    index < experiment.attacks.length;
-    index += 1
-  ) {
+  for (let index = 0; index < experiment.attacks.length; index += 1) {
     const attack = experiment.attacks[index];
 
     if (
-      !exactRecord(
-        attack,
-        [
-          "id",
-          "ruleId",
-          "rule",
-          "type",
-          "description",
-          "rationale",
-          "output",
-          "severity",
-          "realism",
-          "subtlety",
-          "novelty",
-          "fixability"
-        ]
-      ) ||
+      !exactRecord(attack, [
+        "id", "ruleId", "rule", "type", "description", "rationale",
+        "output", "severity", "realism", "subtlety", "novelty", "fixability"
+      ]) ||
       !isNonEmptyString(attack.id) ||
       !isNonEmptyString(attack.ruleId) ||
       !isNonEmptyString(attack.type) ||
@@ -493,14 +609,12 @@ function validateExperiment(experiment) {
       !isNonEmptyString(attack.rationale) ||
       !validateRule(attack.rule) ||
       attack.ruleId !== attack.rule.id ||
-      attackIds.has(attack.id)
+      setHasValue(attackIds, attack.id)
     ) {
       throw boundaryError();
     }
 
-    const matchingRule = contract.rules.find(
-      (rule) => rule.id === attack.ruleId
-    );
+    const matchingRule = mapGetValue(rulesById, attack.ruleId);
 
     if (
       matchingRule === undefined ||
@@ -522,85 +636,111 @@ function validateExperiment(experiment) {
       throw boundaryError();
     }
 
-    for (const key of [
-      "realism",
-      "subtlety",
-      "novelty",
-      "fixability"
-    ]) {
+    const scoreKeys = ["realism", "subtlety", "novelty", "fixability"];
+
+    for (let scoreIndex = 0; scoreIndex < scoreKeys.length; scoreIndex += 1) {
+      const score = attack[scoreKeys[scoreIndex]];
+      if (!isWireNumber(score) || score < 0 || score > 1) {
+        throw boundaryError();
+      }
+    }
+
+    if (wireEqualM8(attack.output, experiment.case.expectedOutput)) {
+      throw boundaryError();
+    }
+
+    for (let previous = 0; previous < index; previous += 1) {
+      const earlier = experiment.attacks[previous];
       if (
-        !isWireNumber(attack[key]) ||
-        attack[key] < 0 ||
-        attack[key] > 1
+        earlier.ruleId === attack.ruleId &&
+        wireEqualM8(earlier.output, attack.output)
       ) {
         throw boundaryError();
       }
     }
 
-    attackIds.add(attack.id);
-    attacksById.set(attack.id, attack);
+    setAddValue(attackIds, attack.id);
+    mapSetValue(attacksById, attack.id, attack);
   }
 
   const baseline = experiment.baseline;
 
   if (
-    !exactRecord(
-      baseline,
-      ["outcomes", "survivorOrderIds", "topFindingId"]
-    ) ||
-    !arrayIsArray(baseline.outcomes) ||
-    !arrayIsArray(baseline.survivorOrderIds) ||
+    !exactRecord(baseline, ["outcomes", "survivorOrderIds", "topFindingId"]) ||
+    !exactArray(baseline.outcomes) ||
+    !exactArray(baseline.survivorOrderIds) ||
     baseline.outcomes.length !== experiment.attacks.length
   ) {
     throw boundaryError();
   }
 
-  const survivors = new Set();
+  const survivorIds = new SetConstructor();
+  const survivedAttackIndices = new ArrayConstructor();
 
-  for (
-    let index = 0;
-    index < baseline.outcomes.length;
-    index += 1
-  ) {
+  for (let index = 0; index < baseline.outcomes.length; index += 1) {
     const outcome = baseline.outcomes[index];
 
     if (
-      !exactRecord(
-        outcome,
-        ["attackId", "evaluatorResult", "survived"]
-      ) ||
+      !exactRecord(outcome, ["attackId", "evaluatorResult", "survived"]) ||
       outcome.attackId !== experiment.attacks[index].id ||
-      !["PASS", "FAIL"].includes(outcome.evaluatorResult) ||
-      (outcome.evaluatorResult === "PASS") !==
-        (outcome.survived === true)
+      (outcome.evaluatorResult !== "PASS" && outcome.evaluatorResult !== "FAIL") ||
+      (outcome.evaluatorResult === "PASS" && outcome.survived !== true) ||
+      (outcome.evaluatorResult === "FAIL" && outcome.survived !== false)
     ) {
       throw boundaryError();
     }
 
     if (outcome.survived === true) {
-      survivors.add(outcome.attackId);
+      setAddValue(survivorIds, outcome.attackId);
+      append(survivedAttackIndices, index);
     }
   }
 
-  if (
-    baseline.survivorOrderIds.length !== survivors.size
-  ) {
+  if (baseline.survivorOrderIds.length !== survivedAttackIndices.length) {
     throw boundaryError();
   }
 
-  for (
-    let index = 0;
-    index < baseline.survivorOrderIds.length;
-    index += 1
-  ) {
-    const id = baseline.survivorOrderIds[index];
+  const seenOrder = new SetConstructor();
 
+  for (let index = 0; index < baseline.survivorOrderIds.length; index += 1) {
+    const id = baseline.survivorOrderIds[index];
     if (
       !isNonEmptyString(id) ||
-      !survivors.has(id)
+      !setHasValue(survivorIds, id) ||
+      setHasValue(seenOrder, id)
     ) {
       throw boundaryError();
     }
+    setAddValue(seenOrder, id);
+  }
+
+  const usedIndices = new SetConstructor();
+
+  for (let rankIndex = 0; rankIndex < survivedAttackIndices.length; rankIndex += 1) {
+    let bestIndex = -1;
+    let bestScore = -Infinity;
+
+    for (let candidatePosition = 0; candidatePosition < survivedAttackIndices.length; candidatePosition += 1) {
+      const attackIndex = survivedAttackIndices[candidatePosition];
+      if (setHasValue(usedIndices, attackIndex)) {
+        continue;
+      }
+
+      const score = rankScore(experiment.attacks[attackIndex]);
+      if (bestIndex === -1 || score > bestScore) {
+        bestIndex = attackIndex;
+        bestScore = score;
+      }
+    }
+
+    if (
+      bestIndex === -1 ||
+      baseline.survivorOrderIds[rankIndex] !== experiment.attacks[bestIndex].id
+    ) {
+      throw boundaryError();
+    }
+
+    setAddValue(usedIndices, bestIndex);
   }
 
   const expectedTop =
@@ -615,23 +755,11 @@ function validateExperiment(experiment) {
   return attacksById;
 }
 
-function validateProposal(
-  proposal,
-  experiment,
-  sourceAttackId,
-  selectedAttack
-) {
+function validateProposal(proposal, experiment, sourceAttackId, selectedAttack) {
   if (
-    !exactRecord(
-      proposal,
-      [
-        "version",
-        "task",
-        "sourceAttackId",
-        "ruleId",
-        "protection"
-      ]
-    ) ||
+    !exactRecord(proposal, [
+      "version", "task", "sourceAttackId", "ruleId", "protection"
+    ]) ||
     proposal.version !== 1 ||
     proposal.task !== experiment.task ||
     proposal.sourceAttackId !== sourceAttackId ||
@@ -639,10 +767,7 @@ function validateProposal(
     !isNonEmptyString(proposal.task) ||
     !isNonEmptyString(proposal.sourceAttackId) ||
     !isNonEmptyString(proposal.ruleId) ||
-    !exactRecord(
-      proposal.protection,
-      ["statement", "rationale"]
-    ) ||
+    !exactRecord(proposal.protection, ["statement", "rationale"]) ||
     !isNonEmptyString(proposal.protection.statement) ||
     !isNonEmptyString(proposal.protection.rationale)
   ) {
@@ -650,45 +775,155 @@ function validateProposal(
   }
 }
 
-function cloneJsonTree(value) {
-  return cloneCapturedValue(
-    value,
-    new Set()
-  );
+function cloneWireValue(value, seen) {
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
+
+  if (setHasValue(seen, value)) {
+    throw boundaryError();
+  }
+  setAddValue(seen, value);
+
+  if (arrayIsArray(value) === true) {
+    const copy = new ArrayConstructor();
+    for (let index = 0; index < value.length; index += 1) {
+      append(copy, cloneWireValue(value[index], seen));
+    }
+    return copy;
+  }
+
+  const descriptors = getOwnPropertyDescriptors(value);
+  const keys = ownKeys(descriptors);
+  const copy = {};
+
+  for (let index = 0; index < keys.length; index += 1) {
+    const key = keys[index];
+    defineOrdinary(copy, key, cloneWireValue(descriptors[key].value, seen));
+  }
+
+  return copy;
+}
+
+function cloneRuleCanonical(rule) {
+  return makeRecord([
+    ["id", rule.id],
+    ["statement", rule.statement],
+    ["kind", rule.kind],
+    ["severity", rule.severity]
+  ]);
+}
+
+function cloneExperimentCanonical(experiment) {
+  const rules = new ArrayConstructor();
+  for (let index = 0; index < experiment.contract.rules.length; index += 1) {
+    append(rules, cloneRuleCanonical(experiment.contract.rules[index]));
+  }
+
+  const attacks = new ArrayConstructor();
+  for (let index = 0; index < experiment.attacks.length; index += 1) {
+    const attack = experiment.attacks[index];
+    append(attacks, makeRecord([
+      ["id", attack.id],
+      ["ruleId", attack.ruleId],
+      ["rule", cloneRuleCanonical(attack.rule)],
+      ["type", attack.type],
+      ["description", attack.description],
+      ["rationale", attack.rationale],
+      ["output", cloneWireValue(attack.output, new SetConstructor())],
+      ["severity", attack.severity],
+      ["realism", attack.realism],
+      ["subtlety", attack.subtlety],
+      ["novelty", attack.novelty],
+      ["fixability", attack.fixability]
+    ]));
+  }
+
+  const outcomes = new ArrayConstructor();
+  for (let index = 0; index < experiment.baseline.outcomes.length; index += 1) {
+    const outcome = experiment.baseline.outcomes[index];
+    append(outcomes, makeRecord([
+      ["attackId", outcome.attackId],
+      ["evaluatorResult", outcome.evaluatorResult],
+      ["survived", outcome.survived]
+    ]));
+  }
+
+  const survivorOrderIds = new ArrayConstructor();
+  for (let index = 0; index < experiment.baseline.survivorOrderIds.length; index += 1) {
+    append(survivorOrderIds, experiment.baseline.survivorOrderIds[index]);
+  }
+
+  return makeRecord([
+    ["version", 1],
+    ["kind", "contract-attack-experiment"],
+    ["replayable", true],
+    ["task", experiment.task],
+    ["contract", makeRecord([
+      ["version", 1],
+      ["status", "confirmed"],
+      ["task", experiment.contract.task],
+      ["rules", rules]
+    ])],
+    ["case", makeRecord([
+      ["input", cloneWireValue(experiment.case.input, new SetConstructor())],
+      ["expectedOutput", cloneWireValue(experiment.case.expectedOutput, new SetConstructor())],
+      ["replay", makeRecord([
+        ["version", 1],
+        ["kind", "m8-evaluator-case"],
+        ["strategy", "json-wire-v1"]
+      ])]
+    ])],
+    ["attacks", attacks],
+    ["baseline", makeRecord([
+      ["outcomes", outcomes],
+      ["survivorOrderIds", survivorOrderIds],
+      ["topFindingId", experiment.baseline.topFindingId]
+    ])]
+  ]);
 }
 
 function validateDraftArtifact(draft) {
   if (
-    !exactRecord(
-      draft,
-      [
-        "version",
-        "kind",
-        "status",
-        "task",
-        "experiment",
-        "source",
-        "rule",
-        "protection"
-      ]
-    ) ||
+    !exactRecord(draft, [
+      "version", "kind", "status", "task",
+      "experiment", "source", "rule", "protection"
+    ]) ||
     draft.version !== 1 ||
     draft.kind !== "contract-protection" ||
     draft.status !== "draft" ||
     draft.task !== draft.experiment.task ||
     !exactRecord(draft.source, ["attackId", "ruleId"]) ||
     !validateRule(draft.rule) ||
-    !exactRecord(
-      draft.protection,
-      ["statement", "rationale"]
-    ) ||
+    !exactRecord(draft.protection, ["statement", "rationale"]) ||
     !isNonEmptyString(draft.protection.statement) ||
     !isNonEmptyString(draft.protection.rationale)
   ) {
     throw boundaryError();
   }
 
-  validateExperiment(draft.experiment);
+  const attacksById = validateExperiment(draft.experiment);
+  const selectedAttack = mapGetValue(attacksById, draft.source.attackId);
+
+  if (
+    selectedAttack === undefined ||
+    draft.source.ruleId !== selectedAttack.ruleId ||
+    draft.rule.id !== selectedAttack.rule.id ||
+    draft.rule.statement !== selectedAttack.rule.statement ||
+    draft.rule.kind !== selectedAttack.rule.kind ||
+    draft.rule.severity !== selectedAttack.rule.severity
+  ) {
+    throw boundaryError();
+  }
+}
+
+function sourceIsSurvivor(experiment, sourceAttackId) {
+  for (let index = 0; index < experiment.baseline.survivorOrderIds.length; index += 1) {
+    if (experiment.baseline.survivorOrderIds[index] === sourceAttackId) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function buildDraft(capture) {
@@ -696,21 +931,14 @@ function buildDraft(capture) {
 
   const attacksById = validateExperiment(capture.experiment);
 
-  if (!isNonEmptyString(capture.sourceAttackId)) {
-    throw boundaryError();
-  }
-
   if (
-    !capture.experiment.baseline.survivorOrderIds
-      .includes(capture.sourceAttackId)
+    !isNonEmptyString(capture.sourceAttackId) ||
+    !sourceIsSurvivor(capture.experiment, capture.sourceAttackId)
   ) {
     throw boundaryError();
   }
 
-  const selectedAttack = attacksById.get(
-    capture.sourceAttackId
-  );
-
+  const selectedAttack = mapGetValue(attacksById, capture.sourceAttackId);
   if (selectedAttack === undefined) {
     throw boundaryError();
   }
@@ -722,27 +950,22 @@ function buildDraft(capture) {
     selectedAttack
   );
 
-  const draft = {
-    version: 1,
-    kind: "contract-protection",
-    status: "draft",
-    task: capture.experiment.task,
-    experiment: cloneJsonTree(capture.experiment),
-    source: {
-      attackId: capture.sourceAttackId,
-      ruleId: selectedAttack.ruleId
-    },
-    rule: {
-      id: selectedAttack.rule.id,
-      statement: selectedAttack.rule.statement,
-      kind: selectedAttack.rule.kind,
-      severity: selectedAttack.rule.severity
-    },
-    protection: {
-      statement: capture.proposal.protection.statement,
-      rationale: capture.proposal.protection.rationale
-    }
-  };
+  const draft = makeRecord([
+    ["version", 1],
+    ["kind", "contract-protection"],
+    ["status", "draft"],
+    ["task", capture.experiment.task],
+    ["experiment", cloneExperimentCanonical(capture.experiment)],
+    ["source", makeRecord([
+      ["attackId", capture.sourceAttackId],
+      ["ruleId", selectedAttack.ruleId]
+    ])],
+    ["rule", cloneRuleCanonical(selectedAttack.rule)],
+    ["protection", makeRecord([
+      ["statement", capture.proposal.protection.statement],
+      ["rationale", capture.proposal.protection.rationale]
+    ])]
+  ]);
 
   validateDraftArtifact(draft);
 
@@ -752,6 +975,21 @@ function buildDraft(capture) {
   validateDraftArtifact(parsed);
 
   return draft;
+}
+
+function settleArtifact(resolve, artifact) {
+  defineProperty(artifact, "then", {
+    value: undefined,
+    writable: true,
+    enumerable: false,
+    configurable: true
+  });
+
+  try {
+    resolve(artifact);
+  } finally {
+    deleteProperty(artifact, "then");
+  }
 }
 
 function draftContractProtection(options) {
@@ -764,20 +1002,18 @@ function draftContractProtection(options) {
     captureFailure = boundaryError();
   }
 
-  return new CapturedPromise(
-    (resolve, reject) => {
-      if (captureFailure !== null) {
-        reject(captureFailure);
-        return;
-      }
-
-      try {
-        resolve(buildDraft(capture));
-      } catch {
-        reject(boundaryError());
-      }
+  return new PromiseConstructor((resolve, reject) => {
+    if (captureFailure !== null) {
+      reject(captureFailure);
+      return;
     }
-  );
+
+    try {
+      settleArtifact(resolve, buildDraft(capture));
+    } catch {
+      reject(boundaryError());
+    }
+  });
 }
 
 module.exports = {
