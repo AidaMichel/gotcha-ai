@@ -45,6 +45,48 @@ path.write_text(text)
 
 test_path = Path('test/contract-remediation-verify.test.js')
 test_text = test_path.read_text()
-regression = r'''\n\ntest("verification shields internal Promise observations from hostile species and constructor hooks", async () => {\n  const protection = await confirmedProtection();\n  const speciesDescriptor = Object.getOwnPropertyDescriptor(Promise, Symbol.species);\n  const constructorDescriptor = Object.getOwnPropertyDescriptor(Promise.prototype, "constructor");\n  let speciesCalls = 0;\n  let constructorCalls = 0;\n\n  Object.defineProperty(Promise, Symbol.species, {\n    get() {\n      speciesCalls += 1;\n      throw new Error("hostile species getter executed");\n    },\n    configurable: true\n  });\n  Object.defineProperty(Promise.prototype, "constructor", {\n    get() {\n      constructorCalls += 1;\n      throw new Error("hostile constructor getter executed");\n    },\n    configurable: true\n  });\n\n  try {\n    await assert.rejects(\n      verifyContractProtection({\n        protection,\n        evaluator: historicalEvaluator,\n        improvedEvaluator(output) {\n          return output.time === "3 PM";\n        }\n      }),\n      TypeError\n    );\n    assert.equal(speciesCalls, 0);\n    assert.equal(constructorCalls, 0);\n  } finally {\n    Object.defineProperty(Promise, Symbol.species, speciesDescriptor);\n    Object.defineProperty(Promise.prototype, "constructor", constructorDescriptor);\n  }\n});\n'''
+regression = '''
+
+test("verification shields internal Promise observations from hostile species and constructor hooks", async () => {
+  const protection = await confirmedProtection();
+  const speciesDescriptor = Object.getOwnPropertyDescriptor(Promise, Symbol.species);
+  const constructorDescriptor = Object.getOwnPropertyDescriptor(Promise.prototype, "constructor");
+  let speciesCalls = 0;
+  let constructorCalls = 0;
+
+  Object.defineProperty(Promise, Symbol.species, {
+    get() {
+      speciesCalls += 1;
+      throw new Error("hostile species getter executed");
+    },
+    configurable: true
+  });
+  Object.defineProperty(Promise.prototype, "constructor", {
+    get() {
+      constructorCalls += 1;
+      throw new Error("hostile constructor getter executed");
+    },
+    configurable: true
+  });
+
+  try {
+    await assert.rejects(
+      verifyContractProtection({
+        protection,
+        evaluator: historicalEvaluator,
+        improvedEvaluator(output) {
+          return output.time === "3 PM";
+        }
+      }),
+      TypeError
+    );
+    assert.equal(speciesCalls, 0);
+    assert.equal(constructorCalls, 0);
+  } finally {
+    Object.defineProperty(Promise, Symbol.species, speciesDescriptor);
+    Object.defineProperty(Promise.prototype, "constructor", constructorDescriptor);
+  }
+});
+'''
 if 'verification shields internal Promise observations from hostile species and constructor hooks' not in test_text:
     test_path.write_text(test_text + regression)
