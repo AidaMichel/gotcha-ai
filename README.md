@@ -354,7 +354,10 @@ const {
   runGotcha,
   draftQualityContract,
   confirmQualityContract,
-  runContractAttacks
+  runContractAttacks,
+  draftContractProtection,
+  confirmContractProtection,
+  verifyContractProtection
 } = require("gotcha-ai");
 ```
 
@@ -436,7 +439,7 @@ The generator proposes declarative mutated outputs; it does **not** provide exec
 
 A contract-attack survivor means an **AI-proposed rule violation passed the evaluator**. For arbitrary natural-language rules, Gotcha does not independently prove that the candidate semantically violates the referenced rule or that a production model produced the same failure.
 
-`runContractAttacks()` ends at ranked survivors and `topFinding` (`GOTCHA`). It does not automatically create a protection or run `CATCH THIS → RE-ATTACK`; those stages belong to the separate deterministic Mutation Pack improvement path.
+`runContractAttacks()` ends at ranked survivors and `topFinding` (`GOTCHA`). The M10 remediation APIs can then bind one replayable survivor to a declarative protection, require explicit human confirmation, and verify a caller-supplied improved evaluator against the exact bound experiment. Gotcha never generates executable evaluator code and never applies a draft automatically.
 
 If you cloned the repository, run the deterministic end-to-end example with:
 
@@ -445,6 +448,51 @@ node examples/contract-attacks.js
 ```
 
 The repository command above is not a package-level executable. Installed consumers call the public `runContractAttacks()` API directly.
+
+## Remediate and verify a confirmed survivor
+
+M10 continues from a **replayable** `runContractAttacks()` experiment:
+
+```text
+GOTCHA
+  ↓
+DRAFT PROTECTION
+  ↓
+HUMAN CONFIRM
+  ↓
+VERIFY
+  ↓
+RE-ATTACK
+```
+
+The protection proposal is declarative data. A human must explicitly accept or edit it before verification. The caller supplies both the historical evaluator and the improved evaluator; Gotcha verifies baseline identity first and only then runs the improved replay.
+
+```js
+const draft = await draftContractProtection({
+  experiment: result.experiment,
+  sourceAttackId: result.topFinding.id,
+  proposal
+});
+
+const protection = await confirmContractProtection({
+  draft,
+  decision: { type: "accept" }
+});
+
+const verification = await verifyContractProtection({
+  protection,
+  evaluator: currentEvaluator,
+  improvedEvaluator
+});
+```
+
+A `verified` result means the selected source finding was caught in the exact replay with no newly surviving bound attack. It is evidence about the bound experiment, not a claim that all future failures are eliminated. Provider/model adapters remain outside the trusted remediation core.
+
+If you cloned the repository, run the deterministic full remediation example with:
+
+```bash
+node examples/contract-remediation.js
+```
 
 ## Bring your own business idea
 
@@ -628,6 +676,12 @@ Contract Attack example:
 node examples/contract-attacks.js
 ```
 
+Contract Remediation example:
+
+```bash
+node examples/contract-remediation.js
+```
+
 Structured-data portability example:
 
 ```bash
@@ -650,7 +704,7 @@ CONFIRM
 
 This layer turns human teaching evidence into an explicitly confirmed Quality Contract.
 
-### Confirmed-contract attack path
+### Confirmed-contract attack and remediation path
 
 ```text
 ATTACK
@@ -658,9 +712,15 @@ ATTACK
 RANK
   ↓
 GOTCHA
+  ↓
+DRAFT PROTECTION
+  ↓
+HUMAN CONFIRM
+  ↓
+VERIFY / RE-ATTACK
 ```
 
-Confirmed Quality Contracts can drive provider-independent AI-assisted attack generation through `runContractAttacks()`. This path stops at ranked survivors and `topFinding`.
+Confirmed Quality Contracts can drive provider-independent AI-assisted attack generation through `runContractAttacks()`. M10 can then bind a replayable survivor to human-authorized declarative protection data and verify a caller-supplied improved evaluator against that exact historical experiment.
 
 ### Deterministic Mutation Pack improvement path
 

@@ -3,7 +3,10 @@ const assert = require("node:assert/strict");
 
 const {
   runGotcha,
-  runContractAttacks
+  runContractAttacks,
+  draftContractProtection,
+  confirmContractProtection,
+  verifyContractProtection
 } = require("../src");
 
 test(
@@ -174,5 +177,78 @@ test(
       result.topFinding.id,
       "wrong-time"
     );
+  }
+);
+
+
+test(
+  "public API exposes contract remediation and verification",
+  async () => {
+    const contract = {
+      version: 1,
+      status: "confirmed",
+      task: "Return the approved time.",
+      rules: [{
+        id: "time-rule",
+        statement: "Time must be 3 PM.",
+        kind: "required",
+        severity: "major"
+      }]
+    };
+    function evaluator(output) {
+      return output.time !== "5 PM";
+    }
+    const attack = await runContractAttacks({
+      contract,
+      input: { request: "3 PM" },
+      expectedOutput: { time: "3 PM" },
+      evaluator,
+      generator() {
+        return {
+          version: 1,
+          task: contract.task,
+          attacks: [{
+            id: "wrong-time",
+            ruleId: "time-rule",
+            type: "wrong-time",
+            description: "Changes time.",
+            rationale: "Evaluator misses it.",
+            mutatedOutput: { time: "4 PM" },
+            scores: { realism: 0.9, subtlety: 0.9, novelty: 0.8, fixability: 1 }
+          }]
+        };
+      }
+    });
+    assert.equal(attack.experiment.replayable, true);
+    const draft = await draftContractProtection({
+      experiment: attack.experiment,
+      sourceAttackId: "wrong-time",
+      proposal: {
+        version: 1,
+        task: contract.task,
+        sourceAttackId: "wrong-time",
+        ruleId: "time-rule",
+        protection: {
+          statement: "Require exactly 3 PM.",
+          rationale: "The source finding changed time."
+        }
+      }
+    });
+    const protection = await confirmContractProtection({
+      draft,
+      decision: { type: "accept" }
+    });
+    const verification = await verifyContractProtection({
+      protection,
+      evaluator,
+      improvedEvaluator(output) {
+        return output.time === "3 PM";
+      }
+    });
+    assert.equal(draft.status, "draft");
+    assert.equal(protection.status, "confirmed");
+    assert.equal(verification.state, "verified");
+    assert.equal(verification.verificationPassed, true);
+    assert.deepEqual(verification.eliminatedAttackIds, ["wrong-time"]);
   }
 );
