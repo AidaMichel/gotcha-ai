@@ -364,6 +364,23 @@ function buildOutputFormat(mode) {
   };
 }
 
+function assertUniqueProviderIdentity(value, seen) {
+  if (value === null || typeof value !== "object") return;
+  if (utilTypes.isProxy(value) || isForbiddenBrand(value, false)) return;
+  if (seen.has(value)) {
+    throw boundaryError("provider response.output must not contain repeated mutable identity.");
+  }
+  seen.add(value);
+  const descriptors = getOwnPropertyDescriptors(value);
+  for (const key of ownKeys(descriptors)) {
+    if (key === "length") continue;
+    const descriptor = descriptors[key];
+    if (descriptor && "value" in descriptor) {
+      assertUniqueProviderIdentity(descriptor.value, seen);
+    }
+  }
+}
+
 function validateProviderResponse(response) {
   const descriptors = exactDataDescriptors(
     response,
@@ -374,6 +391,7 @@ function validateProviderResponse(response) {
   if (descriptors.version.value !== 1 || descriptors.kind.value !== "gotcha-provider-response") {
     throw boundaryError("provider response has invalid version or kind.");
   }
+  assertUniqueProviderIdentity(descriptors.output.value, new Set());
   return detachProviderData(descriptors.output.value, "provider response.output", new Set(), true);
 }
 
