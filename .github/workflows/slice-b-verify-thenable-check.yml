@@ -14,6 +14,7 @@ jobs:
           node-version: 22
       - run: python scripts/qa/patch-slice-b-verify-thenable.py
       - run: python scripts/qa/patch-slice-b-verify-schedule.py
+      - run: python scripts/qa/patch-slice-b-verify-generator-thenable.py
       - run: node --check src/contract-remediation.js
       - run: node --test test/contract-remediation-verify.test.js test/contract-remediation-confirm.test.js test/contract-remediation-draft.test.js test/contract-remediation-review-regressions.test.js
       - run: npm test
