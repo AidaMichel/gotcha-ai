@@ -17,7 +17,9 @@ jobs:
           node-version: 20
       - run: npm install --ignore-scripts
       - name: Apply hardening patch
-        run: python .github/m11-hardening.py
+        run: |
+          python .github/m11-hardening.py
+          python .github/m11-test-adjust.py
       - name: Syntax and focused tests
         run: |
           node --check src/provider-adapter.js
@@ -50,7 +52,7 @@ jobs:
         run: |
           git config user.name "AidaMichel"
           git config user.email "126730924+AidaMichel@users.noreply.github.com"
-          rm .github/workflows/m11-slice-a-hardening.yml .github/m11-hardening.py
-          git add src/provider-adapter.js src/ai-data-core.js test/provider-adapter.test.js test/package-contract-remediation.test.js .github/workflows/m11-slice-a-hardening.yml .github/m11-hardening.py
+          rm .github/workflows/m11-slice-a-hardening.yml .github/m11-hardening.py .github/m11-test-adjust.py
+          git add src/provider-adapter.js src/ai-data-core.js test/provider-adapter.test.js test/package-contract-remediation.test.js .github/workflows/m11-slice-a-hardening.yml .github/m11-hardening.py .github/m11-test-adjust.py
           git commit -m "fix: harden M11 provider adapter boundary"
           git push origin HEAD:milestone-11-provider-adapters
