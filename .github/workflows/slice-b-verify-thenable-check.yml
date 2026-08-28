@@ -15,6 +15,7 @@ jobs:
       - run: python scripts/qa/patch-slice-b-verify-thenable.py
       - run: python scripts/qa/patch-slice-b-verify-schedule.py
       - run: python scripts/qa/patch-slice-b-verify-generator-thenable.py
+      - run: python scripts/qa/patch-slice-b-verify-generator-sync.py
       - run: python scripts/qa/patch-m8-async-return-thenable.py
       - run: node --check src/contract-attacks-core.js
       - run: node --check src/contract-remediation.js
