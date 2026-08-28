@@ -2,6 +2,8 @@ name: Slice B verification validation
 on:
   push:
     branches: [milestone-10-remediation-slice-b]
+permissions:
+  contents: write
 jobs:
   test:
     runs-on: ubuntu-24.04
@@ -18,3 +20,12 @@ jobs:
       - run: node --test test/contract-remediation-verify.test.js test/contract-remediation-confirm.test.js test/contract-remediation-draft.test.js test/contract-remediation-review-regressions.test.js
       - run: npm test
       - run: git diff --check
+      - name: Persist validated source
+        run: |
+          git config user.name "AidaMichel"
+          git config user.email "126730924+AidaMichel@users.noreply.github.com"
+          git add src/contract-attacks-core.js src/contract-remediation.js src/index.js
+          if git diff --cached --quiet; then exit 0; fi
+          git diff --cached --check
+          git commit -m "feat: implement M10 protection verification"
+          git push origin HEAD:milestone-10-remediation-slice-b
