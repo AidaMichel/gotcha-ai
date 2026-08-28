@@ -209,7 +209,7 @@ test("captured Set operations preserve whole-options alias rejection", async () 
   };
   const experiment = await makeExperiment({ input: shared });
   const proposal = makeProposal();
-  proposal.protection = shared;
+  proposal.protection = experiment.case.input;
   const original = Set.prototype.has;
   Set.prototype.has = () => false;
   try {

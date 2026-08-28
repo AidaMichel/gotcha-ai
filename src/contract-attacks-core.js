@@ -57,7 +57,49 @@ const experimentIntrinsics =
     ArrayPrototype:
       Array.prototype,
     ObjectPrototype:
-      Object.prototype
+      Object.prototype,
+    ObjectPrototypeParent:
+      Object.getPrototypeOf(Object.prototype),
+    PromiseConstructor:
+      Promise,
+    TypeErrorConstructor:
+      TypeError,
+    getOwnPropertyDescriptors:
+      Object.getOwnPropertyDescriptors,
+    getOwnPropertyDescriptor:
+      Object.getOwnPropertyDescriptor,
+    getPrototypeOf:
+      Object.getPrototypeOf,
+    isExtensible:
+      Object.isExtensible,
+    objectIs:
+      Object.is,
+    ownKeys:
+      Reflect.ownKeys,
+    reflectApply:
+      Reflect.apply,
+    deleteProperty:
+      Reflect.deleteProperty,
+    arrayIsArray:
+      Array.isArray,
+    stringTrim:
+      String.prototype.trim,
+    numberIsFinite:
+      Number.isFinite,
+    numberIsInteger:
+      Number.isInteger,
+    SetConstructor:
+      Set,
+    setHas:
+      Set.prototype.has,
+    setAdd:
+      Set.prototype.add,
+    MapConstructor:
+      Map,
+    mapGet:
+      Map.prototype.get,
+    mapSet:
+      Map.prototype.set
   });
 
 const utilIsPromise =
