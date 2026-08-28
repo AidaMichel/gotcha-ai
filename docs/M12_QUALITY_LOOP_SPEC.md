@@ -1,6 +1,6 @@
 # M12 — Quality Loop Orchestration
 
-Status: Architecture Draft — Revision 2
+Status: Architecture Draft — Revision 3
 Milestone: 12
 Branch: `milestone-12-quality-loop`
 Base: `main@88c066bbba8a98c331e676aeb6788d9126a55ddf`
@@ -23,11 +23,12 @@ M12 adds a small orchestration layer around the existing M10 APIs so the product
 
 M12 does **not** redefine attack generation, proposal semantics, confirmation semantics, replay, or verification. M8 and M10 remain authoritative.
 
-Revision 2 additionally fixes three architecture requirements:
+Revision 3 closes the remaining Revision-2 ambiguities:
 
-1. delegated M10 Promises are observed only through an exact species-safe shield/observe/restore algorithm;
-2. a human decision is explicitly authoritative only for the exact current draft inspected by that human, with trusted-continuity/reinspection rules for reconstructed checkpoints;
-3. accepted checkpoint wrappers have one exact descriptor/extensibility/brand surface.
+1. the three M10 delegation function identities are captured exactly once at M12 module initialization and later mutable CommonJS exports are never authoritative;
+2. the human-review contract binds both the exact current draft **and the exact submitted decision/edit text** to the human's choice;
+3. runtime structural acceptance of a valid reconstructed checkpoint is deterministic and independent of the caller-owned human-reinspection obligation;
+4. delegated Promise handling is constrained to the fresh hidden local native Promises returned by the captured same-package M10 functions, eliminating the unsafe arbitrary/unshieldable-Promise branch.
 
 ## 2. Product rule
 
@@ -55,9 +56,9 @@ M12 MUST NOT:
 - retry M10 operations;
 - reinterpret M10 verification states;
 - treat a non-replayable M8 experiment as remediable;
-- claim that a human inspected a draft when the caller has not satisfied Section 6.
+- claim that runtime structure validation proves what a human inspected or chose.
 
-The caller still explicitly chooses `sourceAttackId`, supplies declarative `proposal`, supplies the human `decision`, and supplies `evaluator` / `improvedEvaluator`.
+The caller still explicitly chooses `sourceAttackId`, supplies declarative `proposal`, obtains the human `decision`, and supplies `evaluator` / `improvedEvaluator`.
 
 ## 3. Public API
 
@@ -82,7 +83,7 @@ const checkpoint = await prepareContractQualityLoop({
 });
 ```
 
-This stage delegates semantic authority to exactly one immediate call of:
+This stage delegates semantic authority to exactly one immediate call of the captured M10 `draftContractProtection` identity:
 
 ```js
 draftContractProtection({
@@ -96,7 +97,7 @@ M12 MUST NOT duplicate or weaken M10 experiment, survivor-binding, proposal, wir
 
 ### 3.2 Complete
 
-After the human has inspected the exact current `checkpoint.draft` under Section 6:
+After the human has inspected the exact current draft and issued the exact current decision under Section 7:
 
 ```js
 const result = await completeContractQualityLoop({
@@ -107,21 +108,20 @@ const result = await completeContractQualityLoop({
 });
 ```
 
-Supplying `decision` is a caller assertion that the Section-6 inspection precondition is true for the exact draft descriptor value captured by this completion invocation.
+This stage delegates confirmation to exactly one call of the captured M10 `confirmContractProtection` identity.
 
-This stage delegates confirmation to exactly one call of `confirmContractProtection()`.
+If confirmation resolves a rejected protection, M12 stops. It MUST NOT call verification and MUST NOT execute either evaluator.
 
-If that call resolves a rejected protection, M12 stops. It MUST NOT call `verifyContractProtection()` and MUST NOT execute either evaluator.
+If confirmation resolves a confirmed protection, M12 delegates verification to exactly one call of the captured M10 `verifyContractProtection` identity using the exact evaluator identities captured at M12 invocation.
 
-If it resolves a confirmed protection, M12 delegates verification to exactly one call of `verifyContractProtection()` using the exact evaluator identities captured at M12 invocation.
+## 4. Captured authority
 
-## 4. Captured authority and primitive safety
+At M12 module initialization, before any public invocation, M12 captures the exact references it uses and never performs later authority lookup through mutable globals, prototypes, or CommonJS exports.
 
-At module initialization M12 captures the exact references it needs and never treats later mutable globals/prototypes as authority:
+Required captured primitives are:
 
 - `util.types.isProxy`;
-- `util.types.isPromise`;
-- the exact forbidden-brand probes listed in Section 4.1;
+- the exact forbidden-brand probes in Section 4.1;
 - `Buffer.isBuffer`;
 - `Object.getOwnPropertyDescriptors`;
 - `Object.getOwnPropertyDescriptor`;
@@ -139,11 +139,21 @@ At module initialization M12 captures the exact references it needs and never tr
 - `Symbol.species`;
 - local `TypeError` constructor.
 
-If a required captured primitive or mandatory probe is unavailable/non-callable at module initialization, M12 boundary authority is unavailable for that process and both M12 APIs return their normal local native Promise rejected with the captured local boundary `TypeError` before semantic delegation/callback execution.
+Required captured M10 entry points are exactly:
+
+```text
+draftContractProtection
+confirmContractProtection
+verifyContractProtection
+```
+
+M12 imports/captures those three function identities once during module initialization. Every later delegation uses those captured lexical identities directly. Replacing properties on `require("./contract-remediation")`, `require("gotcha-ai")`, `module.exports`, or any other mutable export object after M12 initialization has zero effect on M12 delegation.
+
+Each captured M10 entry point MUST be a non-Proxy callable function at initialization. If any required primitive, mandatory probe, or M10 entry point is unavailable/non-callable, M12 boundary authority is unavailable for that process and both M12 APIs return their normal local native Promise rejected with the captured local boundary `TypeError` before semantic delegation or evaluator/provider execution.
 
 ### 4.1 Exact forbidden-brand set
 
-For M12 public option/checkpoint record classification, the exact mandatory forbidden-brand probes are the same V1 set already locked by M10 Section 2.4:
+For M12 public option/checkpoint record classification, the mandatory forbidden-brand probes are the same V1 set locked by M10 Section 2.4:
 
 ```text
 util.types.isDate
@@ -169,9 +179,9 @@ Buffer.isBuffer
 
 `isProxy` is checked before these probes. Any positive probe rejects. Brand probing occurs before prototype acceptance, so a covered intrinsic whose prototype was rewritten to `Object.prototype` or `null` still rejects.
 
-This duplicate list is a boundary-shape compatibility rule only; it does not make M12 authoritative for M10 remediation semantics.
+This duplicate list is only a boundary-shape compatibility rule. It does not make M12 authoritative for M10 remediation semantics.
 
-## 5. Invocation authority
+## 5. Public invocation authority
 
 Both M12 functions are ordinary functions; there is no constructor, class, session object, background worker, persistence layer, or workflow registry.
 
@@ -190,7 +200,7 @@ Each top-level options record MUST be an exact ordinary local record:
 
 Validation uses captured descriptors before semantic reads.
 
-Boundary failures reject the returned Promise with a captured local `TypeError`; they do not execute provider/model/evaluator code.
+M12-generated boundary failures reject the returned Promise with a captured local `TypeError`; they do not execute provider/model/evaluator code.
 
 ### 5.1 Exact prepare options
 
@@ -204,11 +214,11 @@ Exactly:
 }
 ```
 
-M12 captures the three descriptor values synchronously and immediately invokes `draftContractProtection()` with a fresh exact ordinary options record before returning control to caller code.
+M12 captures the three descriptor values synchronously and immediately invokes the captured M10 draft function with a fresh exact ordinary options record before returning control to caller code.
 
 M10 then performs its existing synchronous invocation capture, so later caller mutation cannot change experiment/proposal/source authority.
 
-M12 does not separately deep-clone or semantically validate those three values before M10. M10 is the one semantic authority.
+M12 does not separately deep-clone or semantically validate those three values before M10. M10 is the semantic authority.
 
 ### 5.2 Exact complete options
 
@@ -227,46 +237,11 @@ M12 captures all four descriptor values synchronously.
 
 `evaluator` and `improvedEvaluator` MUST each satisfy the existing M10 accepted-evaluator rule: function identity and non-Proxy. No additional function-kind/realm restriction is added by M12.
 
-After exact checkpoint-wrapper validation, M12 immediately invokes `confirmContractProtection()` with the checkpoint draft and captured decision before returning control to caller code. M10 therefore owns draft/decision validation and captures both before caller mutation can change them.
+After exact checkpoint-wrapper validation, M12 immediately invokes the captured M10 confirmation function with the captured checkpoint draft and captured decision before returning control to caller code. M10 therefore owns draft/decision validation and captures both before caller mutation can change them.
 
 Evaluator callback identities are retained only for a later confirmed verification step and are never invoked by M12 directly.
 
-## 6. Human-review continuity and reconstructed checkpoints
-
-This section is normative.
-
-M12 does not provide cryptographic provenance, signatures, durable trusted storage, or proof that a human viewed a particular byte sequence. Therefore the human-confirmation guarantee is defined honestly as a workflow precondition owned by the caller/UI.
-
-### 6.1 Live trusted checkpoint
-
-For a checkpoint that remains in caller-trusted memory from `prepareContractQualityLoop()` until the decision is obtained:
-
-- the human MUST inspect the exact current `checkpoint.draft` that will be supplied to completion;
-- the `decision` MUST be obtained after that inspection;
-- mutation of the draft after inspection invalidates that decision and requires a fresh inspection/decision.
-
-### 6.2 JSON reconstruction or mutable/untrusted storage
-
-A JSON-reconstructed checkpoint may be structurally accepted by M12, but reconstruction is **not** evidence that it is the draft the human previously reviewed.
-
-If a checkpoint has been serialized, reconstructed, crossed mutable/untrusted storage, or otherwise lost trusted continuity, the caller MUST:
-
-1. treat any earlier human decision as stale;
-2. re-present the exact current reconstructed `checkpoint.draft` to the human;
-3. obtain a fresh decision only after that reinspection;
-4. call `completeContractQualityLoop()` with that fresh decision and current checkpoint.
-
-An `accept`, `edit`, or `reject` decision made against an earlier pre-storage/pre-mutation draft MUST NOT be reused.
-
-If the caller cannot guarantee either trusted continuity under Section 6.1 or fresh reinspection under Section 6.2, it MUST NOT invoke completion.
-
-Supplying `decision` to `completeContractQualityLoop()` semantically asserts that one of these two conditions has been satisfied for the exact current draft descriptor value captured by that invocation.
-
-M12 does not claim to detect a caller that violates this precondition. This is the same kind of caller-owned human/UI authority boundary as choosing the decision itself; runtime structure validation cannot prove human perception.
-
-In particular, changing `draft.protection.rationale` or any other structurally valid draft field in storage requires reinspection even when M10 would otherwise accept the reconstructed draft structurally. M10's structural validation is not provenance proof.
-
-## 7. Checkpoint artifact and exact accepted wrapper surface
+## 6. Checkpoint artifact and structural acceptance
 
 Successful prepare resolves exactly:
 
@@ -283,11 +258,11 @@ The public checkpoint root is a fresh null-prototype record so native Promise fu
 
 The four properties are created in exactly the canonical order shown above and are own data properties exactly writable/enumerable/configurable `true`. The checkpoint root remains extensible.
 
-`draft` is exactly the successful `status: "draft"` M10 artifact returned by `draftContractProtection()` for this preparation attempt. M12 does not modify its fields or create competing remediation semantics.
+`draft` is exactly the successful `status: "draft"` M10 artifact returned by the captured M10 draft call. M12 does not modify its fields or create competing remediation semantics.
 
-### 7.1 Exact completion-time wrapper predicate
+### 6.1 Exact completion-time checkpoint-wrapper predicate
 
-A checkpoint wrapper accepted by `completeContractQualityLoop()` passes only when all are true:
+A checkpoint wrapper accepted structurally by `completeContractQualityLoop()` passes only when all are true:
 
 1. value is a non-null object and captured `Array.isArray(value) === false`;
 2. captured Proxy probe is false;
@@ -300,67 +275,118 @@ A checkpoint wrapper accepted by `completeContractQualityLoop()` passes only whe
 ["version", "kind", "state", "draft"]
 ```
 
-7. each of the four properties is an own data property exactly `{ writable: true, enumerable: true, configurable: true }`;
+7. each property is an own data property exactly writable/enumerable/configurable `true`;
 8. there are no symbols, extras, omissions, accessors, non-enumerable fields, or alternate descriptors;
 9. descriptor values satisfy `version === 1`, `kind === "contract-quality-loop-checkpoint"`, `state === "awaiting-confirmation"`;
 10. only after 1–9 pass may M12 obtain the `draft` descriptor value and delegate it to M10.
 
-Thus frozen/sealed/non-extensible wrappers, wrappers with non-ordinary descriptors, arrays, Proxies, covered runtime brands whose prototypes were rewritten, and custom/cross-realm prototype objects reject deterministically before M10 confirmation.
+Frozen/sealed/non-extensible wrappers, wrappers with non-ordinary descriptors, arrays, Proxies, covered runtime brands whose prototypes were rewritten, and custom/cross-realm prototype objects reject deterministically before M10 confirmation.
 
-A normal `JSON.parse()` reconstruction has local `Object.prototype`, ordinary mutable descriptors, and extensibility, so it may satisfy this wrapper predicate. Section 6 still requires fresh human reinspection after reconstruction.
+A normal `JSON.parse()` reconstruction has local `Object.prototype`, ordinary mutable descriptors, and extensibility. Therefore if its values also satisfy 1–10, **runtime structural acceptance is unconditional**. Runtime does not and cannot branch on whether a human reinspection occurred.
 
-M12 MUST NOT infer nested draft validity from the wrapper. The captured `draft` value is passed to `confirmContractProtection()`, which independently revalidates and captures the entire draft under M10.
+M12 MUST NOT infer nested draft validity from the wrapper. The captured `draft` value is passed to the captured M10 confirmation function, which independently revalidates and captures the entire draft under M10.
+
+## 7. Human-review and decision-authority contract
+
+This section is a caller/UI workflow contract, not a runtime-detectable structural predicate.
+
+M12 does not provide cryptographic provenance, signatures, trusted durable storage, or proof of human perception. Therefore runtime acceptance in Section 6 is intentionally separate from the human-authority obligation here.
+
+### 7.1 Exact reviewed draft
+
+Before completion, the human MUST inspect the exact current `checkpoint.draft` that will be supplied to `completeContractQualityLoop()`.
+
+If that draft is mutated, serialized/reconstructed, crosses mutable/untrusted storage, or otherwise loses trusted continuity after inspection, the previous inspection/decision is stale. The exact current draft MUST be re-presented and a fresh decision obtained.
+
+Changing `draft.protection.statement`, `draft.protection.rationale`, or any other structurally valid field is included. M10 structural validity is not provenance proof.
+
+### 7.2 Exact human-issued decision
+
+The exact `decision` value submitted to completion MUST be the exact decision the human issued for the exact current draft under Section 7.1.
+
+For `accept` and `reject`, the human-issued `type` is authority.
+
+For `edit`, both the human-issued `type: "edit"` and the exact human-issued `statement` string are authority.
+
+If the decision record or any decision field is mutated, replaced, serialized/reconstructed, crosses mutable/untrusted storage, or otherwise loses trusted continuity after the human issued it, that earlier human authority is stale. The current draft MUST be presented again and a fresh exact decision obtained before completion.
+
+Examples that invalidate an earlier choice include:
+
+```text
+human chose reject -> record mutated to accept
+human chose accept -> record replaced with edit
+human chose edit("A") -> statement changed to "B"
+human decision serialized/reloaded through mutable storage
+```
+
+Supplying `decision` to completion semantically asserts both Section 7.1 and 7.2 for the exact descriptor values captured by that invocation.
+
+M12 does not claim to detect a caller that lies about this assertion. Runtime structure validation cannot prove human perception or intent.
 
 ## 8. Exact completion ordering
 
-For a valid completion invocation, ordering is normative:
+For a structurally valid completion invocation, ordering is normative:
 
 1. capture/validate exact M12 outer options;
-2. validate/capture exact checkpoint wrapper under Section 7.1;
+2. validate/capture exact checkpoint wrapper under Section 6.1;
 3. capture evaluator identities;
-4. require the caller-owned Section-6 human-review precondition by API contract;
-5. call `confirmContractProtection({ draft, decision })` exactly once;
-6. observe that delegated M10 Promise only through Section 9;
+4. treat Sections 7.1–7.2 as caller-owned workflow preconditions, not runtime predicates;
+5. invoke the captured M10 confirmation function exactly once with `{ draft, decision }`;
+6. observe that hidden delegated M10 Promise only through Section 9;
 7. if the protection is rejected, build the M12 rejected result and stop;
-8. if the protection is confirmed, call `verifyContractProtection({ protection, evaluator, improvedEvaluator })` exactly once;
-9. observe that delegated M10 Promise only through Section 9;
+8. if the protection is confirmed, invoke the captured M10 verification function exactly once with `{ protection, evaluator, improvedEvaluator }`;
+9. observe that hidden delegated M10 Promise only through Section 9;
 10. build the M12 completed result without rewriting the verification payload.
 
 No evaluator is called before M10 verification itself reaches its existing evaluator gates.
 
 No M12 retry/fallback occurs on any throw/rejection/failure state.
 
-## 9. Species-safe delegated Promise observation
+## 9. Same-package delegated Promise invariant and species-safe observation
 
-M12 MUST NOT observe delegated M10 Promises with ambient `await`, ambient `Promise.resolve`, or a bare captured `Promise.prototype.then` call without species shielding.
+M12 does not accept arbitrary caller-supplied Promise/thenable values at this seam.
 
-M12 delegates only to package-owned M10 APIs, which contractually return genuine local native Promises. Even so, `Promise.prototype.constructor` / `Symbol.species` may have been poisoned before an M12 invocation, so observation uses the following exact algorithm.
+The only delegated Promises are the direct, synchronous return values of the three captured same-package M10 functions from Section 4. Those M10 APIs already contractually return genuine local native Promises. In the current package they create fresh local Promise instances and do not expose those instances to caller code before M12 immediately begins observation.
 
-At module initialization M12 creates one trusted `safePromiseSpeciesContainer` with an own `Symbol.species` data property whose value is the captured local `Promise` constructor and whose descriptor is non-writable, non-enumerable, non-configurable.
+Revision 3 therefore locks one **package integration invariant** for M12-compatible M10 entry points:
 
-For each delegated Promise `promise`:
+```text
+delegated Promise is a fresh extensible local native Promise
+current prototype === captured local Promise.prototype
+own "constructor" descriptor === absent
+```
 
-1. reject with M12 boundary `TypeError` unless captured `isProxy(promise) === false`, captured `isPromise(promise) === true`, and captured `getPrototypeOf(promise) === captured Promise.prototype`;
-2. capture the own `constructor` descriptor without property access;
-3. require that descriptor either be absent on an extensible Promise or be configurable; a non-configurable own constructor property rejects before observation;
-4. install a temporary own `constructor` data property with value `safePromiseSpeciesContainer`, writable `true`, enumerable `false`, configurable `true`;
-5. invoke captured `Promise.prototype.then` exactly once via captured `Reflect.apply`, passing M12 fulfillment/rejection reactions;
-6. in a synchronous `finally`, restore the exact prior configurable descriptor, or delete the temporary own property when there was no prior descriptor;
-7. only after shielding, `then` registration, and restoration all succeed is delegated observation considered established.
+This is not a public input classification rule. M12 does not support substituted M10 functions, arbitrary returned thenables, caller-mutated delegated Promises, or an "unshieldable delegated Promise" fallback. Such a branch is intentionally absent because safely consuming an already-rejected Promise whose own non-configurable constructor prevents species shielding is not generally possible without invoking potentially hostile species authority.
 
-The returned Promise from the captured `then` call is not semantic authority and need not be exposed.
+The captured M10 function identities and synchronous hidden handoff eliminate caller interleaving between M10 Promise creation and M12 shielding. Package tests MUST prove the integration invariant for all three captured M10 entry points. If a future M10 revision changes this invariant, M12 architecture must be revised before that combination is released.
 
-### 9.1 Shield/setup/restoration failure precedence
+### 9.1 Exact observation algorithm
 
-If classification, shield installation, the captured `then` call, or restoration/deletion fails, M12 rejects its public Promise with a captured local M12 boundary `TypeError`.
+At M12 module initialization, create one trusted `safePromiseSpeciesContainer` with an own `Symbol.species` data property whose value is the captured local `Promise` constructor and whose descriptor is non-writable, non-enumerable, non-configurable.
 
-If reactions were registered before a later synchronous restoration failure, those reactions are logically cancelled for public settlement: they MUST check an internal observation-active flag and MUST NOT later settle or overwrite the already chosen M12 boundary failure.
+For each hidden delegated M10 Promise, M12 performs exactly:
 
-Therefore exact delegated rejection-identity propagation applies **only after** the complete shield/observe/restore setup in Section 9 succeeds.
+1. capture its own `constructor` descriptor without property access and require the package integration invariant: descriptor is absent, object is extensible, current prototype is captured local `Promise.prototype`, and the captured Promise brand check succeeds;
+2. install a temporary own `constructor` data property with value `safePromiseSpeciesContainer`, writable `true`, enumerable `false`, configurable `true`;
+3. invoke captured `Promise.prototype.then` exactly once via captured `Reflect.apply`, passing M12 fulfillment/rejection reactions;
+4. synchronously delete the temporary own `constructor` property;
+5. require deletion success before considering observation established.
 
-### 9.2 Delegated rejection identity
+The Promise returned by the captured `then` call is internal only and is never exposed as M12 semantic authority.
 
-After successful observation setup, if `draftContractProtection()`, `confirmContractProtection()`, or `verifyContractProtection()` rejects, that exact rejection reason becomes the M12 public rejection reason with object/value identity preserved.
+Because the only conforming delegated inputs satisfy the package integration invariant, there is no conforming path in which step 2 is blocked by a pre-existing non-configurable own `constructor`.
+
+### 9.2 Observation setup failure
+
+Failure to satisfy the package integration invariant or failure of shield installation/observation/restoration is an **internal package compatibility defect**, not a supported hostile-public-input branch.
+
+M12 implementations MUST NOT add a regression test that fabricates or monkey-patches an unshieldable delegated Promise and then claim ordinary M12 boundary semantics for it. The public caller has no reference to the hidden delegated Promise at that point, and mutable CommonJS M10 replacement is already excluded by Section 4.
+
+The release compatibility gate is instead: all three exact captured M10 functions, in the same package build, must pass the hidden fresh-Promise invariant and species-safe observation tests. A package build that fails that gate is not M12-compatible and must not be released as conforming M12.
+
+### 9.3 Delegated rejection identity
+
+After observation is successfully established, if captured M10 draft/confirmation/verification rejects, that exact rejection reason becomes the M12 public rejection reason with object/value identity preserved.
 
 M12 MUST NOT inspect, clone, stringify, normalize, wrap, or replace that delegated reason merely to propagate it.
 
@@ -420,7 +446,7 @@ Nested M10 values are data fields inside the already-safe root and are not thems
 
 ## 12. No new semantic authority
 
-M12 MUST use the existing public M10 APIs, not reach into `contract-remediation.js` internals to reimplement private validators/builders/replay logic.
+M12 MUST use only the three captured public M10 entry-point identities. It MUST NOT reach into `contract-remediation.js` private validators/builders/replay helpers or duplicate their semantics.
 
 Authoritative ownership remains:
 
@@ -429,59 +455,74 @@ Authoritative ownership remains:
 - M10 confirm: accept/edit/reject semantics;
 - M10 verify: baseline identity, improved replay, regression/source-caught semantics;
 - M11: provider-neutral generation transport boundary only;
-- M12: sequencing, wrapper validation, Promise-safe delegation, and explicit workflow state only.
+- M12: sequencing, wrapper validation, Promise-safe same-package delegation, and explicit workflow state only.
 
 M12 must not modify M8/M10/M11 result semantics to make orchestration easier.
 
-## 13. Required proof matrix
+## 13. Proof matrix
 
-Implementation is not complete until deterministic tests prove at least:
+### 13.1 Deterministic runtime proofs
+
+Implementation is not complete until tests prove at least:
 
 - exact prepare options reject omissions/extras/symbols/accessors/Proxies/non-local prototypes/non-ordinary descriptors/sealed/frozen/non-extensible wrappers;
 - exact complete options reject the same malformed outer surfaces;
 - Section-4.1 covered runtime brands still reject after prototype rewriting;
 - missing mandatory captured primitive/probe fails closed before semantic delegation;
-- prepare immediately delegates exactly once to M10 draft and performs zero provider/model/evaluator calls;
+- the three M10 entry-point identities are captured at module initialization and later export replacement does not change M12 delegation;
+- each captured M10 entry point is called exactly once on the path that requires it;
+- prepare performs zero provider/model/evaluator calls;
 - caller mutation after prepare invocation cannot alter experiment/source/proposal authority observed by M10;
 - successful checkpoint has exact canonical key order/literals/descriptors, is extensible, and has null prototype;
-- checkpoint JSON reconstruction produces an accepted ordinary wrapper **only when** the caller follows the normative fresh-reinspection requirement; earlier pre-reconstruction decisions are explicitly out of contract;
-- exact checkpoint wrapper predicate rejects frozen/sealed/non-extensible wrappers, non-enumerable/non-writable/non-configurable fields, symbols/extras/accessors, arrays, Proxies, custom/cross-realm prototypes, and prototype-rewritten covered brands;
+- a structurally valid normal JSON reconstruction of the checkpoint wrapper is accepted unconditionally by the Section-6.1 runtime predicate;
+- checkpoint wrapper predicate rejects frozen/sealed/non-extensible wrappers, non-enumerable/non-writable/non-configurable fields, symbols/extras/accessors, arrays, Proxies, custom/cross-realm prototypes, and prototype-rewritten covered brands;
 - valid wrapper with malformed nested draft still rejects through M10 confirmation rather than bypassing it;
-- complete immediately delegates exactly once to M10 confirmation;
-- caller mutation after complete invocation cannot alter captured decision/draft authority before M10 capture;
+- caller mutation after complete invocation cannot alter captured decision/draft authority before M10 synchronous capture;
 - evaluator and improved-evaluator identities are captured before asynchronous confirmation settles;
 - reject decision yields exact M12 rejected result, zero verify calls, and zero evaluator calls;
 - accept decision invokes M10 verification exactly once;
 - edit decision invokes M10 verification exactly once with the M10 edited confirmed protection;
 - M10 verification semantic state is mirrored exactly in `result.state` and `result.verification` is not rewritten;
-- delegated Promise observation executes hostile inherited `Promise.prototype.constructor` / `Symbol.species` hooks zero times;
-- delegated Promise with unshieldable own non-configurable constructor rejects before observation;
-- shield installation/restoration failure yields M12 boundary `TypeError` and later registered reactions cannot overwrite that failure;
-- after successful observation setup, M10 draft/confirmation/verification Promise rejection reasons propagate with exact identity;
+- all three captured M10 entry points return hidden fresh extensible local native Promises with absent own `constructor` descriptor as required by Section 9;
+- species-safe observation executes hostile inherited `Promise.prototype.constructor` / `Symbol.species` hooks zero times for all three delegated M10 stages;
+- no arbitrary/unshieldable delegated-Promise test seam exists;
+- after successful observation setup, M10 draft/confirmation/verification rejection reasons propagate with exact identity;
 - checkpoint and completion result roots are null-prototype and inherited `Object.prototype.then` executes zero times on fulfillment;
 - M12 never invokes `runContractAttacks()`, a provider adapter, or a model callback;
 - existing M8/M10/M11 tests remain unchanged and passing;
 - package remains dependency-free;
 - packed artifact exposes both M12 APIs to an isolated consumer.
 
+### 13.2 Workflow-contract/documentation obligations
+
+These obligations are normative for callers/UIs but are **not** runtime-detectable and MUST NOT be written as tests that condition structural acceptance on unverifiable human history:
+
+- the human inspects the exact current draft before deciding;
+- any draft mutation/reconstruction/untrusted-storage crossing after inspection requires reinspection and a fresh decision;
+- the exact submitted decision is the exact human-issued choice;
+- any decision mutation/reconstruction/untrusted-storage crossing after issuance requires a fresh decision;
+- for `edit`, the submitted statement is exactly the human-issued edit statement.
+
+A documentation/integration example MAY demonstrate these obligations, but identical runtime input values must receive identical structural acceptance regardless of unverifiable prior human history.
+
 ## 14. First implementation slice
 
-Slice A is intentionally narrow:
+Slice A remains intentionally narrow:
 
 ```text
 prepareContractQualityLoop()
   -> exact outer capture
-  -> immediate M10 draft delegation
-  -> species-safe observation
+  -> captured M10 draft delegation
+  -> species-safe hidden-Promise observation
   -> awaiting-confirmation checkpoint
 
 completeContractQualityLoop()
   -> exact outer/checkpoint capture
-  -> caller-owned exact-current-draft human-review precondition
-  -> immediate M10 confirmation delegation
-  -> species-safe observation
-  -> reject stop OR confirmed M10 verification
-  -> species-safe observation
+  -> caller-owned exact-current-draft + exact-decision human contract
+  -> captured M10 confirmation delegation
+  -> species-safe hidden-Promise observation
+  -> reject stop OR captured M10 verification
+  -> species-safe hidden-Promise observation
   -> exact workflow result
 ```
 
@@ -509,6 +550,7 @@ M12 Slice A does not add:
 - an interactive terminal/UI confirmation prompt;
 - durable trusted persistence or provenance;
 - cryptographic signatures/attestation of human review;
+- runtime proof of human perception/choice history;
 - multi-run history or collaboration;
 - GitHub Actions integration;
 - retries/failover/background execution;
@@ -518,4 +560,4 @@ M12 Slice A does not add:
 
 Runtime implementation MUST NOT begin until this architecture receives a clean exact-head Codex review.
 
-Any ambiguity that could change human-confirmation timing, trusted-continuity/reinspection responsibility, M10 authority, callback timing, rejection identity, Promise species safety, checkpoint descriptor/brand acceptance, checkpoint reconstruction, or result semantics must be resolved in this document before runtime code is added.
+Any ambiguity that could change human-confirmation timing, exact-decision authority, M10 function-identity authority, callback timing, delegated rejection identity, same-package Promise species safety, checkpoint descriptor/brand acceptance, structural reconstruction behavior, or result semantics must be resolved in this document before runtime code is added.
