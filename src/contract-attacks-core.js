@@ -99,7 +99,9 @@ const experimentIntrinsics =
     mapGet:
       Map.prototype.get,
     mapSet:
-      Map.prototype.set
+      Map.prototype.set,
+    PromiseThen:
+      Promise.prototype.then
   });
 
 const utilIsPromise =
