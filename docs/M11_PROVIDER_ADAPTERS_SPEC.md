@@ -1,6 +1,6 @@
 # M11 — Provider Adapter Boundary
 
-Status: Architecture Draft — Revision 3
+Status: Architecture Draft — Revision 4
 Milestone: 11
 Branch: `milestone-11-provider-adapters`
 Base: `main@0c3287c4ea5ef181db564eb371e4f2b7b5d8fa49`
@@ -9,7 +9,7 @@ Base: `main@0c3287c4ea5ef181db564eb371e4f2b7b5d8fa49`
 
 M11 makes Gotcha easier to connect to real model providers without moving provider credentials, HTTP transport, retries, model selection, or executable evaluator changes into the deterministic quality core.
 
-Revision 3 standardizes one provider-neutral adapter boundary for the two existing AI-assisted seams:
+Revision 4 standardizes one provider-neutral adapter boundary for the two existing AI-assisted seams:
 
 - Quality Contract drafting (`draftQualityContract` generator input/output)
 - confirmed-contract attack generation (`runContractAttacks` generator input/output)
@@ -189,7 +189,7 @@ Mutation of original invocation values after capture completes cannot alter the 
 
 Transport MUST NOT invent Gotcha's structured-output shape.
 
-Revision 3 defines one exact declarative dialect:
+Revision 4 defines one exact declarative dialect:
 
 ```text
 gotcha-structured-v1
@@ -399,7 +399,7 @@ The first synchronous throw or accepted asynchronous rejection ends the invocati
 Transport may return:
 
 1. a synchronous provider-response envelope; or
-2. a Promise-branded object satisfying the exact observable acceptance state below.
+2. a Promise-branded object satisfying the exact observable and descriptor-level acceptance state below.
 
 Promise acceptance is based on observable current state, not impossible historical allocation provenance.
 
@@ -407,13 +407,26 @@ An asynchronous value is accepted only when all are true:
 
 - it is non-Proxy;
 - captured `util.types.isPromise(value) === true`;
-- captured `Object.getPrototypeOf(value) === captured Promise.prototype` at classification time.
+- captured `Object.getPrototypeOf(value) === captured Promise.prototype` at classification time;
+- its own `constructor` descriptor, captured without property access, is either absent on an extensible Promise object or is configurable;
+- therefore the adapter can install a temporary safe own `constructor` data property before invoking captured `Promise.prototype.then` and restore/delete that property immediately afterward.
+
+A Promise with an own non-configurable `constructor` property of any kind is rejected with a local `TypeError` before the adapter invokes `Promise.prototype.then`. A Promise with no own `constructor` but which is non-extensible is likewise rejected, because the adapter cannot install the required safe shield. In particular, a non-configurable own accessor is never executed merely to classify or observe the Promise.
 
 No claim is made about whether the object was historically allocated by a subclass or another realm before its current observable state became indistinguishable from an accepted Promise.
 
 All other thenables/asynchronous wrappers reject with a local `TypeError`. The adapter MUST NOT classify by reading arbitrary `then` properties and MUST NOT use ambient `await` / `Promise.resolve` on unknown transport values.
 
-Accepted Promises are observed using captured `Promise.prototype.then` plus the same safe-constructor/species shielding principle already established by the hardened M10 Promise boundary, so observing them cannot consult hostile inherited Promise constructor/species hooks.
+For an accepted Promise, the observation algorithm is normative:
+
+1. capture the current own `constructor` descriptor;
+2. prove the Promise is shieldable under the rules above;
+3. install a trusted own `constructor` data property whose species behavior is owned by Gotcha;
+4. invoke captured `Promise.prototype.then` exactly once for adapter observation;
+5. synchronously restore the prior configurable own descriptor, or delete the temporary shield when no prior descriptor existed;
+6. if shielding/restoration itself cannot be completed without invoking user code, reject with a local `TypeError` rather than observing the Promise unsafely.
+
+This prevents hostile inherited or own constructor/species hooks from executing during adapter Promise observation.
 
 The public generator always returns a genuine local native Promise.
 
@@ -439,11 +452,23 @@ Normative order:
 3. verify exact key set and data descriptors;
 4. verify `version` and `kind` literals from descriptor values;
 5. only then obtain the `output` descriptor value;
-6. validate/detach output.
+6. require `output` itself to be a record root compatible with the selected current M7/M8 generator schema;
+7. validate/detach the output graph.
 
 An accessor-backed `output` rejects without invoking its getter.
 
-Provider output recursively accepts only declarative M7/M8-compatible AI data: null, booleans, finite numbers, strings, dense arrays, and plain record projections. It rejects functions, accessors, Proxies, cycles, sparse arrays, symbols, undefined, bigint, non-finite numbers, recognized live runtime brands, custom executable values, and repeated mutable identity.
+### 10.1 Required output root
+
+Revision 4 requires the provider `output` root to be a record, because both current supported generator contracts are record-root contracts:
+
+- M7 output root: `{ version, task, rules, ... }`;
+- M8 output root: `{ version, task, attacks, ... }`.
+
+A primitive, `null`, or array used as the top-level provider `output` is therefore an M11 boundary failure and MUST reject with a local `TypeError` before public Promise fulfillment. This restriction does not narrow nested M8 `mutatedOutput`, which may still be any valid `ai-data` value including primitives or arrays.
+
+The record root may be a safely projectable provider-owned plain record under the same descriptor-safe response rules. It is rebuilt as a fresh null-prototype record during detachment.
+
+Provider output beneath that required record root recursively accepts only declarative M7/M8-compatible AI data: null, booleans, finite numbers, strings, dense arrays, and plain record projections. It rejects functions, accessors, Proxies, cycles, sparse arrays, symbols, undefined, bigint, non-finite numbers, recognized live runtime brands, custom executable values, and repeated mutable identity.
 
 Unlike invocation input, **provider output repeated mutable identity rejects**. Provider output must form a unique ownership tree.
 
@@ -466,21 +491,25 @@ The detached output is mutable local data, not frozen.
 
 ### 11.1 Safe fulfillment root
 
-Both current M7 and M8 generator outputs are required to have a record root. M11 therefore rebuilds the detached OUTPUT ROOT as a fresh `Object.create(null)` record.
+Both current M7 and M8 generator outputs are required to have a record root, and Section 10.1 now makes that an explicit M11 boundary requirement before fulfillment.
 
-Nested records may also use null prototypes; nested arrays remain ordinary arrays.
+M11 rebuilds the detached OUTPUT ROOT as a fresh `Object.create(null)` record. Nested records may also use null prototypes; nested arrays remain ordinary arrays.
 
-Because Promise resolution performs thenable lookup only on the fulfillment root, the null-prototype output root guarantees fulfillment cannot execute or assimilate an inherited `Object.prototype.then` / custom prototype `then` hook.
+Because Promise resolution performs thenable lookup only on the fulfillment root, the required null-prototype record root guarantees fulfillment cannot execute or assimilate an inherited `Object.prototype.then` / custom prototype `then` hook. Arrays and primitives are never used as the public fulfillment root in Revision 4; top-level non-record outputs reject before resolution.
 
-The detached root contains no own `then` accessor/function unless the semantic generator schema itself requires one; Revision 3 schemas do not. Any provider output with an own executable `then` is already rejected by the declarative-data boundary.
+The detached root contains no own executable `then`. Any provider output with an own executable `then` is rejected by the declarative-data boundary before fulfillment.
 
-A required regression MUST poison inherited `Object.prototype.then` and prove generator fulfillment executes it zero times.
+Required regressions MUST:
+
+- poison inherited `Object.prototype.then` and prove generator fulfillment executes it zero times;
+- return an otherwise declaratively safe top-level array and primitive as provider `output` and prove both reject with local `TypeError` before fulfillment;
+- prove nested arrays/primitives inside a valid record-root output remain accepted when valid under the selected M7/M8 schema.
 
 ## 12. Failure and rejection identity
 
 Construction failures are synchronous local `TypeError`s.
 
-Adapter-generated invocation/return-form/response/data boundary failures reject with a local `TypeError`.
+Adapter-generated invocation/return-form/Promise-shield/response/data boundary failures reject with a local `TypeError`.
 
 A synchronous throw from the one transport call MUST become the public generator Promise rejection reason with **exact object/value identity preserved unconditionally**.
 
@@ -488,7 +517,7 @@ An accepted transport Promise rejection MUST become the public generator Promise
 
 The adapter MUST NOT inspect, clone, stringify, normalize, wrap, or assimilate the rejection reason merely to propagate it.
 
-No vague integrity exception exists in Revision 3.
+No vague integrity exception exists in Revision 4.
 
 ## 13. Deterministic proof matrix
 
@@ -512,10 +541,14 @@ Required proofs include:
 - async rejection reason identity preserved exactly;
 - no retry/fallback/failover;
 - synchronous response envelope accepted;
-- Promise acceptance tested by exact observable brand/current-prototype rule;
+- Promise acceptance tested by exact observable brand/current-prototype plus descriptor-level shieldability rule;
+- Promise with non-configurable own `constructor` accessor/data property rejects before adapter observation and executes no accessor/species hook;
+- non-extensible Promise with no own `constructor` rejects before adapter observation;
 - arbitrary thenables / Proxy Promises / wrong-current-prototype Promise objects reject without reading attacker-controlled `then`;
-- hostile Promise species/constructor hooks are not executed by adapter observation;
+- hostile Promise species/constructor hooks are not executed by accepted adapter observation;
 - outer response accessors/symbols/extras/Proxies/wrong literals reject before `output` access;
+- top-level provider `output` primitive/null/array rejects as a boundary failure;
+- valid record-root output with nested arrays/primitives is accepted subject to M7/M8 semantics;
 - provider output repeated identity rejects;
 - asynchronous ownership proof starts at adapter observation: after detachment completes, retained transport mutation cannot affect returned data;
 - returned-data mutation cannot affect transport-owned data;
@@ -537,9 +570,10 @@ createStructuredProviderAdapter()
   -> core-owned exact outputFormat v1
   -> one provider request
   -> exactly-one transport call
-  -> safe sync / observable-Promise result handling
+  -> safe sync / shieldable observable-Promise result handling
   -> exact descriptor-safe response envelope
-  -> detached null-prototype output root
+  -> required record-root provider output
+  -> detached null-prototype fulfillment root
   -> M7/M8 integration proof
 ```
 
