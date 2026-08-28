@@ -1,0 +1,20 @@
+name: Slice B verification validation
+on:
+  push:
+    branches: [milestone-10-remediation-slice-b]
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: python scripts/qa/patch-slice-b-verify.py
+      - run: python scripts/qa/patch-slice-b-verify-authority.py
+      - run: node --check src/contract-attacks-core.js
+      - run: node --check src/contract-remediation.js
+      - run: node --check src/index.js
+      - run: node --test test/contract-remediation-verify.test.js test/contract-remediation-confirm.test.js test/contract-remediation-draft.test.js test/contract-remediation-review-regressions.test.js
+      - run: npm test
+      - run: git diff --check
