@@ -1,0 +1,100 @@
+name: M11 Final Callability Validation
+on:
+  push:
+    branches:
+      - milestone-11-provider-adapters
+permissions:
+  contents: write
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --ignore-scripts
+      - name: Apply transport callability hardening
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          adapter = Path('src/provider-adapter.js')
+          text = adapter.read_text()
+
+          anchor = 'const functionHasInstance = Function.prototype[Symbol.hasInstance];\n'
+          replacement = anchor + 'const functionToString = Function.prototype.toString;\nconst stringStartsWith = String.prototype.startsWith;\n'
+          if 'const functionToString = Function.prototype.toString;' not in text:
+              if anchor not in text:
+                  raise SystemExit('provider adapter primordial anchor missing')
+              text = text.replace(anchor, replacement, 1)
+
+          helper_anchor = 'function createStructuredProviderAdapter(options) {\n'
+          helper = '''function isClassConstructor(value) {\n  const source = reflectApply(functionToString, value, []);\n  if (!reflectApply(stringStartsWith, source, ["class"])) {\n    return false;\n  }\n  const separator = source[5];\n  return (\n    separator === " " ||\n    separator === "\\n" ||\n    separator === "\\r" ||\n    separator === "\\t" ||\n    separator === "{" ||\n    separator === "/"\n  );\n}\n\n'''
+          if 'function isClassConstructor(value) {' not in text:
+              if helper_anchor not in text:
+                  raise SystemExit('provider adapter factory anchor missing')
+              text = text.replace(helper_anchor, helper + helper_anchor, 1)
+
+          old_check = '''  if (typeof transport !== "function" || isProxy(transport)) {\n    throw boundaryError("transport must be a non-Proxy function.");\n  }'''
+          new_check = '''  if (\n    typeof transport !== "function" ||\n    isProxy(transport) ||\n    isClassConstructor(transport)\n  ) {\n    throw boundaryError("transport must be a non-Proxy callable function.");\n  }'''
+          if old_check in text:
+              text = text.replace(old_check, new_check, 1)
+          elif new_check not in text:
+              raise SystemExit('transport validation anchor missing')
+
+          adapter.write_text(text)
+
+          tests = Path('test/provider-adapter.test.js')
+          test_text = tests.read_text()
+          test_anchor = '  assert.throws(() => createStructuredProviderAdapter({ transport, model: "x", mode: "other" }), TypeError);\n'
+          addition = '''  assert.throws(() => createStructuredProviderAdapter({ transport, model: "x", mode: "other" }), TypeError);\n\n  class InvalidTransport {}\n  assert.throws(\n    () => createStructuredProviderAdapter({\n      transport: InvalidTransport,\n      model: "x",\n      mode: "quality-contract"\n    }),\n    (error) => (\n      error instanceof TypeError &&\n      error.message === "transport must be a non-Proxy callable function."\n    )\n  );\n  assert.equal(calls, 0);\n'''
+          if 'class InvalidTransport {}' not in test_text:
+              if test_anchor not in test_text:
+                  raise SystemExit('provider adapter construction test anchor missing')
+              test_text = test_text.replace(test_anchor, addition, 1)
+          tests.write_text(test_text)
+          PY
+      - name: Syntax and focused regression
+        run: |
+          node --check src/provider-adapter.js
+          node --test test/provider-adapter.test.js
+          node --test test/package-contract-remediation.test.js
+      - name: Compare full-suite failures to untouched main baseline
+        run: |
+          git worktree add /tmp/gotcha-main origin/main
+          (cd /tmp/gotcha-main && npm install --ignore-scripts >/dev/null && node --test test/m8-codex-remediation.test.js test/m8-codex-round3.test.js > /tmp/main.log 2>&1 || true)
+          npm test > /tmp/branch.log 2>&1 || true
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          def names(path):
+              out=[]
+              for line in Path(path).read_text().splitlines():
+                  m=re.search(r'not ok \\d+ - (.+)$', line)
+                  if m: out.append(m.group(1))
+              return sorted(set(out))
+          baseline=names('/tmp/main.log')
+          branch=names('/tmp/branch.log')
+          print('baseline failures:', baseline)
+          print('branch failures:', branch)
+          if branch != baseline:
+              raise SystemExit('branch failure set differs from main baseline')
+          expected=sorted([
+              'Headers and FormData brands remain rejected when own data is added',
+              'cloneAiData rejects prototype-tampered hidden-slot runtime objects'
+          ])
+          if baseline != expected:
+              raise SystemExit('unexpected main baseline failure set')
+          PY
+      - run: git diff --check origin/main...HEAD
+      - name: Persist validated fix and remove temporary workflow
+        run: |
+          git config user.name "AidaMichel"
+          git config user.email "126730924+AidaMichel@users.noreply.github.com"
+          rm .github/workflows/m11-final-callability.yml
+          git add src/provider-adapter.js test/provider-adapter.test.js .github/workflows/m11-final-callability.yml
+          git commit -m "fix: reject class transports at construction"
+          git push origin HEAD:milestone-11-provider-adapters
