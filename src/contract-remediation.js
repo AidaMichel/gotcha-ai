@@ -98,6 +98,45 @@ function boundaryError() {
   );
 }
 
+const safePromiseSpeciesContainer = {};
+defineProperty(safePromiseSpeciesContainer, promiseSpecies, {
+  value: PromiseConstructor,
+  writable: false,
+  enumerable: false,
+  configurable: false
+});
+
+function observeInternalPromise(promise, onFulfilled, onRejected) {
+  const previousConstructor = getOwnPropertyDescriptor(
+    promise,
+    "constructor"
+  );
+
+  defineProperty(promise, "constructor", {
+    value: safePromiseSpeciesContainer,
+    writable: true,
+    enumerable: false,
+    configurable: true
+  });
+
+  try {
+    return reflectApply(promiseThen, promise, [
+      onFulfilled,
+      onRejected
+    ]);
+  } finally {
+    if (previousConstructor === undefined) {
+      deleteProperty(promise, "constructor");
+    } else {
+      defineProperty(
+        promise,
+        "constructor",
+        previousConstructor
+      );
+    }
+  }
+}
+
 function call(method, receiver, args) {
   return reflectApply(method, receiver, args);
 }
@@ -1349,7 +1388,7 @@ function replayPhase(authorityArtifact, callback) {
       return;
     }
 
-    reflectApply(promiseThen, replayPromise, [
+    observeInternalPromise(replayPromise,
       (result) => {
         try {
           const phaseResult = makeRecord([
@@ -1380,7 +1419,7 @@ function replayPhase(authorityArtifact, callback) {
           reject(settleError);
         }
       }
-    ]);
+    );
   });
 }
 
@@ -1562,7 +1601,7 @@ function buildVerification(capture) {
     };
 
     const baselinePromise = replayPhase(authorityArtifact, capture.evaluator);
-    reflectApply(promiseThen, baselinePromise, [
+    observeInternalPromise(baselinePromise,
       (baselinePhase) => {
         try {
           if (baselinePhase.failure !== null) {
@@ -1621,7 +1660,7 @@ function buildVerification(capture) {
           }
 
           const improvedPromise = replayPhase(authorityArtifact, capture.improvedEvaluator);
-          reflectApply(promiseThen, improvedPromise, [
+          observeInternalPromise(improvedPromise,
             (improvedPhase) => {
               try {
                 if (improvedPhase.failure !== null) {
@@ -1706,57 +1745,35 @@ function buildVerification(capture) {
               }
             },
             reject
-          ]);
+          );
         } catch (error) {
           reject(error);
         }
       },
       reject
-    ]);
+    );
   });
 }
 
 function scheduleVerification(capture, resolve, reject) {
-  const speciesContainer = {};
-  defineProperty(speciesContainer, promiseSpecies, {
-    value: PromiseConstructor,
-    writable: false,
-    enumerable: false,
-    configurable: false
-  });
-
   const kickoff = new PromiseConstructor((kickoffResolve) => kickoffResolve());
-  defineProperty(kickoff, "constructor", {
-    value: speciesContainer,
-    writable: true,
-    enumerable: false,
-    configurable: true
-  });
 
-  reflectApply(promiseThen, kickoff, [
+  observeInternalPromise(
+    kickoff,
     () => {
-      let verification;
       try {
-        verification = buildVerification(capture);
-        defineProperty(verification, "constructor", {
-          value: speciesContainer,
-          writable: true,
-          enumerable: false,
-          configurable: true
-        });
-        reflectApply(promiseThen, verification, [
+        const verification = buildVerification(capture);
+        observeInternalPromise(
+          verification,
           (result) => settleArtifact(resolve, result),
           () => reject(boundaryError())
-        ]);
-        deleteProperty(verification, "constructor");
+        );
       } catch {
         reject(boundaryError());
       }
     },
     () => reject(boundaryError())
-  ]);
-
-  deleteProperty(kickoff, "constructor");
+  );
 }
 
 function verifyContractProtection(options) {

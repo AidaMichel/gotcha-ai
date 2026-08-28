@@ -342,3 +342,49 @@ test("verification ignores inherited Object.prototype thenables across internal 
     delete Object.prototype.then;
   }
 });
+
+
+test("verification shields internal Promise observations from hostile species and constructor hooks", async () => {
+  const protection = await confirmedProtection();
+  const speciesDescriptor = Object.getOwnPropertyDescriptor(Promise, Symbol.species);
+  const constructorDescriptor = Object.getOwnPropertyDescriptor(Promise.prototype, "constructor");
+  let remediationSpeciesCalls = 0;
+  let remediationConstructorCalls = 0;
+
+  Object.defineProperty(Promise, Symbol.species, {
+    get() {
+      if (String(new Error().stack).includes("contract-remediation.js")) {
+        remediationSpeciesCalls += 1;
+      }
+      return Promise;
+    },
+    configurable: true
+  });
+  Object.defineProperty(Promise.prototype, "constructor", {
+    get() {
+      if (String(new Error().stack).includes("contract-remediation.js")) {
+        remediationConstructorCalls += 1;
+      }
+      return Promise;
+    },
+    configurable: true
+  });
+
+  try {
+    await assert.rejects(
+      verifyContractProtection({
+        protection,
+        evaluator: historicalEvaluator,
+        improvedEvaluator(output) {
+          return output.time === "3 PM";
+        }
+      }),
+      TypeError
+    );
+    assert.equal(remediationSpeciesCalls, 0);
+    assert.equal(remediationConstructorCalls, 0);
+  } finally {
+    Object.defineProperty(Promise, Symbol.species, speciesDescriptor);
+    Object.defineProperty(Promise.prototype, "constructor", constructorDescriptor);
+  }
+});
