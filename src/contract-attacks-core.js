@@ -57,7 +57,53 @@ const experimentIntrinsics =
     ArrayPrototype:
       Array.prototype,
     ObjectPrototype:
-      Object.prototype
+      Object.prototype,
+    ObjectPrototypeParent:
+      Object.getPrototypeOf(Object.prototype),
+    PromiseConstructor:
+      Promise,
+    TypeErrorConstructor:
+      TypeError,
+    getOwnPropertyDescriptors:
+      Object.getOwnPropertyDescriptors,
+    getOwnPropertyDescriptor:
+      Object.getOwnPropertyDescriptor,
+    getPrototypeOf:
+      Object.getPrototypeOf,
+    isExtensible:
+      Object.isExtensible,
+    objectIs:
+      Object.is,
+    ownKeys:
+      Reflect.ownKeys,
+    reflectApply:
+      Reflect.apply,
+    deleteProperty:
+      Reflect.deleteProperty,
+    arrayIsArray:
+      Array.isArray,
+    stringTrim:
+      String.prototype.trim,
+    numberIsFinite:
+      Number.isFinite,
+    numberIsInteger:
+      Number.isInteger,
+    SetConstructor:
+      Set,
+    setHas:
+      Set.prototype.has,
+    setAdd:
+      Set.prototype.add,
+    MapConstructor:
+      Map,
+    mapGet:
+      Map.prototype.get,
+    mapSet:
+      Map.prototype.set,
+    PromiseThen:
+      Promise.prototype.then,
+    PromiseSpecies:
+      Symbol.species
   });
 
 const utilIsPromise =
@@ -3241,6 +3287,24 @@ function withSafePromiseConstructor(
   );
 }
 
+function prepareAsyncRecordReturn(value) {
+  defineProperty(value, "then", {
+    value: undefined,
+    writable: true,
+    enumerable: false,
+    configurable: true
+  });
+
+  const cleanup = new promiseConstructor((resolve) => resolve());
+  reflectApply(promiseThen, cleanup, [
+    () => {
+      deleteProperty(value, "then");
+    }
+  ]);
+
+  return value;
+}
+
 function passPromiseValue(
   value
 ) {
@@ -4556,7 +4620,7 @@ async function runContractAttacks(
     attackResult.survivors[0] ||
     null;
 
-  return {
+  return prepareAsyncRecordReturn({
     version: 1,
     task:
       contract.task,
@@ -4568,7 +4632,7 @@ async function runContractAttacks(
     attack:
       attackResult,
     topFinding
-  };
+  });
   } finally {
     closeCallbackIntrinsicScope(
       runScope

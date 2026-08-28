@@ -15,6 +15,12 @@ const {
   runContractAttacks
 } = require("./contract-attacks");
 
+const {
+  draftContractProtection,
+  confirmContractProtection,
+  verifyContractProtection
+} = require("./contract-remediation");
+
 function runGotcha({
   evaluator,
   expectedOutput,
@@ -38,5 +44,8 @@ module.exports = {
   runGotcha,
   draftQualityContract,
   confirmQualityContract,
-  runContractAttacks
+  runContractAttacks,
+  draftContractProtection,
+  confirmContractProtection,
+  verifyContractProtection
 };
