@@ -1,6 +1,6 @@
 # M11 — Provider Adapter Boundary
 
-Status: Architecture Draft — Revision 2
+Status: Architecture Draft — Revision 3
 Milestone: 11
 Branch: `milestone-11-provider-adapters`
 Base: `main@0c3287c4ea5ef181db564eb371e4f2b7b5d8fa49`
@@ -9,79 +9,66 @@ Base: `main@0c3287c4ea5ef181db564eb371e4f2b7b5d8fa49`
 
 M11 makes Gotcha easier to connect to real model providers without moving provider credentials, HTTP transport, retries, model selection, or executable evaluator changes into the deterministic quality core.
 
-The milestone standardizes one small provider-neutral adapter boundary for the two existing AI-assisted seams:
+Revision 3 standardizes one provider-neutral adapter boundary for the two existing AI-assisted seams:
 
 - Quality Contract drafting (`draftQualityContract` generator input/output)
 - confirmed-contract attack generation (`runContractAttacks` generator input/output)
 
-M10 remediation remains declarative in core. M11 Revision 2 does not add provider execution inside `draftContractProtection()`.
+M10 remediation remains unchanged. M11 does not add provider execution inside `draftContractProtection()`.
 
-## 2. Product rule
+## 2. Product and authority rule
 
 Provider adapters are convenience infrastructure, never semantic authority.
 
 Gotcha core remains authoritative for:
 
 - task/contract authority;
-- provider-request mode and output-format authority;
-- schema validation;
-- evidence and rule binding;
-- attack retention/ranking;
+- provider-request mode;
+- generation instructions;
+- structured-output format authority;
+- M7/M8 schema and semantic validation;
+- evidence/rule binding;
+- attack filtering/ranking;
 - replayability;
-- human confirmation;
-- remediation verification.
+- confirmation and remediation verification.
 
-The adapter caller owns:
+The caller owns:
 
-- provider and model choice;
-- API credentials;
-- HTTP client or SDK;
-- request authentication;
-- timeout policy;
-- retry/failover policy outside the adapter;
-- provider availability and billing;
-- mapping provider SDK results into the exact provider-neutral response envelope defined here.
+- provider/model choice;
+- credentials;
+- SDK/HTTP implementation;
+- authentication;
+- timeout/retry/failover policy outside the adapter;
+- provider availability/billing;
+- translating provider SDK output into the exact provider-neutral response envelope below.
 
-No provider adapter may make an unconfirmed draft authoritative, generate executable evaluator code, bypass existing M7/M8 validation, silently mutate input authority, retry provider work, or infer missing semantic fields.
+The adapter MUST NOT retry, fail over, read credentials, infer missing semantic fields, generate executable evaluator code, or make draft authority implicit.
 
-## 3. No built-in secrets or network authority
+## 3. No built-in secrets or hidden networking
 
-The `gotcha-ai` package MUST NOT:
+The package MUST NOT implicitly read provider secret environment variables, persist credentials, ship a hidden hosted endpoint, make a network call during construction, or send telemetry/provider prompts anywhere except the caller-supplied `transport`.
 
-- read `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or any other secret implicitly;
-- read arbitrary environment variables for provider credentials or endpoint selection;
-- persist credentials;
-- ship a hidden hosted endpoint;
-- make network requests merely because an adapter is constructed;
-- send telemetry or provider prompts anywhere other than the caller-supplied `transport`.
+M11 remains dependency-free. Provider SDKs remain consumer dependencies.
 
-Revision 2 keeps the package dependency-free. Provider SDK dependencies remain in consumer applications.
+## 4. Public API and construction boundary
 
-## 4. Public API
-
-Revision 2 adds exactly one provider-neutral factory:
+M11 adds exactly:
 
 ```js
-const {
-  createStructuredProviderAdapter
-} = require("gotcha-ai");
+const { createStructuredProviderAdapter } = require("gotcha-ai");
 ```
 
 Construction:
 
 ```js
-const adapter = createStructuredProviderAdapter({
+const generator = createStructuredProviderAdapter({
   transport,
   model,
   mode
 });
 ```
 
-### 4.1 Exact construction record
-
-The construction argument MUST be a non-Proxy local plain record whose prototype is exactly the local `Object.prototype` or `null`.
-
-It MUST contain exactly these three own string-keyed properties, in any property order:
+The construction argument MUST be a non-Proxy local record with prototype exactly local `Object.prototype` or `null` and exactly three own string-keyed data properties:
 
 ```text
 transport
@@ -89,49 +76,32 @@ model
 mode
 ```
 
-It MUST contain:
-
-- no extra string keys;
-- no symbol keys;
-- no inherited option authority;
-- no accessor properties.
-
-All three properties MUST be own data properties. Construction validation MUST inspect own property descriptors before reading any option value. Invalid construction input MUST throw a synchronous local `TypeError` without invoking getters or Proxy traps.
+No extra string keys, symbol keys, inherited option authority, or accessors are permitted. Validation MUST capture descriptors before reading values. Invalid construction input throws a synchronous local `TypeError` without invoking getters or Proxy traps.
 
 `transport` MUST be a non-Proxy callable function.
 
-`model` MUST be a primitive string satisfying all of the following:
+`model` MUST be a primitive non-empty canonical string with `model === model.trim()`.
 
-- length is greater than zero;
-- `model === model.trim()`;
-- therefore whitespace-only and leading/trailing-whitespace model identifiers are invalid.
-
-`mode` MUST be exactly one of:
+`mode` MUST be exactly:
 
 ```text
-"quality-contract"
-"contract-attacks"
+quality-contract
+contract-attacks
 ```
 
-Construction MUST NOT invoke `transport`, inspect environment secrets, or perform network work.
+Construction performs zero transport calls, zero environment-secret reads, and zero network work.
 
-The factory returns one callable generator compatible with the selected existing Gotcha generator boundary.
+The returned generator always returns a genuine local native Promise.
 
-Generator invocation always returns a genuine local native Promise.
+## 5. Invocation capture
 
-## 5. Invocation capture and exact mode input
+Invocation capture is synchronous and MUST finish before the single transport call starts. If capture fails, transport is not called and the generator Promise rejects with a local `TypeError`.
 
-Generator invocation input is authority-bearing data and MUST be captured before provider work begins.
+The adapter MUST never pass an original M7/M8 object/array identity to transport.
 
-For every invocation, the adapter MUST synchronously complete validation and detached snapshotting of the entire accepted generator request before invoking `transport`.
+### 5.1 Outer generator request shape
 
-If invocation capture fails, `transport` MUST NOT be called and the returned local native Promise MUST reject with a local `TypeError`.
-
-The adapter MUST NOT pass any original M7/M8 request object, nested object, or array identity to `transport`.
-
-### 5.1 `quality-contract` mode
-
-The incoming generator request MUST be a non-Proxy local plain record containing exactly these own data properties:
+For `quality-contract`, the incoming generator request has exactly these own data properties:
 
 ```js
 {
@@ -141,24 +111,7 @@ The incoming generator request MUST be a non-Proxy local plain record containing
 }
 ```
 
-No extra string keys, symbol keys, accessors, or inherited authority are permitted.
-
-The adapter captures:
-
-```js
-input = {
-  task,
-  examples
-}
-```
-
-`instructions` is NOT duplicated inside `input`; it is carried only in the top-level provider request field defined in Section 7.
-
-`task` and `examples` MUST be captured as detached declarative data using the same conservative data rules in Section 10. Semantic validity remains M7 authority; M11 only ensures a safe exact transport snapshot.
-
-### 5.2 `contract-attacks` mode
-
-The incoming generator request MUST be a non-Proxy local plain record containing exactly these own data properties:
+For `contract-attacks`, it has exactly:
 
 ```js
 {
@@ -169,9 +122,56 @@ The incoming generator request MUST be a non-Proxy local plain record containing
 }
 ```
 
-No extra string keys, symbol keys, accessors, or inherited authority are permitted.
+The OUTER request record itself MUST be non-Proxy, descriptor-safe, and contain no extra string keys, symbol keys, accessors, or inherited semantic properties.
 
-The adapter captures:
+### 5.2 Input-projection compatibility with M7/M8
+
+Nested invocation values are not restricted to local `Object.prototype` / `Array.prototype` identities, because current M8 intentionally supplies callback-isolated data whose records/arrays use authenticated frozen callback prototypes.
+
+For INVOCATION CAPTURE ONLY, the adapter uses a core-owned **own-data projection** compatible with the existing M7/M8 AI-data boundary:
+
+- reject Proxy values and recognized forbidden live runtime brands before semantic traversal;
+- inspect only captured own descriptors;
+- reject accessors, symbol keys, sparse arrays, executable values, unsupported primitives, and cycles;
+- never read or execute prototype properties;
+- accept ordinary arrays and record-shaped values even when their current prototype is an authenticated/erased callback prototype from M7/M8;
+- rebuild accepted values into fresh adapter-owned ordinary request data.
+
+The source prototype itself contributes **zero semantic authority** to the provider request.
+
+Custom/private prototype behavior is never forwarded. Only validated own-data projection crosses the adapter boundary.
+
+### 5.3 Shared references in invocation input
+
+M8 permits shared identity because identity is non-semantic. Therefore invocation capture MUST NOT reject repeated object/array identity merely because two paths point to the same acyclic source value.
+
+For invocation capture:
+
+- cycles reject;
+- repeated acyclic references are normalized by independently projecting each occurrence into the destination tree;
+- no shared mutable source identity is preserved into the provider request.
+
+Example:
+
+```js
+const shared = { value: 1 };
+const input = { a: shared, b: shared };
+```
+
+becomes two detached equal-but-distinct projected records under provider request `input`.
+
+### 5.4 Exact mode-specific provider input
+
+`quality-contract` produces:
+
+```js
+input = {
+  task,
+  examples
+}
+```
+
+`contract-attacks` produces:
 
 ```js
 input = {
@@ -181,25 +181,21 @@ input = {
 }
 ```
 
-The inner `input` name is intentionally the existing M8 case input. `instructions` is NOT duplicated inside this object; it is carried only in the top-level provider request field.
+`instructions` is never duplicated inside this `input` object.
 
-`contract`, case `input`, and `expectedOutput` MUST be captured as detached declarative data using Section 10. Semantic validity remains M8 authority.
+Mutation of original invocation values after capture completes cannot alter the provider request.
 
-### 5.3 Snapshot timing
+## 6. Core-owned outputFormat dialect
 
-The full mode-specific snapshot, including `instructions`, MUST be complete before `transport(request)` is invoked.
+Transport MUST NOT invent Gotcha's structured-output shape.
 
-Mutation of the original generator request or any nested accepted value after generator invocation MUST NOT alter the request passed to `transport`.
+Revision 3 defines one exact declarative dialect:
 
-## 6. Core-owned structured output format
+```text
+gotcha-structured-v1
+```
 
-The transport MUST NOT author or infer Gotcha's expected structured response schema.
-
-M11 defines a core-owned, versioned declarative `outputFormat` for each mode. The adapter selects it solely from the already-validated `mode` and forwards a detached copy to `transport`.
-
-The format is owned by Gotcha code, not caller transport code. A transport may translate this declarative description into provider-specific structured-output/schema configuration, but MUST NOT mutate Gotcha's semantic format authority.
-
-Revision 2 provider requests carry:
+Every provider request contains:
 
 ```js
 outputFormat = {
@@ -210,20 +206,161 @@ outputFormat = {
 }
 ```
 
-`schema` MUST be the exact M11-maintained declarative description of the current accepted generator output shape for that mode:
+`schema` is a plain declarative object in the exact dialect below. This is provider-format guidance, not a replacement for M7/M8 validation.
 
-- `quality-contract`: the current M7 Quality Contract draft generator output shape;
-- `contract-attacks`: the current M8 contract-attack generator output shape.
+Dialect vocabulary is exactly:
 
-The implementation MUST define these two schemas in Gotcha-owned code and version them with `outputFormat.version`.
+```text
+type: "record" | "array" | "string" | "number" | "literal" | "union" | "ai-data"
+properties: record property map
+required: array of required property names
+additionalProperties: boolean
+items: array item schema
+minItems / maxItems: integer bounds
+minLength: integer string bound
+enum: exact string alternatives
+minimum / maximum: numeric bounds
+value: literal value
+anyOf: union alternatives
+```
 
-M7/M8 remain the final semantic and authority validators. `outputFormat` exists to prevent provider transports from independently hardcoding a competing schema; it does not replace M7/M8 validation.
+A transport may translate this dialect into provider-specific JSON Schema/tool configuration, but it MUST NOT mutate the Gotcha-owned object or substitute a competing semantic schema.
 
-If a future M7/M8 generator output contract changes incompatibly, M11 MUST update the corresponding core-owned schema/version before claiming compatibility.
+### 6.1 Exact `quality-contract` schema version 1
+
+```js
+{
+  dialect: "gotcha-structured-v1",
+  type: "record",
+  required: ["version", "task", "rules"],
+  additionalProperties: true,
+  properties: {
+    version: { type: "literal", value: 1 },
+    task: { type: "string", minLength: 1 },
+    rules: {
+      type: "array",
+      minItems: 0,
+      maxItems: 7,
+      items: {
+        type: "record",
+        required: [
+          "id",
+          "statement",
+          "kind",
+          "severity",
+          "confidence",
+          "rationale",
+          "evidence"
+        ],
+        additionalProperties: true,
+        properties: {
+          id: { type: "string", minLength: 1 },
+          statement: { type: "string", minLength: 1 },
+          kind: {
+            type: "string",
+            enum: ["required", "forbidden", "conditional"]
+          },
+          severity: {
+            type: "string",
+            enum: ["critical", "major", "minor"]
+          },
+          confidence: {
+            type: "string",
+            enum: ["high", "medium", "low"]
+          },
+          rationale: { type: "string", minLength: 1 },
+          evidence: {
+            type: "array",
+            minItems: 1,
+            items: {
+              type: "union",
+              anyOf: [
+                {
+                  type: "record",
+                  required: ["type"],
+                  additionalProperties: true,
+                  properties: {
+                    type: { type: "literal", value: "task" }
+                  }
+                },
+                {
+                  type: "record",
+                  required: ["type", "exampleId"],
+                  additionalProperties: true,
+                  properties: {
+                    type: { type: "literal", value: "example" },
+                    exampleId: { type: "string", minLength: 1 }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+M7 remains authoritative for exact task equality, duplicate rule IDs, evidence reference validity, and all existing semantic checks.
+
+### 6.2 Exact `contract-attacks` schema version 1
+
+```js
+{
+  dialect: "gotcha-structured-v1",
+  type: "record",
+  required: ["version", "task", "attacks"],
+  additionalProperties: true,
+  properties: {
+    version: { type: "literal", value: 1 },
+    task: { type: "string", minLength: 1 },
+    attacks: {
+      type: "array",
+      minItems: 0,
+      maxItems: 20,
+      items: {
+        type: "record",
+        required: [
+          "id",
+          "ruleId",
+          "type",
+          "description",
+          "rationale",
+          "mutatedOutput",
+          "scores"
+        ],
+        additionalProperties: true,
+        properties: {
+          id: { type: "string", minLength: 1 },
+          ruleId: { type: "string", minLength: 1 },
+          type: { type: "string", minLength: 1 },
+          description: { type: "string", minLength: 1 },
+          rationale: { type: "string", minLength: 1 },
+          mutatedOutput: { type: "ai-data" },
+          scores: {
+            type: "record",
+            required: ["realism", "subtlety", "novelty", "fixability"],
+            additionalProperties: true,
+            properties: {
+              realism: { type: "number", minimum: 0, maximum: 1 },
+              subtlety: { type: "number", minimum: 0, maximum: 1 },
+              novelty: { type: "number", minimum: 0, maximum: 1 },
+              fixability: { type: "number", minimum: 0, maximum: 1 }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+`ai-data` means the existing M8 AI-safe declarative value domain. M8 remains authoritative for exact task equality, rule references, duplicate IDs, score finiteness, attack filtering, output difference, deduplication, and all existing semantic checks.
 
 ## 7. Exact provider request envelope
 
-After successful synchronous invocation capture, the adapter constructs one fresh local plain-data request:
+After capture, the adapter creates exactly:
 
 ```js
 {
@@ -237,246 +374,179 @@ After successful synchronous invocation capture, the adapter constructs one fres
 }
 ```
 
-This envelope has exactly the seven named own enumerable data properties above, no symbol keys, and local `Object.prototype`.
+These are exactly seven own enumerable data properties, no symbols.
 
-`mode` and `model` come from the validated construction snapshot.
+`instructions` is the exact primitive string supplied by M7/M8 and MUST NOT be rewritten, appended, prepended, summarized, or inferred.
 
-`instructions` MUST be the exact primitive instruction string supplied by the selected existing M7/M8 generator boundary. The adapter MUST NOT append, prepend, rewrite, summarize, or infer semantic instructions.
-
-`outputFormat` is the core-owned format from Section 6.
-
-`input` is the mode-specific detached snapshot from Section 5.
-
-No evaluator callback, protection callback, credential, environment value, or executable authority may appear in this request.
+No evaluator callback, protection callback, credential, environment value, or executable authority appears in the request.
 
 ## 8. Transport invocation semantics
 
-For each valid generator invocation, the adapter MUST invoke the validated `transport` exactly once.
-
-The invocation is exactly:
+Each valid generator invocation calls transport exactly once:
 
 ```js
 transport(request)
 ```
 
-with one argument: the completed provider request envelope.
+with one argument.
 
-The adapter MUST NOT perform:
+No adapter retries, failover, duplicate probes, hidden health checks, fallback model calls, or timeout retries are permitted.
 
-- retries;
-- fallback transports;
-- model failover;
-- timeout retries;
-- duplicate probing calls;
-- hidden health checks.
-
-Retry/failover policy belongs entirely to caller-owned transport code outside the adapter.
-
-A synchronous throw from this single transport call becomes the rejection reason of the generator's local native Promise. The adapter MUST NOT call transport again after that throw.
-
-An accepted asynchronous transport rejection becomes the generator rejection reason. The adapter MUST NOT retry after that rejection.
+The first synchronous throw or accepted asynchronous rejection ends the invocation and transport call count remains one.
 
 ## 9. Accepted transport return forms
 
-`transport(request)` may return exactly one of two forms:
+Transport may return:
 
-1. a synchronous provider response envelope satisfying Section 11; or
-2. a genuine local native Promise whose fulfillment value is a provider response envelope satisfying Section 11.
+1. a synchronous provider-response envelope; or
+2. a Promise-branded object satisfying the exact observable acceptance state below.
 
-The adapter MUST reject all other asynchronous/thenable forms with a local `TypeError` without executing arbitrary thenable assimilation:
+Promise acceptance is based on observable current state, not impossible historical allocation provenance.
 
-- arbitrary objects/functions with a `then` property;
-- Promise subclasses;
-- cross-realm Promises;
-- Proxy-wrapped Promises;
-- provider-specific thenables.
+An asynchronous value is accepted only when all are true:
 
-Transport return classification MUST use captured/local trusted Promise-brand authority and descriptor-safe checks; it MUST NOT blindly apply `await`, `Promise.resolve`, or read an arbitrary inherited/accessor `then` property.
+- it is non-Proxy;
+- captured `util.types.isPromise(value) === true`;
+- captured `Object.getPrototypeOf(value) === captured Promise.prototype` at classification time.
 
-For an accepted local native Promise, the adapter observes it through captured trusted Promise authority so post-initialization mutation of ambient Promise hooks cannot introduce provider-controlled execution.
+No claim is made about whether the object was historically allocated by a subclass or another realm before its current observable state became indistinguishable from an accepted Promise.
 
-Regardless of transport return form, the public generator itself returns a genuine local native Promise.
+All other thenables/asynchronous wrappers reject with a local `TypeError`. The adapter MUST NOT classify by reading arbitrary `then` properties and MUST NOT use ambient `await` / `Promise.resolve` on unknown transport values.
 
-## 10. Conservative declarative data rules
+Accepted Promises are observed using captured `Promise.prototype.then` plus the same safe-constructor/species shielding principle already established by the hardened M10 Promise boundary, so observing them cannot consult hostile inherited Promise constructor/species hooks.
 
-M11 snapshots use the same conservative AI-data philosophy already established by Gotcha.
+The public generator always returns a genuine local native Promise.
 
-Accepted values are recursively limited to:
+## 10. Provider response envelope and output data
 
-- primitive strings;
-- primitive booleans;
-- `null`;
-- finite primitive numbers;
-- dense local arrays;
-- local plain records whose prototype is exactly local `Object.prototype` or `null`.
+The provider response MUST be validated before reading `output`.
 
-Rejected anywhere in accepted transport data or captured invocation data:
+Outer response requirements:
 
-- functions or callable objects;
-- accessors;
-- Proxies;
-- cycles;
-- repeated mutable object/array identity, including aliases reached by two paths;
-- sparse arrays;
-- symbol keys;
-- extra executable descriptors;
-- `undefined`;
-- `bigint`;
-- symbols as values;
-- non-finite numbers;
-- Date/Map/Set/Promise/Error/Buffer/ArrayBuffer/DataView/typed-array/MessagePort or similar intrinsic brands;
-- custom-class instances.
+- non-Proxy local plain record;
+- prototype local `Object.prototype` or `null`;
+- exactly own data properties `version`, `kind`, `output`;
+- no extra string keys;
+- no symbols;
+- no accessors;
+- `version === 1`;
+- `kind === "gotcha-provider-response"`.
 
-Snapshotting MUST be descriptor-driven and MUST NOT execute user/provider getters or Proxy traps.
+Normative order:
 
-Repeated mutable identity is rejected rather than duplicated or preserved. Therefore every accepted output graph has a unique ownership tree.
+1. reject Proxy/non-record outer values;
+2. capture all own descriptors;
+3. verify exact key set and data descriptors;
+4. verify `version` and `kind` literals from descriptor values;
+5. only then obtain the `output` descriptor value;
+6. validate/detach output.
 
-## 11. Exact provider response envelope
+An accessor-backed `output` rejects without invoking its getter.
 
-The transport result MUST be validated as an outer envelope before `output` is read.
+Provider output recursively accepts only declarative M7/M8-compatible AI data: null, booleans, finite numbers, strings, dense arrays, and plain record projections. It rejects functions, accessors, Proxies, cycles, sparse arrays, symbols, undefined, bigint, non-finite numbers, recognized live runtime brands, custom executable values, and repeated mutable identity.
 
-The response MUST be a non-Proxy local plain record whose prototype is exactly local `Object.prototype` or `null`.
+Unlike invocation input, **provider output repeated mutable identity rejects**. Provider output must form a unique ownership tree.
 
-It MUST contain exactly these three own string-keyed properties:
+## 11. Response ownership and asynchronous observation point
 
-```js
-{
-  version,
-  kind,
-  output
-}
-```
+For synchronous transport return, response validation/detachment begins immediately after the single transport call returns.
 
-It MUST contain no extra string keys, no symbol keys, no accessors, and no inherited response authority.
+For accepted Promise transport return, the relevant isolation point is the adapter's own first fulfillment observation, not the provider Promise's earlier settlement instant.
 
-Validation order is normative:
+A transport may have registered earlier reactions that mutate its fulfillment object before the adapter's reaction runs. Those earlier mutations are part of the value the adapter legitimately observes. M11 does not claim impossible isolation from them.
 
-1. reject Proxy/non-plain outer values without reading semantic properties;
-2. capture all own property descriptors;
-3. require exactly `version`, `kind`, and `output` as own data properties;
-4. require `version === 1`;
-5. require `kind === "gotcha-provider-response"`;
-6. only then read/capture the `output` data-property value;
-7. validate and detach `output` under Section 10.
+Once the adapter's fulfillment reaction begins:
 
-Thus an accessor-backed `response.output` MUST reject without invoking its getter.
+- it validates and fully detaches the observed response before fulfilling the public generator Promise;
+- mutations occurring after that completed detachment cannot alter the returned snapshot;
+- no transport-owned object/array identity is exposed to M7/M8;
+- mutation of the returned snapshot cannot mutate retained transport-owned data.
 
-Provider metadata such as token usage, latency, request IDs, raw text, safety labels, or model traces is not allowed as extra response-envelope authority in Revision 2.
+The detached output is mutable local data, not frozen.
 
-Consumers retain such metadata outside Gotcha's semantic generator return value.
+### 11.1 Safe fulfillment root
 
-## 12. Response ownership transfer
+Both current M7 and M8 generator outputs are required to have a record root. M11 therefore rebuilds the detached OUTPUT ROOT as a fresh `Object.create(null)` record.
 
-Before the generator Promise fulfills, the adapter MUST complete a detached snapshot of the accepted provider `output`.
+Nested records may also use null prototypes; nested arrays remain ordinary arrays.
 
-No object/array identity from the transport response envelope or its `output` graph may be exposed to M7/M8.
+Because Promise resolution performs thenable lookup only on the fulfillment root, the null-prototype output root guarantees fulfillment cannot execute or assimilate an inherited `Object.prototype.then` / custom prototype `then` hook.
 
-The returned detached graph is mutable ordinary local data, not frozen. Mutation by M7/M8 or the caller after fulfillment MUST NOT mutate transport-owned data.
+The detached root contains no own `then` accessor/function unless the semantic generator schema itself requires one; Revision 3 schemas do not. Any provider output with an own executable `then` is already rejected by the declarative-data boundary.
 
-Conversely, mutation of the original transport envelope or original transport `output` after transport fulfillment MUST NOT alter the detached value observed by M7/M8.
+A required regression MUST poison inherited `Object.prototype.then` and prove generator fulfillment executes it zero times.
 
-Because repeated mutable identity is rejected under Section 10, alias preservation is not a permitted implementation choice.
+## 12. Failure and rejection identity
 
-The ownership boundary is therefore:
+Construction failures are synchronous local `TypeError`s.
 
-```text
-transport-owned graph
-  -> descriptor-safe validation
-  -> complete detached unique tree
-  -> Promise fulfillment
-  -> M7/M8 semantic validation
-```
+Adapter-generated invocation/return-form/response/data boundary failures reject with a local `TypeError`.
 
-## 13. Failure semantics
+A synchronous throw from the one transport call MUST become the public generator Promise rejection reason with **exact object/value identity preserved unconditionally**.
 
-Construction errors are synchronous local `TypeError`s and perform no provider work.
+An accepted transport Promise rejection MUST become the public generator Promise rejection reason with **exact object/value identity preserved unconditionally**.
 
-Generator invocation always returns a genuine local native Promise.
+The adapter MUST NOT inspect, clone, stringify, normalize, wrap, or assimilate the rejection reason merely to propagate it.
 
-The generator Promise rejects when:
+No vague integrity exception exists in Revision 3.
 
-- invocation envelope capture fails;
-- transport throws;
-- an accepted local native transport Promise rejects;
-- transport returns a disallowed thenable/Promise form;
-- the provider outer envelope is malformed;
-- `output` violates Section 10 or cannot be detached safely.
+## 13. Deterministic proof matrix
 
-The adapter MUST NOT translate failures into fake empty contracts, fake empty attack sets, fallback semantic output, or retries.
+All tests use deterministic fake transports; no API key, provider account, or network call is required.
 
-For transport synchronous throws and accepted native-Promise rejections, the original rejection/throw reason is propagated unchanged unless observing that value itself would violate a previously established native Promise integrity boundary; adapter-generated boundary failures are local `TypeError`s.
+Required proofs include:
 
-Semantically invalid but structurally safe `output` is returned to M7/M8, which reject it under their existing rules.
-
-## 14. Prompt/instruction ownership
-
-The adapter is a transport shim, not a second prompt-authority layer.
-
-For each mode, `instructions` MUST be the exact instruction string already produced by the respective M7/M8 generator boundary.
-
-The adapter may wrap that string in the provider request envelope but MUST NOT silently add provider-specific semantic rules.
-
-Provider-specific formatting may translate `instructions` and `outputFormat` into an SDK request, but cannot change Gotcha task/schema authority while still claiming M11 compatibility.
-
-## 15. Determinism and required proofs
-
-All M11 tests use deterministic fake transports. No network access, API key, provider account, or model call is required by `npm test`.
-
-Required proof includes:
-
-- construction accepts only the exact three-field descriptor-safe record;
-- construction rejects accessors, inherited authority, symbols, extras, Proxies, callable Proxies, empty/whitespace/non-canonical model strings, and invalid modes without side effects;
-- construction performs zero transport calls and zero secret/environment reads;
-- `quality-contract` invocation accepts exactly `task`, `examples`, `instructions` and sends exactly `{task, examples}` under request `input`;
-- `contract-attacks` invocation accepts exactly `contract`, case `input`, `expectedOutput`, `instructions` and sends exactly those three semantic values under request `input`;
-- `instructions` is not duplicated inside request `input`;
-- both modes receive the correct core-owned versioned `outputFormat` and transports do not author that schema;
-- full request snapshot completes before the one transport call;
-- mutation of original invocation objects after generator invocation cannot alter transport-observed request authority;
-- each valid invocation calls transport exactly once;
-- synchronous transport throw produces one rejection and call count remains one;
-- accepted native-Promise rejection produces one rejection and call count remains one;
-- no adapter retry/fallback occurs;
-- synchronous provider envelopes are accepted;
-- genuine local native Promise responses are accepted;
-- arbitrary thenables, Promise subclasses, cross-realm Promises, and Proxy Promises reject without executing attacker-controlled `then` accessors;
-- outer provider response validation rejects accessors, symbols, extras, inherited authority, Proxies, and wrong literals before reading `output`;
-- executable/non-data provider output rejects before M7/M8 semantic validation;
-- retained transport envelope/output mutation after fulfillment cannot affect the returned detached snapshot;
-- mutation of the returned snapshot cannot affect retained transport-owned data;
-- repeated mutable identity in provider output rejects;
-- M7/M8 still reject semantically invalid but structurally safe outputs exactly as before;
-- both modes integrate with existing M7/M8 public APIs;
+- exact descriptor-safe construction record;
+- zero construction side effects / environment reads / transport calls;
+- exact outer invocation shapes for both modes;
+- M8 callback-isolated custom prototypes are accepted through own-data projection;
+- custom prototype behavior is not forwarded;
+- shared acyclic invocation aliases normalize into distinct detached request branches;
+- cycles still reject;
+- exact per-mode request `input` and no duplicated `instructions`;
+- exact version-1 `gotcha-structured-v1` `outputFormat` object for each mode;
+- transport receives a detached copy and cannot mutate core-owned schema authority;
+- full request capture precedes transport invocation;
+- transport called exactly once on success, sync throw, and async rejection;
+- sync throw reason identity preserved exactly;
+- async rejection reason identity preserved exactly;
+- no retry/fallback/failover;
+- synchronous response envelope accepted;
+- Promise acceptance tested by exact observable brand/current-prototype rule;
+- arbitrary thenables / Proxy Promises / wrong-current-prototype Promise objects reject without reading attacker-controlled `then`;
+- hostile Promise species/constructor hooks are not executed by adapter observation;
+- outer response accessors/symbols/extras/Proxies/wrong literals reject before `output` access;
+- provider output repeated identity rejects;
+- asynchronous ownership proof starts at adapter observation: after detachment completes, retained transport mutation cannot affect returned data;
+- returned-data mutation cannot affect transport-owned data;
+- inherited `Object.prototype.then` poisoning executes zero times during public fulfillment;
+- M7/M8 still reject semantically invalid but structurally safe provider output under their existing rules;
+- both adapter modes integrate with existing public M7/M8 APIs;
 - package remains dependency-free;
-- packed npm artifact exposes the adapter to an isolated external consumer.
+- packed npm artifact exposes `createStructuredProviderAdapter()` to an isolated consumer.
 
-## 16. First implementation slice
+## 14. First implementation slice
 
-Slice A is intentionally narrow:
+Slice A remains intentionally narrow:
 
 ```text
 createStructuredProviderAdapter()
-  -> exact side-effect-free construction boundary
-  -> exact mode-specific invocation capture
-  -> core-owned outputFormat
-  -> deterministic provider request envelope
-  -> exactly-one caller-supplied transport call
-  -> safe sync/local-native-Promise transport observation
-  -> exact descriptor-safe provider response envelope
-  -> detached declarative output
-  -> M7/M8 integration tests
+  -> exact construction capture
+  -> M7/M8-compatible invocation own-data projection
+  -> alias normalization / cycle rejection
+  -> core-owned exact outputFormat v1
+  -> one provider request
+  -> exactly-one transport call
+  -> safe sync / observable-Promise result handling
+  -> exact descriptor-safe response envelope
+  -> detached null-prototype output root
+  -> M7/M8 integration proof
 ```
 
-No provider-specific OpenAI/Anthropic/Gemini SDK helper is added in Slice A.
+No OpenAI/Anthropic/Gemini SDK-specific helper is included in Slice A.
 
-No implicit credential/environment support is added.
+## 15. Stopping rule
 
-No adapter retry/failover layer is added.
+Runtime implementation MUST NOT begin until this architecture receives a clean exact-head Codex review.
 
-## 17. Stopping rule
-
-Before implementation, this architecture must receive a clean Codex review.
-
-If review exposes ambiguity around prompt/schema authority, secrets, executable boundaries, mutation capture, Promise/thenable observation, call count, or response ownership, revise this spec first.
-
-Only after the architecture is clean should Slice A implementation begin.
+Any new ambiguity around M7/M8 compatibility, output schema authority, Promise behavior, rejection identity, response ownership, inherited thenable behavior, secrets, or executable boundaries must be resolved in this document first.
