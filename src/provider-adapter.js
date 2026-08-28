@@ -32,6 +32,8 @@ const numberConstructor = Number;
 const stringTrim = String.prototype.trim;
 const stringConstructor = String;
 const functionHasInstance = Function.prototype[Symbol.hasInstance];
+const functionToString = Function.prototype.toString;
+const stringStartsWith = String.prototype.startsWith;
 const isProxy = utilTypes.isProxy;
 const isPromise = utilTypes.isPromise;
 const weakSetHas = WeakSet.prototype.has;
@@ -533,6 +535,22 @@ function observeAcceptedPromise(promise, onFulfilled, onRejected) {
   }
 }
 
+function isClassConstructor(value) {
+  const source = reflectApply(functionToString, value, []);
+  if (!reflectApply(stringStartsWith, source, ["class"])) {
+    return false;
+  }
+  const separator = source[5];
+  return (
+    separator === " " ||
+    separator === "\n" ||
+    separator === "\r" ||
+    separator === "\t" ||
+    separator === "{" ||
+    separator === "/"
+  );
+}
+
 function createStructuredProviderAdapter(options) {
   const descriptors = exactDataDescriptors(
     options,
@@ -544,8 +562,12 @@ function createStructuredProviderAdapter(options) {
   const model = descriptors.model.value;
   const mode = descriptors.mode.value;
 
-  if (typeof transport !== "function" || isProxy(transport)) {
-    throw boundaryError("transport must be a non-Proxy function.");
+  if (
+    typeof transport !== "function" ||
+    isProxy(transport) ||
+    isClassConstructor(transport)
+  ) {
+    throw boundaryError("transport must be a non-Proxy callable function.");
   }
   if (
     typeof model !== "string" ||

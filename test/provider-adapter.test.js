@@ -102,6 +102,20 @@ test("factory validates options synchronously without calling transport", () => 
 
   assert.throws(() => createStructuredProviderAdapter({ transport, model: " x ", mode: "quality-contract" }), TypeError);
   assert.throws(() => createStructuredProviderAdapter({ transport, model: "x", mode: "other" }), TypeError);
+
+  class InvalidTransport {}
+  assert.throws(
+    () => createStructuredProviderAdapter({
+      transport: InvalidTransport,
+      model: "x",
+      mode: "quality-contract"
+    }),
+    (error) => (
+      error instanceof TypeError &&
+      error.message === "transport must be a non-Proxy callable function."
+    )
+  );
+  assert.equal(calls, 0);
 });
 
 test("quality-contract adapter integrates with M7 and forwards exact authority once", async () => {
