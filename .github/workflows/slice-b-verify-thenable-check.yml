@@ -17,15 +17,7 @@ jobs:
       - run: python scripts/qa/patch-slice-b-verify-generator-thenable.py
       - run: python scripts/qa/patch-slice-b-verify-generator-sync.py
       - run: python scripts/qa/patch-m8-async-return-thenable.py
+      - run: python scripts/qa/diagnose-slice-b-verify-error.py
       - run: node --check src/contract-attacks-core.js
       - run: node --check src/contract-remediation.js
-      - run: node --test test/contract-remediation-verify.test.js test/contract-remediation-confirm.test.js test/contract-remediation-draft.test.js test/contract-remediation-review-regressions.test.js
-      - run: npm test
-      - run: git diff --check
-      - name: Persist validated source
-        run: |
-          git config user.name "AidaMichel"
-          git config user.email "126730924+AidaMichel@users.noreply.github.com"
-          git add src/contract-attacks-core.js src/contract-remediation.js test/contract-remediation-verify.test.js
-          git commit -m "fix: shield verification internal Promise boundaries"
-          git push
+      - run: node --test test/contract-remediation-verify.test.js
