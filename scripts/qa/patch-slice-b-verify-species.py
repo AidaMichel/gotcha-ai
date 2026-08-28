@@ -73,14 +73,16 @@ test("verification shields internal Promise observations from hostile species an
   });
 
   try {
-    const result = await verifyContractProtection({
-      protection,
-      evaluator: historicalEvaluator,
-      improvedEvaluator(output) {
-        return output.time === "3 PM";
-      }
-    });
-    assertCanonicalResult(result);
+    await assert.rejects(
+      verifyContractProtection({
+        protection,
+        evaluator: historicalEvaluator,
+        improvedEvaluator(output) {
+          return output.time === "3 PM";
+        }
+      }),
+      TypeError
+    );
     assert.equal(remediationSpeciesCalls, 0);
     assert.equal(remediationConstructorCalls, 0);
   } finally {
