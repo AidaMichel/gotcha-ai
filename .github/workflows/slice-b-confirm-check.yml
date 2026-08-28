@@ -1,0 +1,36 @@
+name: Slice B confirmation validation
+
+on:
+  push:
+    branches:
+      - milestone-10-remediation-slice-b
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: python scripts/qa/patch-slice-b-confirm.py
+      - run: node --check src/contract-remediation.js
+      - run: node --check src/index.js
+      - run: node --test test/contract-remediation-confirm.test.js test/contract-remediation-draft.test.js test/contract-remediation-review-regressions.test.js
+      - run: npm test
+      - run: git diff --check
+      - name: Commit validated source and cleanup
+        run: |
+          rm scripts/qa/patch-slice-b-confirm.py
+          rm .github/workflows/slice-b-confirm-check.yml
+          git add src/contract-remediation.js src/index.js test/contract-remediation-confirm.test.js
+          git rm scripts/qa/patch-slice-b-confirm.py .github/workflows/slice-b-confirm-check.yml
+          git config user.name "AidaMichel"
+          git config user.email "126730924+AidaMichel@users.noreply.github.com"
+          git commit -m "feat: add contract protection confirmation"
+          git push origin HEAD:milestone-10-remediation-slice-b
