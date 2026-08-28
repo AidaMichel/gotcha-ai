@@ -1321,33 +1321,67 @@ function normalizedReplay(result, experiment) {
   ]);
 }
 
-async function replayPhase(authorityArtifact, callback) {
+function replayPhase(authorityArtifact, callback) {
   const failure = { phase: null, reason: null };
   const experiment = authorityArtifact.experiment;
   const projectedAttacks = projectReplayAttacks(experiment);
   const evaluator = makeClassifyingEvaluator(callback, failure);
 
-  try {
-    const result = await runContractAttacksCore({
-      contract: cloneCapturedValue(experiment.contract, new SetConstructor()),
-      input: cloneWireValue(experiment.case.input, new SetConstructor()),
-      expectedOutput: cloneWireValue(experiment.case.expectedOutput, new SetConstructor()),
-      evaluator,
-      generator() {
-        return makeRecord([
-          ["version", 1],
-          ["task", experiment.task],
-          ["attacks", projectedAttacks]
-        ]);
-      }
-    });
-    return { replay: normalizedReplay(result, experiment), failure: null };
-  } catch (error) {
-    if (failure.phase !== null) {
-      return { replay: null, failure };
+  return new PromiseConstructor((resolve, reject) => {
+    let replayPromise;
+
+    try {
+      replayPromise = runContractAttacksCore({
+        contract: cloneCapturedValue(experiment.contract, new SetConstructor()),
+        input: cloneWireValue(experiment.case.input, new SetConstructor()),
+        expectedOutput: cloneWireValue(experiment.case.expectedOutput, new SetConstructor()),
+        evaluator,
+        generator() {
+          return makeRecord([
+            ["version", 1],
+            ["task", experiment.task],
+            ["attacks", projectedAttacks]
+          ]);
+        }
+      });
+    } catch (error) {
+      reject(error);
+      return;
     }
-    throw error;
-  }
+
+    reflectApply(promiseThen, replayPromise, [
+      (result) => {
+        try {
+          const phaseResult = makeRecord([
+            ["replay", normalizedReplay(result, experiment)],
+            ["failure", null]
+          ]);
+          settleArtifact(resolve, phaseResult);
+        } catch (error) {
+          reject(error);
+        }
+      },
+      (error) => {
+        if (failure.phase === null) {
+          reject(error);
+          return;
+        }
+
+        try {
+          const phaseResult = makeRecord([
+            ["replay", null],
+            ["failure", makeRecord([
+              ["phase", failure.phase],
+              ["reason", failure.reason]
+            ])]
+          ]);
+          settleArtifact(resolve, phaseResult);
+        } catch (settleError) {
+          reject(settleError);
+        }
+      }
+    ]);
+  });
 }
 
 function freshEmptyArray() {
@@ -1503,144 +1537,182 @@ function sameStringArray(a, b) {
   return true;
 }
 
-async function buildVerification(capture) {
-  validateProtectionArtifact(capture.protection, "confirmed");
-  probeProtectionArtifact(capture.protection, "confirmed");
+function buildVerification(capture) {
+  return new PromiseConstructor((resolve, reject) => {
+    let authorityArtifact;
+    let experiment;
 
-  const authorityArtifact = cloneProtectionCanonical(capture.protection);
-  validateProtectionArtifact(authorityArtifact, "confirmed");
-  const experiment = authorityArtifact.experiment;
-
-  const baselinePhase = await replayPhase(authorityArtifact, capture.evaluator);
-  if (baselinePhase.failure !== null) {
-    const failure = baselinePhase.failure;
-    const positiveReturnedFalse =
-      failure.phase === "positive-control" && failure.reason === "returned-false";
-    const state = positiveReturnedFalse
-      ? "baseline-positive-control-failed"
-      : "baseline-execution-failed";
-    const baselinePc = positiveReturnedFalse
-      ? false
-      : failure.phase === "attack-evaluation" ? true : null;
-    return makeVerificationResult({
-      state,
-      verificationPassed: false,
-      authorityArtifact,
-      baselinePositiveControlPassed: baselinePc,
-      improvedPositiveControlPassed: null,
-      baseline: null,
-      after: null,
-      baselineMismatchAttackIds: freshEmptyArray(),
-      eliminatedAttackIds: freshEmptyArray(),
-      regressionAttackIds: freshEmptyArray(),
-      sourceFindingCaught: false,
-      improvement: null,
-      failureReasons: makeFailureReasons(state)
-    });
-  }
-
-  const baseline = baselinePhase.replay;
-  const mismatchIds = baselineMismatchIds(experiment, baseline);
-  const rankMatches = sameStringArray(
-    experiment.baseline.survivorOrderIds,
-    baseline.survivorOrderIds
-  );
-  const topMatches = experiment.baseline.topFindingId === baseline.topFindingId;
-
-  if (mismatchIds.length > 0 || !rankMatches || !topMatches) {
-    return makeVerificationResult({
-      state: "baseline-mismatch",
-      verificationPassed: false,
-      authorityArtifact,
-      baselinePositiveControlPassed: true,
-      improvedPositiveControlPassed: null,
-      baseline,
-      after: null,
-      baselineMismatchAttackIds: mismatchIds,
-      eliminatedAttackIds: freshEmptyArray(),
-      regressionAttackIds: freshEmptyArray(),
-      sourceFindingCaught: false,
-      improvement: null,
-      failureReasons: makeFailureReasons("baseline-mismatch")
-    });
-  }
-
-  const improvedPhase = await replayPhase(authorityArtifact, capture.improvedEvaluator);
-  if (improvedPhase.failure !== null) {
-    const failure = improvedPhase.failure;
-    const positiveReturnedFalse =
-      failure.phase === "positive-control" && failure.reason === "returned-false";
-    const state = positiveReturnedFalse
-      ? "improved-positive-control-failed"
-      : "improved-execution-failed";
-    const improvedPc = positiveReturnedFalse
-      ? false
-      : failure.phase === "attack-evaluation" ? true : null;
-    return makeVerificationResult({
-      state,
-      verificationPassed: false,
-      authorityArtifact,
-      baselinePositiveControlPassed: true,
-      improvedPositiveControlPassed: improvedPc,
-      baseline,
-      after: null,
-      baselineMismatchAttackIds: freshEmptyArray(),
-      eliminatedAttackIds: freshEmptyArray(),
-      regressionAttackIds: freshEmptyArray(),
-      sourceFindingCaught: false,
-      improvement: null,
-      failureReasons: makeFailureReasons(state)
-    });
-  }
-
-  const after = improvedPhase.replay;
-  const eliminated = new ArrayConstructor();
-  const regressions = new ArrayConstructor();
-  let sourceFindingCaught = false;
-
-  for (let index = 0; index < experiment.attacks.length; index += 1) {
-    const attackId = experiment.attacks[index].id;
-    const beforeSurvived = baseline.outcomes[index].survived;
-    const afterSurvived = after.outcomes[index].survived;
-    if (beforeSurvived && !afterSurvived) {
-      append(eliminated, attackId);
+    try {
+      validateProtectionArtifact(capture.protection, "confirmed");
+      probeProtectionArtifact(capture.protection, "confirmed");
+      authorityArtifact = cloneProtectionCanonical(capture.protection);
+      validateProtectionArtifact(authorityArtifact, "confirmed");
+      experiment = authorityArtifact.experiment;
+    } catch (error) {
+      reject(error);
+      return;
     }
-    if (!beforeSurvived && afterSurvived) {
-      append(regressions, attackId);
-    }
-    if (attackId === authorityArtifact.source.attackId) {
-      sourceFindingCaught = afterSurvived === false;
-    }
-  }
 
-  const improvement =
-    baseline.survivorOrderIds.length - after.survivorOrderIds.length;
-  const hasRegression = regressions.length > 0;
-  const sourceSurvives = !sourceFindingCaught;
-  const state = hasRegression
-    ? "regression-detected"
-    : sourceSurvives
-      ? "source-finding-still-survives"
-      : "verified";
-  const reasons = makeFailureReasons(
-    hasRegression ? "regression-detected" : null,
-    sourceSurvives ? "source-finding-still-survives" : null
-  );
+    const finish = (result) => {
+      try {
+        settleArtifact(resolve, result);
+      } catch (error) {
+        reject(error);
+      }
+    };
 
-  return makeVerificationResult({
-    state,
-    verificationPassed: state === "verified",
-    authorityArtifact,
-    baselinePositiveControlPassed: true,
-    improvedPositiveControlPassed: true,
-    baseline,
-    after,
-    baselineMismatchAttackIds: freshEmptyArray(),
-    eliminatedAttackIds: eliminated,
-    regressionAttackIds: regressions,
-    sourceFindingCaught,
-    improvement,
-    failureReasons: reasons
+    const baselinePromise = replayPhase(authorityArtifact, capture.evaluator);
+    reflectApply(promiseThen, baselinePromise, [
+      (baselinePhase) => {
+        try {
+          if (baselinePhase.failure !== null) {
+            const failure = baselinePhase.failure;
+            const positiveReturnedFalse =
+              failure.phase === "positive-control" && failure.reason === "returned-false";
+            const state = positiveReturnedFalse
+              ? "baseline-positive-control-failed"
+              : "baseline-execution-failed";
+            const baselinePc = positiveReturnedFalse
+              ? false
+              : failure.phase === "attack-evaluation" ? true : null;
+            finish(makeVerificationResult({
+              state,
+              verificationPassed: false,
+              authorityArtifact,
+              baselinePositiveControlPassed: baselinePc,
+              improvedPositiveControlPassed: null,
+              baseline: null,
+              after: null,
+              baselineMismatchAttackIds: freshEmptyArray(),
+              eliminatedAttackIds: freshEmptyArray(),
+              regressionAttackIds: freshEmptyArray(),
+              sourceFindingCaught: false,
+              improvement: null,
+              failureReasons: makeFailureReasons(state)
+            }));
+            return;
+          }
+
+          const baseline = baselinePhase.replay;
+          const mismatchIds = baselineMismatchIds(experiment, baseline);
+          const rankMatches = sameStringArray(
+            experiment.baseline.survivorOrderIds,
+            baseline.survivorOrderIds
+          );
+          const topMatches = experiment.baseline.topFindingId === baseline.topFindingId;
+
+          if (mismatchIds.length > 0 || !rankMatches || !topMatches) {
+            finish(makeVerificationResult({
+              state: "baseline-mismatch",
+              verificationPassed: false,
+              authorityArtifact,
+              baselinePositiveControlPassed: true,
+              improvedPositiveControlPassed: null,
+              baseline,
+              after: null,
+              baselineMismatchAttackIds: mismatchIds,
+              eliminatedAttackIds: freshEmptyArray(),
+              regressionAttackIds: freshEmptyArray(),
+              sourceFindingCaught: false,
+              improvement: null,
+              failureReasons: makeFailureReasons("baseline-mismatch")
+            }));
+            return;
+          }
+
+          const improvedPromise = replayPhase(authorityArtifact, capture.improvedEvaluator);
+          reflectApply(promiseThen, improvedPromise, [
+            (improvedPhase) => {
+              try {
+                if (improvedPhase.failure !== null) {
+                  const failure = improvedPhase.failure;
+                  const positiveReturnedFalse =
+                    failure.phase === "positive-control" && failure.reason === "returned-false";
+                  const state = positiveReturnedFalse
+                    ? "improved-positive-control-failed"
+                    : "improved-execution-failed";
+                  const improvedPc = positiveReturnedFalse
+                    ? false
+                    : failure.phase === "attack-evaluation" ? true : null;
+                  finish(makeVerificationResult({
+                    state,
+                    verificationPassed: false,
+                    authorityArtifact,
+                    baselinePositiveControlPassed: true,
+                    improvedPositiveControlPassed: improvedPc,
+                    baseline,
+                    after: null,
+                    baselineMismatchAttackIds: freshEmptyArray(),
+                    eliminatedAttackIds: freshEmptyArray(),
+                    regressionAttackIds: freshEmptyArray(),
+                    sourceFindingCaught: false,
+                    improvement: null,
+                    failureReasons: makeFailureReasons(state)
+                  }));
+                  return;
+                }
+
+                const after = improvedPhase.replay;
+                const eliminated = new ArrayConstructor();
+                const regressions = new ArrayConstructor();
+                let sourceFindingCaught = false;
+
+                for (let index = 0; index < experiment.attacks.length; index += 1) {
+                  const attackId = experiment.attacks[index].id;
+                  const beforeSurvived = baseline.outcomes[index].survived;
+                  const afterSurvived = after.outcomes[index].survived;
+                  if (beforeSurvived && !afterSurvived) {
+                    append(eliminated, attackId);
+                  }
+                  if (!beforeSurvived && afterSurvived) {
+                    append(regressions, attackId);
+                  }
+                  if (attackId === authorityArtifact.source.attackId) {
+                    sourceFindingCaught = afterSurvived === false;
+                  }
+                }
+
+                const improvement =
+                  baseline.survivorOrderIds.length - after.survivorOrderIds.length;
+                const hasRegression = regressions.length > 0;
+                const sourceSurvives = !sourceFindingCaught;
+                const state = hasRegression
+                  ? "regression-detected"
+                  : sourceSurvives
+                    ? "source-finding-still-survives"
+                    : "verified";
+                const reasons = makeFailureReasons(
+                  hasRegression ? "regression-detected" : null,
+                  sourceSurvives ? "source-finding-still-survives" : null
+                );
+
+                finish(makeVerificationResult({
+                  state,
+                  verificationPassed: state === "verified",
+                  authorityArtifact,
+                  baselinePositiveControlPassed: true,
+                  improvedPositiveControlPassed: true,
+                  baseline,
+                  after,
+                  baselineMismatchAttackIds: freshEmptyArray(),
+                  eliminatedAttackIds: eliminated,
+                  regressionAttackIds: regressions,
+                  sourceFindingCaught,
+                  improvement,
+                  failureReasons: reasons
+                }));
+              } catch (error) {
+                reject(error);
+              }
+            },
+            reject
+          ]);
+        } catch (error) {
+          reject(error);
+        }
+      },
+      reject
+    ]);
   });
 }
 
@@ -1660,23 +1732,31 @@ function scheduleVerification(capture, resolve, reject) {
     enumerable: false,
     configurable: true
   });
-  const verification = reflectApply(promiseThen, kickoff, [
-    () => buildVerification(capture),
-    () => { throw boundaryError(); }
-  ]);
-  deleteProperty(kickoff, "constructor");
 
-  defineProperty(verification, "constructor", {
-    value: speciesContainer,
-    writable: true,
-    enumerable: false,
-    configurable: true
-  });
-  reflectApply(promiseThen, verification, [
-    (result) => settleArtifact(resolve, result),
+  reflectApply(promiseThen, kickoff, [
+    () => {
+      let verification;
+      try {
+        verification = buildVerification(capture);
+        defineProperty(verification, "constructor", {
+          value: speciesContainer,
+          writable: true,
+          enumerable: false,
+          configurable: true
+        });
+        reflectApply(promiseThen, verification, [
+          (result) => settleArtifact(resolve, result),
+          () => reject(boundaryError())
+        ]);
+        deleteProperty(verification, "constructor");
+      } catch {
+        reject(boundaryError());
+      }
+    },
     () => reject(boundaryError())
   ]);
-  deleteProperty(verification, "constructor");
+
+  deleteProperty(kickoff, "constructor");
 }
 
 function verifyContractProtection(options) {

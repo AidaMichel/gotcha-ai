@@ -3287,6 +3287,24 @@ function withSafePromiseConstructor(
   );
 }
 
+function prepareAsyncRecordReturn(value) {
+  defineProperty(value, "then", {
+    value: undefined,
+    writable: true,
+    enumerable: false,
+    configurable: true
+  });
+
+  const cleanup = new promiseConstructor((resolve) => resolve());
+  reflectApply(promiseThen, cleanup, [
+    () => {
+      deleteProperty(value, "then");
+    }
+  ]);
+
+  return value;
+}
+
 function passPromiseValue(
   value
 ) {
@@ -4602,7 +4620,7 @@ async function runContractAttacks(
     attackResult.survivors[0] ||
     null;
 
-  return {
+  return prepareAsyncRecordReturn({
     version: 1,
     task:
       contract.task,
@@ -4614,7 +4632,7 @@ async function runContractAttacks(
     attack:
       attackResult,
     topFinding
-  };
+  });
   } finally {
     closeCallbackIntrinsicScope(
       runScope

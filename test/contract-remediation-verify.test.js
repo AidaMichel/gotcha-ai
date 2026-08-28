@@ -309,3 +309,36 @@ test("verification rejects non-confirmed artifacts before callbacks", async () =
   );
   assert.equal(calls, 0);
 });
+
+
+test("verification ignores inherited Object.prototype thenables across internal replay boundaries", async () => {
+  const protection = await confirmedProtection();
+  let thenCalls = 0;
+
+  Object.defineProperty(Object.prototype, "then", {
+    value(resolve) {
+      thenCalls += 1;
+      resolve("hijacked");
+    },
+    writable: true,
+    enumerable: false,
+    configurable: true
+  });
+
+  try {
+    const result = await verifyContractProtection({
+      protection,
+      evaluator: historicalEvaluator,
+      improvedEvaluator(output) {
+        return output.time === "3 PM";
+      }
+    });
+
+    assertCanonicalResult(result);
+    assert.equal(result.state, "verified");
+    assert.equal(result.verificationPassed, true);
+    assert.equal(thenCalls, 0);
+  } finally {
+    delete Object.prototype.then;
+  }
+});
