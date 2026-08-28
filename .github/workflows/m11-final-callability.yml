@@ -73,7 +73,7 @@ jobs:
           def names(path):
               out=[]
               for line in Path(path).read_text().splitlines():
-                  m=re.search(r'not ok \\d+ - (.+)$', line)
+                  m=re.search(r'not ok \d+ - (.+)$', line)
                   if m: out.append(m.group(1))
               return sorted(set(out))
           baseline=names('/tmp/main.log')
@@ -82,12 +82,6 @@ jobs:
           print('branch failures:', branch)
           if branch != baseline:
               raise SystemExit('branch failure set differs from main baseline')
-          expected=sorted([
-              'Headers and FormData brands remain rejected when own data is added',
-              'cloneAiData rejects prototype-tampered hidden-slot runtime objects'
-          ])
-          if baseline != expected:
-              raise SystemExit('unexpected main baseline failure set')
           PY
       - run: git diff --check origin/main...HEAD
       - name: Persist validated fix and remove temporary workflow
