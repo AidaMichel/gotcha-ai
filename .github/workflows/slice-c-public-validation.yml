@@ -1,0 +1,29 @@
+name: Slice C public validation
+on:
+  push:
+    branches: [milestone-10-remediation-slice-c]
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: python scripts/qa/patch-slice-c-public.py
+      - run: node --check examples/contract-remediation.js
+      - run: node --check test/public-api.test.js
+      - run: node --check test/package-contract-remediation.test.js
+      - run: node examples/contract-remediation.js
+      - run: node --test test/public-api.test.js test/package-contract-remediation.test.js
+      - run: npm test
+      - run: git diff --check
+      - name: Persist validated public closure
+        run: |
+          git config user.name "AidaMichel"
+          git config user.email "126730924+AidaMichel@users.noreply.github.com"
+          git add README.md package.json test/public-api.test.js test/package-contract-remediation.test.js
+          git commit -m "feat: close M10 public remediation surface"
+          git push
