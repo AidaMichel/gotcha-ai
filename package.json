@@ -16,7 +16,8 @@
     "bin",
     "examples/quickstart.js",
     "examples/quality-contract.js",
-    "examples/contract-attacks.js"
+    "examples/contract-attacks.js",
+    "examples/contract-remediation.js"
   ],
   "scripts": {
     "test": "node --test",
