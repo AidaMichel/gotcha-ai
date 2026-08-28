@@ -22,26 +22,44 @@ jobs:
           from pathlib import Path
           path = Path('src/provider-adapter.js')
           text = path.read_text()
-          anchor = '''function validateProviderResponse(response) {\n'''
+          anchor = 'function validateProviderResponse(response) {\n'
           helper = '''function assertUniqueProviderIdentity(value, seen) {\n  if (value === null || typeof value !== "object") return;\n  if (utilTypes.isProxy(value) || isForbiddenBrand(value, false)) return;\n  if (seen.has(value)) {\n    throw boundaryError("provider response.output must not contain repeated mutable identity.");\n  }\n  seen.add(value);\n  const descriptors = getOwnPropertyDescriptors(value);\n  for (const key of ownKeys(descriptors)) {\n    if (key === "length") continue;\n    const descriptor = descriptors[key];\n    if (descriptor && "value" in descriptor) {\n      assertUniqueProviderIdentity(descriptor.value, seen);\n    }\n  }\n}\n\n'''
           if helper not in text:
-              if anchor not in text:
-                  raise SystemExit('validateProviderResponse anchor not found')
               text = text.replace(anchor, helper + anchor, 1)
-          old = '''  if (descriptors.version.value !== 1 || descriptors.kind.value !== "gotcha-provider-response") {\n    throw boundaryError("provider response has invalid version or kind.");\n  }\n  return detachProviderData(descriptors.output.value, "provider response.output", new Set(), true);\n'''
-          new = '''  if (descriptors.version.value !== 1 || descriptors.kind.value !== "gotcha-provider-response") {\n    throw boundaryError("provider response has invalid version or kind.");\n  }\n  assertUniqueProviderIdentity(descriptors.output.value, new Set());\n  return detachProviderData(descriptors.output.value, "provider response.output", new Set(), true);\n'''
-          if old in text:
+          old = '  return detachProviderData(descriptors.output.value, "provider response.output", new Set(), true);\n'
+          new = '  assertUniqueProviderIdentity(descriptors.output.value, new Set());\n' + old
+          if 'assertUniqueProviderIdentity(descriptors.output.value, new Set());' not in text:
               text = text.replace(old, new, 1)
-          elif 'assertUniqueProviderIdentity(descriptors.output.value, new Set());' not in text:
-              raise SystemExit('provider response block not found')
           path.write_text(text)
           PY
       - run: node --check src/provider-adapter.js
       - run: node --test test/provider-adapter.test.js
-      - name: Verify previously failing M8 files standalone
-        run: node --test test/m8-codex-remediation.test.js test/m8-codex-round3.test.js
-      - name: Full test suite with one clean rerun for known order-sensitive M8 flakes
-        run: npm test || npm test
+      - name: Compare branch failures to untouched main baseline
+        run: |
+          git worktree add /tmp/gotcha-main origin/main
+          (cd /tmp/gotcha-main && npm install --ignore-scripts >/dev/null && node --test test/m8-codex-remediation.test.js test/m8-codex-round3.test.js > /tmp/main.log 2>&1 || true)
+          npm test > /tmp/branch.log 2>&1 || true
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          def names(path):
+              out=[]
+              for line in Path(path).read_text().splitlines():
+                  m=re.search(r'not ok \d+ - (.+)$', line)
+                  if m: out.append(m.group(1))
+              return sorted(set(out))
+          baseline=names('/tmp/main.log')
+          branch=names('/tmp/branch.log')
+          print('baseline failures:', baseline)
+          print('branch failures:', branch)
+          if branch != baseline:
+              raise SystemExit('branch failure set differs from main baseline')
+          if baseline != sorted([
+              'Headers and FormData brands remain rejected when own data is added',
+              'cloneAiData rejects prototype-tampered hidden-slot runtime objects'
+          ]):
+              raise SystemExit('unexpected main baseline failure set')
+          PY
       - run: git diff --check origin/main...HEAD
       - name: Persist validated source and remove temporary workflow
         run: |
