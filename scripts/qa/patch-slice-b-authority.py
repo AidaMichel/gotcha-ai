@@ -7,3 +7,11 @@ new = '''const experimentIntrinsics =\n  experimentFreeze({\n    isProxy: utilTy
 if old not in text:
     raise SystemExit('experimentIntrinsics block not found')
 path.write_text(text.replace(old, new, 1))
+
+test_path = Path('test/contract-remediation-review-regressions.test.js')
+test_text = test_path.read_text()
+old_test = '''  const experiment = await makeExperiment({ input: shared });\n  const proposal = makeProposal();\n  proposal.protection = shared;'''
+new_test = '''  const experiment = await makeExperiment({ input: shared });\n  const proposal = makeProposal();\n  proposal.protection = experiment.case.input;'''
+if old_test not in test_text:
+    raise SystemExit('alias regression fixture not found')
+test_path.write_text(test_text.replace(old_test, new_test, 1))
