@@ -1,10 +1,15 @@
 "use strict";
 
 const { types: utilTypes } = require("node:util");
-const { Buffer: BufferConstructor } = require("node:buffer");
+const {
+  isUnsupportedRuntimeObject
+} = require("./ai-data-core");
 
 const PromiseConstructor = Promise;
 const PromisePrototype = Promise.prototype;
+const TypeErrorConstructor = TypeError;
+const ArrayConstructor = Array;
+const WeakSetConstructor = WeakSet;
 const promiseThen = Promise.prototype.then;
 const promiseSpecies = Symbol.species;
 const objectPrototype = Object.prototype;
@@ -17,32 +22,21 @@ const reflectApply = Reflect.apply;
 const defineProperty = Object.defineProperty;
 const deleteProperty = Reflect.deleteProperty;
 const objectCreate = Object.create;
+const objectKeys = Object.keys;
 const isExtensible = Object.isExtensible;
 const arrayIsArray = Array.isArray;
+const arrayPop = Array.prototype.pop;
 const numberIsFinite = Number.isFinite;
+const numberIsInteger = Number.isInteger;
+const numberConstructor = Number;
 const stringTrim = String.prototype.trim;
-
-const forbiddenProbes = [
-  utilTypes.isDate,
-  utilTypes.isRegExp,
-  utilTypes.isMap,
-  utilTypes.isSet,
-  utilTypes.isWeakMap,
-  utilTypes.isWeakSet,
-  utilTypes.isPromise,
-  utilTypes.isNativeError,
-  utilTypes.isAnyArrayBuffer,
-  utilTypes.isDataView,
-  utilTypes.isTypedArray,
-  utilTypes.isBoxedPrimitive,
-  utilTypes.isArgumentsObject,
-  utilTypes.isGeneratorObject,
-  utilTypes.isModuleNamespaceObject,
-  utilTypes.isMapIterator,
-  utilTypes.isSetIterator,
-  utilTypes.isExternal,
-  BufferConstructor.isBuffer
-];
+const stringConstructor = String;
+const functionHasInstance = Function.prototype[Symbol.hasInstance];
+const isProxy = utilTypes.isProxy;
+const isPromise = utilTypes.isPromise;
+const weakSetHas = WeakSet.prototype.has;
+const weakSetAdd = WeakSet.prototype.add;
+const weakSetDelete = WeakSet.prototype.delete;
 
 const safePromiseConstructor = objectCreate(null);
 defineProperty(safePromiseConstructor, promiseSpecies, {
@@ -153,26 +147,42 @@ const CONTRACT_ATTACKS_SCHEMA = Object.freeze({
 });
 
 function boundaryError(message) {
-  return new TypeError(message);
+  return new TypeErrorConstructor(message);
 }
 
-function isForbiddenBrand(value, allowPromise) {
-  for (const probe of forbiddenProbes) {
-    if (allowPromise && probe === utilTypes.isPromise) {
-      continue;
-    }
-    if (reflectApply(probe, utilTypes, [value])) {
-      return true;
-    }
+function isLocalTypeError(error) {
+  return (
+    error !== null &&
+    (typeof error === "object" || typeof error === "function") &&
+    reflectApply(functionHasInstance, TypeErrorConstructor, [error])
+  );
+}
+
+function isForbiddenRuntimeObject(value) {
+  return isUnsupportedRuntimeObject(value);
+}
+
+function appendInternal(array, value) {
+  defineProperty(array, stringConstructor(array.length), {
+    value,
+    writable: true,
+    enumerable: true,
+    configurable: true
+  });
+}
+
+function expectedKeyContains(expectedKeys, key) {
+  for (let index = 0; index < expectedKeys.length; index += 1) {
+    if (expectedKeys[index] === key) return true;
   }
   return false;
 }
 
 function exactDataDescriptors(value, expectedKeys, label, requirePlainLocal) {
-  if (value === null || typeof value !== "object" || arrayIsArray(value) || utilTypes.isProxy(value)) {
+  if (value === null || typeof value !== "object" || arrayIsArray(value) || isProxy(value)) {
     throw boundaryError(`${label} must be a non-Proxy record.`);
   }
-  if (isForbiddenBrand(value, false)) {
+  if (isForbiddenRuntimeObject(value)) {
     throw boundaryError(`${label} must be a plain record.`);
   }
   if (requirePlainLocal) {
@@ -186,8 +196,9 @@ function exactDataDescriptors(value, expectedKeys, label, requirePlainLocal) {
   if (keys.length !== expectedKeys.length) {
     throw boundaryError(`${label} has an invalid key set.`);
   }
-  for (const key of keys) {
-    if (typeof key !== "string" || !expectedKeys.includes(key)) {
+  for (let keyIndex = 0; keyIndex < keys.length; keyIndex += 1) {
+    const key = keys[keyIndex];
+    if (typeof key !== "string" || !expectedKeyContains(expectedKeys, key)) {
       throw boundaryError(`${label} has an invalid key set.`);
     }
     const descriptor = descriptors[key];
@@ -213,143 +224,259 @@ function assertSafePrimitive(value, label) {
   throw boundaryError(`${label} contains unsupported data.`);
 }
 
-function projectInvocationData(value, label, ancestors) {
-  if (value === null || typeof value !== "object") {
-    assertSafePrimitive(value, label);
-    return value;
+function assertDataDescriptor(descriptor, label) {
+  if (
+    descriptor === undefined ||
+    !("value" in descriptor) ||
+    "get" in descriptor ||
+    "set" in descriptor ||
+    descriptor.enumerable !== true
+  ) {
+    throw boundaryError(`${label} must use enumerable data properties only.`);
   }
-  if (utilTypes.isProxy(value) || isForbiddenBrand(value, false)) {
-    throw boundaryError(`${label} contains unsupported runtime data.`);
+}
+
+function captureArrayEntries(value, label, descriptors) {
+  const lengthDescriptor = descriptors.length;
+  if (
+    lengthDescriptor === undefined ||
+    !("value" in lengthDescriptor) ||
+    "get" in lengthDescriptor ||
+    "set" in lengthDescriptor ||
+    typeof lengthDescriptor.value !== "number" ||
+    !numberIsInteger(lengthDescriptor.value) ||
+    lengthDescriptor.value < 0
+  ) {
+    throw boundaryError(`${label} has an invalid array length.`);
   }
-  if (ancestors.has(value)) {
-    throw boundaryError(`${label} must not contain cycles.`);
-  }
-  const nextAncestors = new Set(ancestors);
-  nextAncestors.add(value);
-  const descriptors = getOwnPropertyDescriptors(value);
+
+  const length = lengthDescriptor.value;
+  const entries = new ArrayConstructor();
   const keys = ownKeys(descriptors);
-  if (arrayIsArray(value)) {
-    const lengthDescriptor = descriptors.length;
-    if (!lengthDescriptor || !("value" in lengthDescriptor)) {
-      throw boundaryError(`${label} has an invalid array length.`);
+  for (let keyIndex = 0; keyIndex < keys.length; keyIndex += 1) {
+    const key = keys[keyIndex];
+    if (key === "length") continue;
+    if (typeof key !== "string") {
+      throw boundaryError(`${label} must not contain symbol keys.`);
     }
-    const length = lengthDescriptor.value;
-    const result = new Array(length);
-    for (const key of keys) {
-      if (typeof key === "symbol") {
-        throw boundaryError(`${label} must not contain symbol keys.`);
-      }
-      const descriptor = descriptors[key];
-      if ("get" in descriptor || "set" in descriptor) {
-        throw boundaryError(`${label} must not contain accessors.`);
-      }
-      if (key === "length") {
-        continue;
-      }
-      const index = Number(key);
-      if (!Number.isInteger(index) || index < 0 || index >= length || String(index) !== key) {
-        throw boundaryError(`${label} has an invalid array property.`);
-      }
+    const index = numberConstructor(key);
+    if (
+      !numberIsInteger(index) ||
+      index < 0 ||
+      index >= length ||
+      stringConstructor(index) !== key
+    ) {
+      throw boundaryError(`${label} has an invalid array property.`);
     }
-    for (let index = 0; index < length; index += 1) {
-      const descriptor = descriptors[String(index)];
-      if (!descriptor) {
-        throw boundaryError(`${label} must not be sparse.`);
-      }
-      result[index] = projectInvocationData(descriptor.value, `${label}[${index}]`, nextAncestors);
-    }
-    return result;
+    assertDataDescriptor(descriptors[key], `${label}[${index}]`);
   }
-  const result = {};
-  for (const key of keys) {
+
+  for (let index = 0; index < length; index += 1) {
+    const key = stringConstructor(index);
+    const descriptor = descriptors[key];
+    if (descriptor === undefined) {
+      throw boundaryError(`${label} must not be sparse.`);
+    }
+    assertDataDescriptor(descriptor, `${label}[${index}]`);
+    appendInternal(entries, {
+      key,
+      value: descriptor.value,
+      label: `${label}[${index}]`
+    });
+  }
+
+  return { entries, length };
+}
+
+function captureRecordEntries(value, label, descriptors) {
+  const entries = new ArrayConstructor();
+  const keys = ownKeys(descriptors);
+  for (let keyIndex = 0; keyIndex < keys.length; keyIndex += 1) {
+    const key = keys[keyIndex];
     if (typeof key !== "string") {
       throw boundaryError(`${label} must not contain symbol keys.`);
     }
     const descriptor = descriptors[key];
-    if ("get" in descriptor || "set" in descriptor) {
-      throw boundaryError(`${label} must not contain accessors.`);
-    }
-    result[key] = projectInvocationData(descriptor.value, `${label}.${key}`, nextAncestors);
+    assertDataDescriptor(descriptor, `${label}.${key}`);
+    appendInternal(entries, {
+      key,
+      value: descriptor.value,
+      label: `${label}.${key}`
+    });
   }
-  return result;
+  return entries;
 }
 
-function detachProviderData(value, label, ancestors, root) {
+function prepareInvocationNode(value, label, active) {
+  if (value === null || typeof value !== "object") {
+    assertSafePrimitive(value, label);
+    return { value, frame: null };
+  }
+  if (isProxy(value) || isForbiddenRuntimeObject(value)) {
+    throw boundaryError(`${label} contains unsupported runtime data.`);
+  }
+  if (reflectApply(weakSetHas, active, [value])) {
+    throw boundaryError(`${label} must not contain cycles.`);
+  }
+
+  const descriptors = getOwnPropertyDescriptors(value);
+  const isArray = arrayIsArray(value);
+  let entries;
+  let target;
+  if (isArray) {
+    const captured = captureArrayEntries(value, label, descriptors);
+    entries = captured.entries;
+    target = new ArrayConstructor(captured.length);
+  } else {
+    entries = captureRecordEntries(value, label, descriptors);
+    target = objectCreate(null);
+  }
+
+  reflectApply(weakSetAdd, active, [value]);
+  return {
+    value: target,
+    frame: {
+      source: value,
+      target,
+      entries,
+      index: 0,
+      active
+    }
+  };
+}
+
+function projectInvocationData(value, label) {
+  const active = new WeakSetConstructor();
+  const root = prepareInvocationNode(value, label, active);
+  if (root.frame === null) return root.value;
+
+  const stack = new ArrayConstructor();
+  appendInternal(stack, root.frame);
+  while (stack.length > 0) {
+    const frame = stack[stack.length - 1];
+    if (frame.index >= frame.entries.length) {
+      reflectApply(weakSetDelete, frame.active, [frame.source]);
+      reflectApply(arrayPop, stack, []);
+      continue;
+    }
+
+    const entry = frame.entries[frame.index];
+    frame.index += 1;
+    const child = prepareInvocationNode(entry.value, entry.label, frame.active);
+    defineProperty(frame.target, entry.key, {
+      value: child.value,
+      writable: true,
+      enumerable: true,
+      configurable: true
+    });
+    if (child.frame !== null) appendInternal(stack, child.frame);
+  }
+  return root.value;
+}
+
+function prepareProviderNode(value, label, seen, root) {
   if (value === null || typeof value !== "object") {
     if (root) {
       throw boundaryError("provider response output root must be a record.");
     }
     assertSafePrimitive(value, label);
-    return value;
+    return { value, frame: null };
   }
-  if (utilTypes.isProxy(value) || isForbiddenBrand(value, false)) {
+  if (isProxy(value) || isForbiddenRuntimeObject(value)) {
     throw boundaryError(`${label} contains unsupported runtime data.`);
   }
-  if (ancestors.has(value)) {
-    throw boundaryError(`${label} must not contain cycles or repeated identity.`);
+  if (reflectApply(weakSetHas, seen, [value])) {
+    throw boundaryError(`${label} must not contain cycles or repeated mutable identity.`);
   }
-  const nextAncestors = new Set(ancestors);
-  nextAncestors.add(value);
+  reflectApply(weakSetAdd, seen, [value]);
+
+  const isArray = arrayIsArray(value);
   const prototype = getPrototypeOf(value);
-  if (arrayIsArray(value)) {
+  const descriptors = getOwnPropertyDescriptors(value);
+  let entries;
+  let target;
+  if (isArray) {
     if (root) {
       throw boundaryError("provider response output root must be a record.");
     }
     if (prototype !== arrayPrototype) {
       throw boundaryError(`${label} must be a local array.`);
     }
-    const descriptors = getOwnPropertyDescriptors(value);
-    const keys = ownKeys(descriptors);
-    const length = descriptors.length && descriptors.length.value;
-    const result = new Array(length);
-    for (const key of keys) {
-      if (typeof key === "symbol") {
-        throw boundaryError(`${label} must not contain symbol keys.`);
-      }
-      const descriptor = descriptors[key];
-      if ("get" in descriptor || "set" in descriptor) {
-        throw boundaryError(`${label} must not contain accessors.`);
-      }
-      if (key === "length") continue;
-      const index = Number(key);
-      if (!Number.isInteger(index) || index < 0 || index >= length || String(index) !== key) {
-        throw boundaryError(`${label} has an invalid array property.`);
-      }
+    const captured = captureArrayEntries(value, label, descriptors);
+    entries = captured.entries;
+    target = new ArrayConstructor(captured.length);
+  } else {
+    if (prototype !== objectPrototype && prototype !== null) {
+      throw boundaryError(`${label} must be a local plain record.`);
     }
-    for (let index = 0; index < length; index += 1) {
-      const descriptor = descriptors[String(index)];
-      if (!descriptor) throw boundaryError(`${label} must not be sparse.`);
-      result[index] = detachProviderData(descriptor.value, `${label}[${index}]`, nextAncestors, false);
-    }
-    return result;
+    entries = captureRecordEntries(value, label, descriptors);
+    target = objectCreate(null);
   }
-  if (prototype !== objectPrototype && prototype !== null) {
-    throw boundaryError(`${label} must be a local plain record.`);
+
+  return {
+    value: target,
+    frame: {
+      target,
+      entries,
+      index: 0,
+      seen
+    }
+  };
+}
+
+function detachProviderData(value, label, root) {
+  const seen = new WeakSetConstructor();
+  const prepared = prepareProviderNode(value, label, seen, root);
+  if (prepared.frame === null) return prepared.value;
+
+  const stack = new ArrayConstructor();
+  appendInternal(stack, prepared.frame);
+  while (stack.length > 0) {
+    const frame = stack[stack.length - 1];
+    if (frame.index >= frame.entries.length) {
+      reflectApply(arrayPop, stack, []);
+      continue;
+    }
+
+    const entry = frame.entries[frame.index];
+    frame.index += 1;
+    const child = prepareProviderNode(entry.value, entry.label, frame.seen, false);
+    defineProperty(frame.target, entry.key, {
+      value: child.value,
+      writable: true,
+      enumerable: true,
+      configurable: true
+    });
+    if (child.frame !== null) appendInternal(stack, child.frame);
   }
-  const descriptors = getOwnPropertyDescriptors(value);
-  const result = root ? objectCreate(null) : {};
-  for (const key of ownKeys(descriptors)) {
-    if (typeof key !== "string") {
-      throw boundaryError(`${label} must not contain symbol keys.`);
-    }
-    const descriptor = descriptors[key];
-    if ("get" in descriptor || "set" in descriptor) {
-      throw boundaryError(`${label} must not contain accessors.`);
-    }
-    const child = descriptor.value;
-    if (child !== null && typeof child === "object" && nextAncestors.has(child)) {
-      throw boundaryError(`${label} must not contain cycles or repeated identity.`);
-    }
-    result[key] = detachProviderData(child, `${label}.${key}`, nextAncestors, false);
-  }
-  return result;
+  return prepared.value;
 }
 
 function cloneSchema(value) {
-  if (Array.isArray(value)) return value.map(cloneSchema);
+  if (arrayIsArray(value)) {
+    const result = new ArrayConstructor(value.length);
+    for (let index = 0; index < value.length; index += 1) {
+      defineProperty(result, stringConstructor(index), {
+        value: cloneSchema(value[index]),
+        writable: true,
+        enumerable: true,
+        configurable: true
+      });
+    }
+    return result;
+  }
   if (value !== null && typeof value === "object") {
-    const out = {};
-    for (const key of Object.keys(value)) out[key] = cloneSchema(value[key]);
+    const out = objectCreate(null);
+    const keys = objectKeys(value);
+    for (let index = 0; index < keys.length; index += 1) {
+      const key = keys[index];
+      defineProperty(out, key, {
+        value: cloneSchema(value[key]),
+        writable: true,
+        enumerable: true,
+        configurable: true
+      });
+    }
     return out;
   }
   return value;
@@ -364,23 +491,6 @@ function buildOutputFormat(mode) {
   };
 }
 
-function assertUniqueProviderIdentity(value, seen) {
-  if (value === null || typeof value !== "object") return;
-  if (utilTypes.isProxy(value) || isForbiddenBrand(value, false)) return;
-  if (seen.has(value)) {
-    throw boundaryError("provider response.output must not contain repeated mutable identity.");
-  }
-  seen.add(value);
-  const descriptors = getOwnPropertyDescriptors(value);
-  for (const key of ownKeys(descriptors)) {
-    if (key === "length") continue;
-    const descriptor = descriptors[key];
-    if (descriptor && "value" in descriptor) {
-      assertUniqueProviderIdentity(descriptor.value, seen);
-    }
-  }
-}
-
 function validateProviderResponse(response) {
   const descriptors = exactDataDescriptors(
     response,
@@ -391,8 +501,11 @@ function validateProviderResponse(response) {
   if (descriptors.version.value !== 1 || descriptors.kind.value !== "gotcha-provider-response") {
     throw boundaryError("provider response has invalid version or kind.");
   }
-  assertUniqueProviderIdentity(descriptors.output.value, new Set());
-  return detachProviderData(descriptors.output.value, "provider response.output", new Set(), true);
+  return detachProviderData(
+    descriptors.output.value,
+    "provider response.output",
+    true
+  );
 }
 
 function observeAcceptedPromise(promise, onFulfilled, onRejected) {
@@ -431,7 +544,7 @@ function createStructuredProviderAdapter(options) {
   const model = descriptors.model.value;
   const mode = descriptors.mode.value;
 
-  if (typeof transport !== "function" || utilTypes.isProxy(transport)) {
+  if (typeof transport !== "function" || isProxy(transport)) {
     throw boundaryError("transport must be a non-Proxy function.");
   }
   if (
@@ -464,13 +577,13 @@ function createStructuredProviderAdapter(options) {
         }
         const input = mode === "quality-contract"
           ? {
-              task: projectInvocationData(requestDescriptors.task.value, "generator request.task", new Set()),
-              examples: projectInvocationData(requestDescriptors.examples.value, "generator request.examples", new Set())
+              task: projectInvocationData(requestDescriptors.task.value, "generator request.task"),
+              examples: projectInvocationData(requestDescriptors.examples.value, "generator request.examples")
             }
           : {
-              contract: projectInvocationData(requestDescriptors.contract.value, "generator request.contract", new Set()),
-              input: projectInvocationData(requestDescriptors.input.value, "generator request.input", new Set()),
-              expectedOutput: projectInvocationData(requestDescriptors.expectedOutput.value, "generator request.expectedOutput", new Set())
+              contract: projectInvocationData(requestDescriptors.contract.value, "generator request.contract"),
+              input: projectInvocationData(requestDescriptors.input.value, "generator request.input"),
+              expectedOutput: projectInvocationData(requestDescriptors.expectedOutput.value, "generator request.expectedOutput")
             };
         request = {
           version: 1,
@@ -482,7 +595,7 @@ function createStructuredProviderAdapter(options) {
           input
         };
       } catch (error) {
-        reject(error instanceof TypeError ? error : boundaryError("generator request capture failed."));
+        reject(isLocalTypeError(error) ? error : boundaryError("generator request capture failed."));
         return;
       }
 
@@ -498,18 +611,18 @@ function createStructuredProviderAdapter(options) {
         try {
           resolve(validateProviderResponse(response));
         } catch (error) {
-          reject(error instanceof TypeError ? error : boundaryError("provider response validation failed."));
+          reject(isLocalTypeError(error) ? error : boundaryError("provider response validation failed."));
         }
       };
 
-      if (transportResult !== null && typeof transportResult === "object" && !utilTypes.isProxy(transportResult) && utilTypes.isPromise(transportResult)) {
+      if (transportResult !== null && typeof transportResult === "object" && !isProxy(transportResult) && reflectApply(isPromise, utilTypes, [transportResult])) {
         try {
           if (getPrototypeOf(transportResult) !== PromisePrototype) {
             throw boundaryError("transport Promise has an unsupported current prototype.");
           }
           observeAcceptedPromise(transportResult, settleResponse, reject);
         } catch (error) {
-          reject(error instanceof TypeError ? error : boundaryError("transport Promise cannot be safely observed."));
+          reject(isLocalTypeError(error) ? error : boundaryError("transport Promise cannot be safely observed."));
         }
         return;
       }

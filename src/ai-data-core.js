@@ -1776,5 +1776,6 @@ function snapshotAiData(
 module.exports = {
   cloneAiData,
   freezeAiData,
-  snapshotAiData
+  snapshotAiData,
+  isUnsupportedRuntimeObject
 };

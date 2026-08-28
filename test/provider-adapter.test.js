@@ -203,8 +203,10 @@ test("invocation aliases normalize into distinct detached request branches", asy
     instructions: "instructions"
   });
 
-  assert.deepEqual(seen.input.input.a, { value: 1 });
-  assert.deepEqual(seen.input.input.b, { value: 1 });
+  assert.equal(seen.input.input.a.value, 1);
+  assert.equal(seen.input.input.b.value, 1);
+  assert.equal(Object.getPrototypeOf(seen.input.input.a), null);
+  assert.equal(Object.getPrototypeOf(seen.input.input.b), null);
   assert.notStrictEqual(seen.input.input.a, seen.input.input.b);
   shared.value = 2;
   assert.equal(seen.input.input.a.value, 1);
@@ -371,4 +373,207 @@ test("public fulfillment does not execute inherited Object.prototype.then", asyn
     if (previous === undefined) delete Object.prototype.then;
     else Object.defineProperty(Object.prototype, "then", previous);
   }
+});
+
+
+test("M11 hardening preserves own data and captured authority", async () => {
+  const source = JSON.parse('{"__proto__":{"value":1}}');
+  const providerOutput = JSON.parse('{"version":1,"task":"x","rules":[],"__proto__":{"value":2}}');
+  let seen;
+  const generator = createStructuredProviderAdapter({
+    model: "x",
+    mode: "contract-attacks",
+    transport(request) {
+      seen = request;
+      return response(providerOutput);
+    }
+  });
+
+  const returned = await generator({
+    contract: { task: "x" },
+    input: source,
+    expectedOutput: { ok: true },
+    instructions: "i"
+  });
+
+  assert.equal(Object.getPrototypeOf(seen.input.input), null);
+  assert.equal(Object.hasOwn(seen.input.input, "__proto__"), true);
+  assert.equal(seen.input.input.__proto__.value, 1);
+  assert.equal(Object.getPrototypeOf(returned), null);
+  assert.equal(Object.hasOwn(returned, "__proto__"), true);
+  assert.equal(returned.__proto__.value, 2);
+});
+
+test("array projection defines own elements without inherited setters", async () => {
+  const values = Array.from({ length: 138 }, (_, index) => index);
+  const providerOutput = {
+    version: 1,
+    task: "x",
+    rules: [],
+    values
+  };
+  const previous = Object.getOwnPropertyDescriptor(Array.prototype, "137");
+  let setterCalls = 0;
+  Object.defineProperty(Array.prototype, "137", {
+    configurable: true,
+    set() {
+      setterCalls += 1;
+    }
+  });
+  try {
+    const generator = createStructuredProviderAdapter({
+      model: "x",
+      mode: "quality-contract",
+      transport: () => response(providerOutput)
+    });
+    const returned = await generator({ task: "x", examples: values, instructions: "i" });
+    assert.equal(returned.values[137], 137);
+    assert.equal(setterCalls, 0);
+  } finally {
+    if (previous === undefined) delete Array.prototype[137];
+    else Object.defineProperty(Array.prototype, "137", previous);
+  }
+});
+
+test("record length participates in provider identity uniqueness", async () => {
+  const shared = { value: 1 };
+  const generator = createStructuredProviderAdapter({
+    model: "x",
+    mode: "quality-contract",
+    transport: () => response({
+      version: 1,
+      task: "x",
+      rules: [],
+      meta: { length: shared, other: shared }
+    })
+  });
+  await assert.rejects(generator({ task: "x", examples: [], instructions: "i" }), TypeError);
+});
+
+test("projection and detachment remain stack-safe for deep valid AI data", async () => {
+  function deepRecord(depth) {
+    const root = {};
+    let cursor = root;
+    for (let index = 0; index < depth; index += 1) {
+      const next = {};
+      cursor.next = next;
+      cursor = next;
+    }
+    cursor.value = "end";
+    return root;
+  }
+
+  const invocationDeep = deepRecord(6000);
+  const outputDeep = deepRecord(6000);
+  let seen;
+  const generator = createStructuredProviderAdapter({
+    model: "x",
+    mode: "quality-contract",
+    transport(request) {
+      seen = request;
+      return response({ version: 1, task: "x", rules: [], deep: outputDeep });
+    }
+  });
+  const returned = await generator({ task: "x", examples: [invocationDeep], instructions: "i" });
+  assert.ok(seen.input.examples[0]);
+  let cursor = returned.deep;
+  for (let index = 0; index < 6000; index += 1) cursor = cursor.next;
+  assert.equal(cursor.value, "end");
+});
+
+test("slot-backed runtime brands reject before transport", async () => {
+  let calls = 0;
+  const generator = createStructuredProviderAdapter({
+    model: "x",
+    mode: "quality-contract",
+    transport() {
+      calls += 1;
+      return response({ version: 1, task: "x", rules: [] });
+    }
+  });
+
+  const target = {};
+  await assert.rejects(
+    generator({ task: "x", examples: [new WeakRef(target)], instructions: "i" }),
+    TypeError
+  );
+  if (typeof FinalizationRegistry === "function") {
+    const registry = new FinalizationRegistry(() => {});
+    await assert.rejects(
+      generator({ task: "x", examples: [registry], instructions: "i" }),
+      TypeError
+    );
+  }
+  assert.equal(calls, 0);
+});
+
+test("captured Promise brand probe survives util.types mutation", async () => {
+  const runtimeTypes = require("node:util").types;
+  const descriptor = Object.getOwnPropertyDescriptor(runtimeTypes, "isPromise");
+  const reason = { code: "captured-promise" };
+  Object.defineProperty(runtimeTypes, "isPromise", {
+    ...descriptor,
+    value: () => false
+  });
+  try {
+    const generator = createStructuredProviderAdapter({
+      model: "x",
+      mode: "quality-contract",
+      transport: () => Promise.reject(reason)
+    });
+    await assert.rejects(
+      generator({ task: "x", examples: [], instructions: "i" }),
+      (error) => error === reason
+    );
+  } finally {
+    Object.defineProperty(runtimeTypes, "isPromise", descriptor);
+  }
+});
+
+test("provider identity is independent of ambient Set replacement", async () => {
+  const OriginalSet = global.Set;
+  const shared = { value: 1 };
+  global.Set = class BrokenSet {
+    has() { return false; }
+    add() { return this; }
+  };
+  try {
+    const generator = createStructuredProviderAdapter({
+      model: "x",
+      mode: "quality-contract",
+      transport: () => response({
+        version: 1,
+        task: "x",
+        rules: [],
+        meta: { first: shared, second: shared }
+      })
+    });
+    await assert.rejects(generator({ task: "x", examples: [], instructions: "i" }), TypeError);
+  } finally {
+    global.Set = OriginalSet;
+  }
+});
+
+test("boundary failures use the captured local TypeError constructor", async () => {
+  const OriginalTypeError = global.TypeError;
+  let caught;
+  global.TypeError = function ReplacementTypeError() {
+    return new Error("replacement executed");
+  };
+  try {
+    const generator = createStructuredProviderAdapter({
+      model: "x",
+      mode: "quality-contract",
+      transport: () => ({ version: 1, kind: "wrong", output: {} })
+    });
+    try {
+      await generator({ task: "x", examples: [], instructions: "i" });
+    } catch (error) {
+      caught = error;
+    }
+  } finally {
+    global.TypeError = OriginalTypeError;
+  }
+  assert.ok(caught instanceof OriginalTypeError);
+  assert.equal(Object.getPrototypeOf(caught), OriginalTypeError.prototype);
 });

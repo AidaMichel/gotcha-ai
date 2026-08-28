@@ -133,7 +133,8 @@ test("packed npm artifact exposes contract remediation to an external consumer",
       for (const name of [
         "draftContractProtection",
         "confirmContractProtection",
-        "verifyContractProtection"
+        "verifyContractProtection",
+        "createStructuredProviderAdapter"
       ]) {
         if (typeof api[name] !== "function") throw new Error(name + " missing");
       }
