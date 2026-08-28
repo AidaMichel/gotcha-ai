@@ -36,7 +36,8 @@ const {
   MapConstructor,
   mapGet,
   mapSet,
-  PromiseThen: promiseThen
+  PromiseThen: promiseThen,
+  PromiseSpecies: promiseSpecies
 } = authority;
 
 const MAX_RULES_V1 = 7;
@@ -1644,15 +1645,38 @@ async function buildVerification(capture) {
 }
 
 function scheduleVerification(capture, resolve, reject) {
+  const speciesContainer = {};
+  defineProperty(speciesContainer, promiseSpecies, {
+    value: PromiseConstructor,
+    writable: false,
+    enumerable: false,
+    configurable: false
+  });
+
   const kickoff = new PromiseConstructor((kickoffResolve) => kickoffResolve());
+  defineProperty(kickoff, "constructor", {
+    value: speciesContainer,
+    writable: true,
+    enumerable: false,
+    configurable: true
+  });
   const verification = reflectApply(promiseThen, kickoff, [
     () => buildVerification(capture),
     () => { throw boundaryError(); }
   ]);
+  deleteProperty(kickoff, "constructor");
+
+  defineProperty(verification, "constructor", {
+    value: speciesContainer,
+    writable: true,
+    enumerable: false,
+    configurable: true
+  });
   reflectApply(promiseThen, verification, [
     (result) => settleArtifact(resolve, result),
     () => reject(boundaryError())
   ]);
+  deleteProperty(verification, "constructor");
 }
 
 function verifyContractProtection(options) {

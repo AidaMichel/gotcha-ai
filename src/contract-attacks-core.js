@@ -101,7 +101,9 @@ const experimentIntrinsics =
     mapSet:
       Map.prototype.set,
     PromiseThen:
-      Promise.prototype.then
+      Promise.prototype.then,
+    PromiseSpecies:
+      Symbol.species
   });
 
 const utilIsPromise =
