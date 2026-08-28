@@ -21,6 +21,10 @@ const {
   verifyContractProtection
 } = require("./contract-remediation");
 
+const {
+  createStructuredProviderAdapter
+} = require("./provider-adapter");
+
 function runGotcha({
   evaluator,
   expectedOutput,
@@ -47,5 +51,6 @@ module.exports = {
   runContractAttacks,
   draftContractProtection,
   confirmContractProtection,
-  verifyContractProtection
+  verifyContractProtection,
+  createStructuredProviderAdapter
 };
