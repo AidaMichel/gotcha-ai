@@ -514,6 +514,70 @@ function captureMethodFromPrototype(
     : null;
 }
 
+function hasTrustedHostProbeCallableShape(
+  callable,
+  expectedName,
+  expectedLength,
+  sourcePrefix
+) {
+  if (
+    typeof callable !== "function" ||
+    utilTypePredicates.isProxy(callable)
+  ) {
+    return false;
+  }
+
+  let prototypeDescriptor;
+  let nameDescriptor;
+  let lengthDescriptor;
+  let source;
+
+  try {
+    prototypeDescriptor =
+      getOwnPropertyDescriptor(
+        callable,
+        "prototype"
+      );
+    nameDescriptor =
+      getOwnPropertyDescriptor(
+        callable,
+        "name"
+      );
+    lengthDescriptor =
+      getOwnPropertyDescriptor(
+        callable,
+        "length"
+      );
+    source =
+      reflectApply(
+        functionToString,
+        callable,
+        []
+      );
+  } catch {
+    return false;
+  }
+
+  if (
+    prototypeDescriptor !== undefined ||
+    nameDescriptor === undefined ||
+    "get" in nameDescriptor ||
+    "set" in nameDescriptor ||
+    nameDescriptor.value !== expectedName ||
+    lengthDescriptor === undefined ||
+    "get" in lengthDescriptor ||
+    "set" in lengthDescriptor ||
+    lengthDescriptor.value !== expectedLength
+  ) {
+    return false;
+  }
+
+  return (
+    source.includes("[native code]") ||
+    source.startsWith(sourcePrefix)
+  );
+}
+
 let globalHostBrandAuthorityAvailable = true;
 
 function captureGlobalConstructor(
@@ -538,6 +602,86 @@ function captureGlobalConstructor(
   }
 
   return value;
+}
+
+function captureGlobalHostBrandGetter(
+  constructorName,
+  propertyName
+) {
+  const constructor =
+    captureGlobalConstructor(
+      constructorName
+    );
+
+  if (constructor === null) {
+    return null;
+  }
+
+  const getter =
+    capturePrototypeGetter(
+      constructor,
+      propertyName
+    );
+
+  if (
+    getter === null ||
+    !hasTrustedHostProbeCallableShape(
+      getter,
+      `get ${propertyName}`,
+      0,
+      `get ${propertyName}(`
+    )
+  ) {
+    globalHostBrandAuthorityAvailable = false;
+    return null;
+  }
+
+  return getter;
+}
+
+function captureGlobalHostBrandMethod(
+  constructorName,
+  propertyName,
+  expectedLength
+) {
+  const constructor =
+    captureGlobalConstructor(
+      constructorName
+    );
+
+  if (constructor === null) {
+    return {
+      constructor: null,
+      method: null
+    };
+  }
+
+  const method =
+    capturePrototypeMethod(
+      constructor,
+      propertyName
+    );
+
+  if (
+    method === null ||
+    !hasTrustedHostProbeCallableShape(
+      method,
+      propertyName,
+      expectedLength,
+      `${propertyName}(`
+    )
+  ) {
+    globalHostBrandAuthorityAvailable = false;
+    return {
+      constructor,
+      method: null
+    };
+  }
+
+  return {
+    constructor,
+    method
+  };
 }
 
 function captureIntlConstructor(
@@ -652,10 +796,8 @@ const unsupportedHostBrandGetters =
     HOST_BRAND_GETTER_SPECS
       .map(
         ([constructorName, propertyName]) =>
-          capturePrototypeGetter(
-            captureGlobalConstructor(
-              constructorName
-            ),
+          captureGlobalHostBrandGetter(
+            constructorName,
             propertyName
           )
       )
@@ -665,23 +807,31 @@ const unsupportedHostBrandGetters =
       )
   );
 
+const headersBrandProbe =
+  captureGlobalHostBrandMethod(
+    "Headers",
+    "get",
+    1
+  );
+
+const formDataBrandProbe =
+  captureGlobalHostBrandMethod(
+    "FormData",
+    "get",
+    1
+  );
+
 const headersConstructor =
-  captureGlobalConstructor("Headers");
+  headersBrandProbe.constructor;
 
 const formDataConstructor =
-  captureGlobalConstructor("FormData");
+  formDataBrandProbe.constructor;
 
 const headersBrandMethod =
-  capturePrototypeMethod(
-    headersConstructor,
-    "get"
-  );
+  headersBrandProbe.method;
 
 const formDataBrandMethod =
-  capturePrototypeMethod(
-    formDataConstructor,
-    "get"
-  );
+  formDataBrandProbe.method;
 
 const additionalHostBrandMethodAuthorityAvailable =
   (
@@ -717,21 +867,25 @@ const additionalHostBrandMethodProbes =
     )
   );
 
+const weakRefBrandProbe =
+  captureGlobalHostBrandMethod(
+    "WeakRef",
+    "deref",
+    0
+  );
+
 const weakRefDeref =
-  capturePrototypeMethod(
-    captureGlobalConstructor(
-      "WeakRef"
-    ),
-    "deref"
+  weakRefBrandProbe.method;
+
+const finalizationRegistryBrandProbe =
+  captureGlobalHostBrandMethod(
+    "FinalizationRegistry",
+    "unregister",
+    1
   );
 
 const finalizationRegistryUnregister =
-  capturePrototypeMethod(
-    captureGlobalConstructor(
-      "FinalizationRegistry"
-    ),
-    "unregister"
-  );
+  finalizationRegistryBrandProbe.method;
 
 const finalizationRegistryProbeToken =
   objectFreeze({});

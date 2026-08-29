@@ -180,3 +180,77 @@ test("proxy-backed shared host-brand constructor authority fails closed", () => 
     assert.equal(trapCalls, 0);
   `);
 });
+
+
+test("bound host constructor without usable probe fails closed", () => {
+  runIsolated(`
+    "use strict";
+    const assert = require("node:assert/strict");
+
+    const OriginalURL = globalThis.URL;
+    if (typeof OriginalURL !== "function") process.exit(0);
+
+    const saved = new OriginalURL("https://example.com/");
+    saved.foo = "bar";
+    Object.setPrototypeOf(saved, Object.prototype);
+
+    globalThis.URL = OriginalURL.bind(null);
+    globalThis.structuredClone = undefined;
+
+    const { cloneAiData } = require(${JSON.stringify(aiDataPath)});
+    assert.throws(() => cloneAiData(saved));
+  `);
+});
+
+test("proxy-backed Headers brand method is rejected without executing traps", () => {
+  runIsolated(`
+    "use strict";
+    const assert = require("node:assert/strict");
+
+    const Constructor = globalThis.Headers;
+    if (typeof Constructor !== "function") process.exit(0);
+
+    const saved = new Constructor();
+    saved.foo = "bar";
+    Object.setPrototypeOf(saved, Object.prototype);
+
+    const originalGet = Constructor.prototype.get;
+    let trapCalls = 0;
+    Constructor.prototype.get = new Proxy(originalGet, {
+      apply() {
+        trapCalls += 1;
+        throw new Error("poisoned Headers.get executed");
+      }
+    });
+    globalThis.structuredClone = undefined;
+
+    const { cloneAiData } = require(${JSON.stringify(aiDataPath)});
+    assert.throws(() => cloneAiData(saved));
+    assert.equal(trapCalls, 0);
+  `);
+});
+
+test("ordinary throwing Headers brand method is rejected before execution", () => {
+  runIsolated(`
+    "use strict";
+    const assert = require("node:assert/strict");
+
+    const Constructor = globalThis.Headers;
+    if (typeof Constructor !== "function") process.exit(0);
+
+    const saved = new Constructor();
+    saved.foo = "bar";
+    Object.setPrototypeOf(saved, Object.prototype);
+
+    let calls = 0;
+    Constructor.prototype.get = function get() {
+      calls += 1;
+      throw new Error("poisoned Headers.get executed");
+    };
+    globalThis.structuredClone = undefined;
+
+    const { cloneAiData } = require(${JSON.stringify(aiDataPath)});
+    assert.throws(() => cloneAiData(saved));
+    assert.equal(calls, 0);
+  `);
+});
