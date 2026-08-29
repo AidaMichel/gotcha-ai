@@ -21,11 +21,142 @@ jobs:
       - run: npm ci
       - name: Apply Codex remediation
         run: python scripts/qa/m13-remediate-review.py
-      - name: Correct remediation proof fixtures
+      - name: Complete stack-safe remediation and proof fixtures
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
+
+          runtime = Path("src/contract-protection-proposal.js")
+          source = runtime.read_text()
+          marker = "function completeExperimentAuthority(experiment) {"
+          serializer = '''function stringifyWireValue(root) {
+            let encoded = "";
+            const frames = new ArrayConstructor();
+            append(frames, makeRecord([
+              ["value", root],
+              ["entered", false],
+              ["array", false],
+              ["descriptors", null],
+              ["keys", null],
+              ["index", 0],
+              ["length", 0]
+            ]));
+
+            while (frames.length > 0) {
+              const frame = frames[frames.length - 1];
+              const value = frame.value;
+
+              if (frame.entered !== true) {
+                if (
+                  value === null ||
+                  typeof value === "string" ||
+                  typeof value === "boolean" ||
+                  typeof value === "number"
+                ) {
+                  if (typeof value === "number" && !isWireNumber(value)) {
+                    throw boundaryError();
+                  }
+                  const primitive = jsonStringify(value);
+                  if (typeof primitive !== "string") throw boundaryError();
+                  encoded += primitive;
+                  frames.length -= 1;
+                  continue;
+                }
+
+                if (typeof value !== "object" || isProxy(value) === true) {
+                  throw boundaryError();
+                }
+
+                if (arrayIsArray(value) === true) {
+                  if (!exactArray(value)) throw boundaryError();
+                  frame.entered = true;
+                  frame.array = true;
+                  frame.descriptors = getOwnPropertyDescriptors(value);
+                  frame.length = frame.descriptors.length.value;
+                  encoded += "[";
+                  if (frame.length === 0) {
+                    encoded += "]";
+                    frames.length -= 1;
+                  }
+                  continue;
+                }
+
+                if (
+                  hasForbiddenBrand(value) ||
+                  getPrototypeOf(value) !== objectPrototype ||
+                  isExtensible(value) !== true
+                ) {
+                  throw boundaryError();
+                }
+
+                const descriptors = getOwnPropertyDescriptors(value);
+                const keys = ownKeys(descriptors);
+                for (let index = 0; index < keys.length; index += 1) {
+                  if (
+                    typeof keys[index] !== "string" ||
+                    !ordinaryDescriptor(descriptors[keys[index]])
+                  ) {
+                    throw boundaryError();
+                  }
+                }
+                frame.entered = true;
+                frame.descriptors = descriptors;
+                frame.keys = keys;
+                frame.length = keys.length;
+                encoded += "{";
+                if (frame.length === 0) {
+                  encoded += "}";
+                  frames.length -= 1;
+                }
+                continue;
+              }
+
+              if (frame.index >= frame.length) {
+                encoded += frame.array === true ? "]" : "}";
+                frames.length -= 1;
+                continue;
+              }
+
+              if (frame.index > 0) encoded += ",";
+
+              let child;
+              if (frame.array === true) {
+                const key = stringConstructor(frame.index);
+                child = frame.descriptors[key].value;
+              } else {
+                const key = frame.keys[frame.index];
+                const encodedKey = jsonStringify(key);
+                if (typeof encodedKey !== "string") throw boundaryError();
+                encoded += encodedKey + ":";
+                child = frame.descriptors[key].value;
+              }
+              frame.index += 1;
+              append(frames, makeRecord([
+                ["value", child],
+                ["entered", false],
+                ["array", false],
+                ["descriptors", null],
+                ["keys", null],
+                ["index", 0],
+                ["length", 0]
+              ]));
+            }
+
+            return encoded;
+          }
+
+          '''
+          if marker not in source:
+              raise SystemExit("completeExperimentAuthority marker missing")
+          source = source.replace(marker, serializer + marker, 1)
+          old_probe = 'const encoded = jsonStringify(makeRecord([["experiment", experiment]]));'
+          new_probe = 'const encoded = stringifyWireValue(makeRecord([["experiment", experiment]]));'
+          if old_probe not in source:
+              raise SystemExit("experiment JSON probe missing")
+          source = source.replace(old_probe, new_probe, 1)
+          runtime.write_text(source)
+
           path = Path("test/m13-review-remediation.test.js")
           text = path.read_text()
           text = text.replace(
