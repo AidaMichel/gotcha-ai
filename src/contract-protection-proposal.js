@@ -112,27 +112,75 @@ if (
   }
 }
 
-let promiseThenAuthorityVerified = false;
+let promiseAuthorityVerified = false;
+let trustedPromiseConstructor = null;
 try {
   const pristineReflectApply = runInNewContext("Reflect.apply");
   const pristineFunctionToString = runInNewContext("Function.prototype.toString");
   const pristineGetOwnPropertyDescriptor = runInNewContext(
     "Object.getOwnPropertyDescriptor"
   );
+  const pristineGetPrototypeOf = runInNewContext("Object.getPrototypeOf");
+  const pristinePromiseConstructorSource = runInNewContext(
+    "Function.prototype.toString.call(Promise)"
+  );
   const pristinePromiseThenSource = runInNewContext(
     "Function.prototype.toString.call(Promise.prototype.then)"
+  );
+  const localPromiseProbe = (async function m13LocalPromiseProbe() {})();
+  const intrinsicPromisePrototype = pristineReflectApply(
+    pristineGetPrototypeOf,
+    undefined,
+    [localPromiseProbe]
+  );
+  const intrinsicPromiseConstructorDescriptor = pristineReflectApply(
+    pristineGetOwnPropertyDescriptor,
+    undefined,
+    [intrinsicPromisePrototype, "constructor"]
   );
   const promiseThenDescriptor = pristineReflectApply(
     pristineGetOwnPropertyDescriptor,
     undefined,
-    [promisePrototype, "then"]
+    [intrinsicPromisePrototype, "then"]
   );
+  const capturedPromiseConstructorSource = pristineReflectApply(
+    pristineFunctionToString,
+    PromiseConstructor,
+    []
+  );
+  const intrinsicPromiseConstructorSource =
+    intrinsicPromiseConstructorDescriptor !== undefined &&
+    typeof intrinsicPromiseConstructorDescriptor.value === "function"
+      ? pristineReflectApply(
+          pristineFunctionToString,
+          intrinsicPromiseConstructorDescriptor.value,
+          []
+        )
+      : null;
   const capturedPromiseThenSource = pristineReflectApply(
     pristineFunctionToString,
     promiseThen,
     []
   );
-  promiseThenAuthorityVerified = (
+
+  const intrinsicPromiseConstructorVerified = (
+    intrinsicPromiseConstructorDescriptor !== undefined &&
+    typeof intrinsicPromiseConstructorDescriptor.value === "function" &&
+    intrinsicPromiseConstructorDescriptor.writable === true &&
+    intrinsicPromiseConstructorDescriptor.enumerable === false &&
+    intrinsicPromiseConstructorDescriptor.configurable === true &&
+    intrinsicPromiseConstructorSource === pristinePromiseConstructorSource
+  );
+
+  if (intrinsicPromiseConstructorVerified) {
+    trustedPromiseConstructor = intrinsicPromiseConstructorDescriptor.value;
+  }
+
+  promiseAuthorityVerified = (
+    intrinsicPromiseConstructorVerified &&
+    PromiseConstructor === trustedPromiseConstructor &&
+    promisePrototype === intrinsicPromisePrototype &&
+    capturedPromiseConstructorSource === pristinePromiseConstructorSource &&
     promiseThenDescriptor !== undefined &&
     promiseThenDescriptor.value === promiseThen &&
     promiseThenDescriptor.writable === true &&
@@ -141,10 +189,11 @@ try {
     capturedPromiseThenSource === pristinePromiseThenSource
   );
 } catch {
-  promiseThenAuthorityVerified = false;
+  promiseAuthorityVerified = false;
+  trustedPromiseConstructor = null;
 }
 
-if (!promiseThenAuthorityVerified || typeof promiseSpecies !== "symbol") {
+if (!promiseAuthorityVerified || typeof promiseSpecies !== "symbol") {
   boundaryAuthorityAvailable = false;
 }
 
@@ -157,7 +206,7 @@ if (boundaryAuthorityAvailable) {
   try {
     safePromiseSpeciesContainer = {};
     defineProperty(safePromiseSpeciesContainer, promiseSpecies, {
-      value: PromiseConstructor,
+      value: trustedPromiseConstructor,
       writable: false,
       enumerable: false,
       configurable: false
@@ -1032,8 +1081,15 @@ function observeAcceptedPromise(promise, onFulfilled, onRejected) {
   if (!observationEstablished) throw boundaryError();
 }
 
+async function rejectBoundaryPromise(error) {
+  throw error;
+}
+
 function generateContractProtectionProposal(options) {
-  return new PromiseConstructor((resolve, reject) => {
+  if (typeof trustedPromiseConstructor !== "function") {
+    return rejectBoundaryPromise(boundaryError());
+  }
+  return new trustedPromiseConstructor((resolve, reject) => {
     let capture;
     let selectedAttack;
     let generatorReturn;

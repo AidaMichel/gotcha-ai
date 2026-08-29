@@ -158,3 +158,46 @@ test("callable pre-load Promise.then poisoning fails closed before generator exe
   });
   assert.equal(run.status, 0, run.stderr);
 });
+
+test("callable pre-load Promise constructor poisoning fails closed without constructor authority", () => {
+  const modulePath = path.join(repoRoot, "src", "contract-protection-proposal.js");
+  const code = `
+    "use strict";
+    const NativePromise = Promise;
+    let poisonedConstructorCalls = 0;
+    function PoisonPromise(executor) {
+      poisonedConstructorCalls += 1;
+      return new NativePromise(executor);
+    }
+    PoisonPromise.prototype = NativePromise.prototype;
+    global.Promise = PoisonPromise;
+    const { generateContractProtectionProposal } = require(${JSON.stringify(modulePath)});
+    global.Promise = NativePromise;
+    poisonedConstructorCalls = 0;
+    let generatorCalls = 0;
+    (async () => {
+      const returned = generateContractProtectionProposal({
+        experiment: null,
+        sourceAttackId: "wrong-time",
+        generator() {
+          generatorCalls += 1;
+          return {};
+        }
+      });
+      if (!(returned instanceof NativePromise)) process.exitCode = 6;
+      try {
+        await returned;
+        process.exitCode = 2;
+      } catch (error) {
+        if (!(error instanceof TypeError)) process.exitCode = 3;
+        if (generatorCalls !== 0) process.exitCode = 4;
+        if (poisonedConstructorCalls !== 0) process.exitCode = 5;
+      }
+    })();
+  `;
+  const run = spawnSync(process.execPath, ["-e", code], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  assert.equal(run.status, 0, run.stderr);
+});
