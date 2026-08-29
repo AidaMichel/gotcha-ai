@@ -357,7 +357,10 @@ const {
   runContractAttacks,
   draftContractProtection,
   confirmContractProtection,
-  verifyContractProtection
+  verifyContractProtection,
+  createStructuredProviderAdapter,
+  prepareContractQualityLoop,
+  completeContractQualityLoop
 } = require("gotcha-ai");
 ```
 
@@ -493,6 +496,47 @@ If you cloned the repository, run the deterministic full remediation example wit
 ```bash
 node examples/contract-remediation.js
 ```
+
+## Orchestrate the confirmed-contract quality loop
+
+M12 provides a two-stage convenience layer around the existing M10 remediation APIs without removing the human checkpoint:
+
+```text
+GOTCHA
+  ↓
+prepareContractQualityLoop()
+  ↓
+AWAIT HUMAN CONFIRMATION
+  ↓
+completeContractQualityLoop()
+  ↓
+CONFIRM / REJECT
+  ↓
+VERIFY / RE-ATTACK
+```
+
+Preparation still requires the caller to choose the replayable survivor and supply the declarative protection proposal:
+
+```js
+const checkpoint = await prepareContractQualityLoop({
+  experiment: result.experiment,
+  sourceAttackId: result.topFinding.id,
+  proposal
+});
+```
+
+The human must inspect the exact current `checkpoint.draft` and issue the exact decision that is then submitted. After that explicit boundary, completion either stops on rejection or delegates verification to M10:
+
+```js
+const loopResult = await completeContractQualityLoop({
+  checkpoint,
+  decision: { type: "accept" },
+  evaluator: currentEvaluator,
+  improvedEvaluator
+});
+```
+
+M12 does not choose a survivor, generate the proposal, auto-confirm a draft, call a model/provider, or generate executable evaluator changes. If a checkpoint or decision crosses mutable/untrusted storage, the current draft must be shown again and a fresh human decision obtained before completion.
 
 ## Bring your own business idea
 
@@ -720,7 +764,7 @@ HUMAN CONFIRM
 VERIFY / RE-ATTACK
 ```
 
-Confirmed Quality Contracts can drive provider-independent AI-assisted attack generation through `runContractAttacks()`. M10 can then bind a replayable survivor to human-authorized declarative protection data and verify a caller-supplied improved evaluator against that exact historical experiment.
+Confirmed Quality Contracts can drive provider-independent AI-assisted attack generation through `runContractAttacks()`. M10 binds a replayable survivor to human-authorized declarative protection data and verifies a caller-supplied improved evaluator against that exact historical experiment. M12 adds an explicit two-stage orchestration layer around those M10 steps while preserving caller-owned survivor/proposal choices and the human confirmation boundary.
 
 ### Deterministic Mutation Pack improvement path
 
@@ -732,7 +776,7 @@ CATCH THIS
 RE-ATTACK
 ```
 
-The separate Mutation Pack path can continue from a finding into deterministic protection and remediation verification. An automatic bridge from `runContractAttacks()` into those stages is not implemented.
+The separate Mutation Pack path can continue from a finding into deterministic protection and remediation verification. For the confirmed-contract path, M12 now provides explicit orchestration from a replayable finding into M10 drafting/confirmation/verification; it intentionally does not automate survivor selection, proposal generation, the human decision, or evaluator changes.
 
 ## Current scope
 
