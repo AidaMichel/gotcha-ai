@@ -1,0 +1,65 @@
+name: M8 Codex review2 remediation gate
+
+on:
+  push:
+    branches:
+      - fix/m8-baseline-runtime-brands
+
+permissions:
+  contents: write
+
+jobs:
+  remediate-and-prove:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Apply Codex review2 remediation
+        run: python3 scripts/qa/apply-m8-review2-remediation.py
+
+      - name: Syntax and focused proof on Node 20
+        run: |
+          node --check src/ai-data-core.js
+          node --test test/m8-runtime-brand-authority.test.js test/m8-codex-round3.test.js
+
+      - name: Full suite on Node 20
+        run: npm test
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Syntax and focused proof on Node 22
+        run: |
+          node --check src/ai-data-core.js
+          node --test test/m8-runtime-brand-authority.test.js test/m8-codex-round3.test.js
+
+      - name: Full suite on Node 22
+        run: npm test
+
+      - name: Diff hygiene
+        run: git diff --check
+
+      - name: Commit proven remediation and remove temporary QA harness
+        run: |
+          rm .github/workflows/m8-review2-remediation.yml
+          rm scripts/qa/apply-m8-review2-remediation.py
+          git config user.name "AidaMichel"
+          git config user.email "126730924+AidaMichel@users.noreply.github.com"
+          git add src/ai-data-core.js test/m8-runtime-brand-authority.test.js
+          git add -u .github/workflows/m8-review2-remediation.yml scripts/qa/apply-m8-review2-remediation.py
+          git diff --cached --check
+          git commit -m "fix: close host constructor authority gaps"
+          git push origin HEAD:fix/m8-baseline-runtime-brands
