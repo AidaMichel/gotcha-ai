@@ -25,6 +25,11 @@ const {
   createStructuredProviderAdapter
 } = require("./provider-adapter");
 
+const {
+  prepareContractQualityLoop,
+  completeContractQualityLoop
+} = require("./contract-quality-loop");
+
 function runGotcha({
   evaluator,
   expectedOutput,
@@ -52,5 +57,7 @@ module.exports = {
   draftContractProtection,
   confirmContractProtection,
   verifyContractProtection,
-  createStructuredProviderAdapter
+  createStructuredProviderAdapter,
+  prepareContractQualityLoop,
+  completeContractQualityLoop
 };
