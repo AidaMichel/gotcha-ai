@@ -1,0 +1,58 @@
+name: M12 Slice A validation
+
+on:
+  push:
+    branches:
+      - milestone-12-quality-loop
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install package
+        run: npm install --ignore-scripts
+
+      - name: Syntax check
+        run: |
+          node --check src/contract-quality-loop.js
+          node --check src/index.js
+          node --check test/contract-quality-loop.test.js
+
+      - name: Focused M12 tests
+        run: node --test test/contract-quality-loop.test.js
+
+      - name: Full repository suite
+        run: npm test
+
+      - name: Packed consumer proof
+        run: |
+          set -euo pipefail
+          tarball="$(npm pack --silent)"
+          tmp="$(mktemp -d)"
+          cd "$tmp"
+          npm init -y >/dev/null 2>&1
+          npm install --ignore-scripts "$GITHUB_WORKSPACE/$tarball" >/dev/null 2>&1
+          node - <<'NODE'
+          const pkg = require('gotcha-ai');
+          if (typeof pkg.prepareContractQualityLoop !== 'function') {
+            throw new Error('prepareContractQualityLoop missing from packed artifact');
+          }
+          if (typeof pkg.completeContractQualityLoop !== 'function') {
+            throw new Error('completeContractQualityLoop missing from packed artifact');
+          }
+          NODE
+
+      - name: Diff hygiene
+        run: git diff --check origin/main...HEAD
