@@ -517,14 +517,31 @@ function captureMethodFromPrototype(
 function captureGlobalConstructor(
   name
 ) {
-  const value =
-    globalThis[name];
+  let value;
+
+  try {
+    value = globalThis[name];
+  } catch {
+    return null;
+  }
 
   return (
-    typeof value === "function"
+    typeof value === "function" &&
+    !utilTypePredicates.isProxy(value)
   )
     ? value
     : null;
+}
+
+function globalConstructorRequiresAuthority(
+  name
+) {
+  try {
+    return typeof globalThis[name] ===
+      "function";
+  } catch {
+    return true;
+  }
 }
 
 function captureIntlConstructor(
@@ -652,37 +669,57 @@ const unsupportedHostBrandGetters =
       )
   );
 
+const headersConstructor =
+  captureGlobalConstructor("Headers");
+
+const formDataConstructor =
+  captureGlobalConstructor("FormData");
+
+const headersBrandMethod =
+  capturePrototypeMethod(
+    headersConstructor,
+    "get"
+  );
+
+const formDataBrandMethod =
+  capturePrototypeMethod(
+    formDataConstructor,
+    "get"
+  );
+
+const additionalHostBrandAuthorityAvailable =
+  (
+    !globalConstructorRequiresAuthority(
+      "Headers"
+    ) ||
+    (
+      headersConstructor !== null &&
+      headersBrandMethod !== null
+    )
+  ) &&
+  (
+    !globalConstructorRequiresAuthority(
+      "FormData"
+    ) ||
+    (
+      formDataConstructor !== null &&
+      formDataBrandMethod !== null
+    )
+  );
+
 const additionalHostBrandMethodProbes =
   objectFreeze(
     [
       {
-        constructor:
-          captureGlobalConstructor(
-            "Headers"
-          ),
-        method:
-          capturePrototypeMethod(
-            captureGlobalConstructor(
-              "Headers"
-            ),
-            "get"
-          ),
+        constructor: headersConstructor,
+        method: headersBrandMethod,
         args: [
           "__gotcha_brand_probe__"
         ]
       },
       {
-        constructor:
-          captureGlobalConstructor(
-            "FormData"
-          ),
-        method:
-          capturePrototypeMethod(
-            captureGlobalConstructor(
-              "FormData"
-            ),
-            "get"
-          ),
+        constructor: formDataConstructor,
+        method: formDataBrandMethod,
         args: [
           "__gotcha_brand_probe__"
         ]
@@ -924,6 +961,86 @@ function hasUnsupportedHostBrand(
   return false;
 }
 
+function samePropertyDescriptor(
+  left,
+  right
+) {
+  if (
+    left === undefined ||
+    right === undefined
+  ) {
+    return left === right;
+  }
+
+  const leftKeys = ownKeys(left);
+  const rightKeys = ownKeys(right);
+
+  if (leftKeys.length !== rightKeys.length) {
+    return false;
+  }
+
+  for (
+    let index = 0;
+    index < leftKeys.length;
+    index += 1
+  ) {
+    const key = leftKeys[index];
+    let found = false;
+
+    for (
+      let rightIndex = 0;
+      rightIndex < rightKeys.length;
+      rightIndex += 1
+    ) {
+      if (rightKeys[rightIndex] === key) {
+        found = true;
+        break;
+      }
+    }
+
+    if (
+      !found ||
+      !objectIs(left[key], right[key])
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function hostBrandAuthorityError() {
+  return new Error(
+    "Host brand probe authority is unavailable."
+  );
+}
+
+function assertHostBrandAuthorityRestored(
+  probe,
+  expectedDescriptor
+) {
+  let currentDescriptor;
+
+  try {
+    currentDescriptor =
+      getOwnPropertyDescriptor(
+        probe.constructor,
+        symbolHasInstance
+      );
+  } catch {
+    throw hostBrandAuthorityError();
+  }
+
+  if (
+    !samePropertyDescriptor(
+      currentDescriptor,
+      expectedDescriptor
+    )
+  ) {
+    throw hostBrandAuthorityError();
+  }
+}
+
 function probeAdditionalHostBrand(
   probe,
   value
@@ -947,7 +1064,7 @@ function probeAdditionalHostBrand(
         symbolHasInstance
       );
   } catch {
-    return false;
+    throw hostBrandAuthorityError();
   }
 
   if (
@@ -955,7 +1072,7 @@ function probeAdditionalHostBrand(
       undefined &&
     !previousHasInstanceDescriptor.configurable
   ) {
-    return false;
+    throw hostBrandAuthorityError();
   }
 
   let installed = false;
@@ -986,30 +1103,37 @@ function probeAdditionalHostBrand(
       return false;
     }
   } catch {
-    return false;
+    throw hostBrandAuthorityError();
   } finally {
     if (installed) {
-      if (
-        previousHasInstanceDescriptor ===
-          undefined
-      ) {
+      try {
         if (
-          !deleteProperty(
-            probe.constructor,
-            symbolHasInstance
-          )
+          previousHasInstanceDescriptor ===
+            undefined
         ) {
-          throw new Error(
-            "Failed to restore host brand probe authority."
+          if (
+            !deleteProperty(
+              probe.constructor,
+              symbolHasInstance
+            )
+          ) {
+            throw hostBrandAuthorityError();
+          }
+        } else {
+          defineProperty(
+            probe.constructor,
+            symbolHasInstance,
+            previousHasInstanceDescriptor
           );
         }
-      } else {
-        defineProperty(
-          probe.constructor,
-          symbolHasInstance,
-          previousHasInstanceDescriptor
-        );
+      } catch {
+        throw hostBrandAuthorityError();
       }
+
+      assertHostBrandAuthorityRestored(
+        probe,
+        previousHasInstanceDescriptor
+      );
     }
   }
 }
@@ -1017,6 +1141,10 @@ function probeAdditionalHostBrand(
 function hasUnsupportedAdditionalBrand(
   value
 ) {
+  if (!additionalHostBrandAuthorityAvailable) {
+    throw hostBrandAuthorityError();
+  }
+
   for (
     const probe of
       additionalHostBrandMethodProbes
