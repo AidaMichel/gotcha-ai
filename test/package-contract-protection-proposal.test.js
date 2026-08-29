@@ -156,7 +156,7 @@ test("packed npm artifact exposes M13 proposal generation to an external consume
         });
 
         if (generated.state !== "proposal-ready") throw new Error("proposal state");
-        if (checkpoint.state !== "awaiting-human-decision") throw new Error("checkpoint state");
+        if (checkpoint.state !== "awaiting-confirmation") throw new Error("checkpoint state");
         console.log("M13 packed proposal flow available");
       })().catch((error) => {
         console.error(error);
