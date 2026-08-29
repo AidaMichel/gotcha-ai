@@ -21,6 +21,40 @@ jobs:
       - run: npm ci
       - name: Apply Codex remediation
         run: python scripts/qa/m13-remediate-review.py
+      - name: Correct remediation proof fixtures
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("test/m13-review-remediation.test.js")
+          text = path.read_text()
+          text = text.replace(
+              "async function makeExperiment() {",
+              "async function makeExperiment(mutatedOutput = { time: \"4 PM\" }) {",
+              1,
+          )
+          text = text.replace(
+              "          mutatedOutput: { time: \"4 PM\" },",
+              "          mutatedOutput,",
+              1,
+          )
+          text = text.replace(
+              "  const experiment = await makeExperiment();\n  experiment.case.input = deepWire(12000);",
+              "  const experiment = await makeExperiment(deepWire(12000));",
+              1,
+          )
+          text = text.replace(
+              "      let value = request.case.input;",
+              "      let value = request.attack.output;",
+              1,
+          )
+          text = text.replace(
+              "    Promise.prototype.then = originalThen;\n    let generatorCalls = 0;",
+              "    Promise.prototype.then = originalThen;\n    poisonedCalls = 0;\n    let generatorCalls = 0;",
+              1,
+          )
+          path.write_text(text)
+          PY
       - name: Syntax check
         run: |
           node --check src/contract-protection-proposal.js
