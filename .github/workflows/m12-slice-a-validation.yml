@@ -1,3 +1,4 @@
+# Final exact-content validation before removing this temporary workflow.
 name: M12 Slice A validation
 
 on:
