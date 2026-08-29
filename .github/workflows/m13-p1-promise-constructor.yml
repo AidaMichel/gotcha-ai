@@ -1,0 +1,261 @@
+name: M13 Promise constructor remediation
+
+on:
+  push:
+    branches:
+      - milestone-13-runtime-slice-a
+    paths:
+      - .github/workflows/m13-p1-promise-constructor.yml
+
+permissions:
+  contents: write
+
+jobs:
+  remediate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: milestone-13-runtime-slice-a
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Apply exact P1 remediation
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/contract-protection-proposal.js')
+          text = path.read_text()
+
+          start_marker = 'let promiseThenAuthorityVerified = false;\n'
+          end_marker = 'if (!promiseThenAuthorityVerified || typeof promiseSpecies !== "symbol") {\n  boundaryAuthorityAvailable = false;\n}\n'
+          start = text.index(start_marker)
+          end = text.index(end_marker, start) + len(end_marker)
+
+          replacement = '''let promiseAuthorityVerified = false;
+          let trustedPromiseConstructor = null;
+          try {
+            const pristineReflectApply = runInNewContext("Reflect.apply");
+            const pristineFunctionToString = runInNewContext("Function.prototype.toString");
+            const pristineGetOwnPropertyDescriptor = runInNewContext(
+              "Object.getOwnPropertyDescriptor"
+            );
+            const pristineGetPrototypeOf = runInNewContext("Object.getPrototypeOf");
+            const pristinePromiseConstructorSource = runInNewContext(
+              "Function.prototype.toString.call(Promise)"
+            );
+            const pristinePromiseThenSource = runInNewContext(
+              "Function.prototype.toString.call(Promise.prototype.then)"
+            );
+            const localPromiseProbe = (async function m13LocalPromiseProbe() {})();
+            const intrinsicPromisePrototype = pristineReflectApply(
+              pristineGetPrototypeOf,
+              undefined,
+              [localPromiseProbe]
+            );
+            const intrinsicPromiseConstructorDescriptor = pristineReflectApply(
+              pristineGetOwnPropertyDescriptor,
+              undefined,
+              [intrinsicPromisePrototype, "constructor"]
+            );
+            const promiseThenDescriptor = pristineReflectApply(
+              pristineGetOwnPropertyDescriptor,
+              undefined,
+              [intrinsicPromisePrototype, "then"]
+            );
+            const capturedPromiseConstructorSource = pristineReflectApply(
+              pristineFunctionToString,
+              PromiseConstructor,
+              []
+            );
+            const intrinsicPromiseConstructorSource =
+              intrinsicPromiseConstructorDescriptor !== undefined &&
+              typeof intrinsicPromiseConstructorDescriptor.value === "function"
+                ? pristineReflectApply(
+                    pristineFunctionToString,
+                    intrinsicPromiseConstructorDescriptor.value,
+                    []
+                  )
+                : null;
+            const capturedPromiseThenSource = pristineReflectApply(
+              pristineFunctionToString,
+              promiseThen,
+              []
+            );
+
+            const intrinsicPromiseConstructorVerified = (
+              intrinsicPromiseConstructorDescriptor !== undefined &&
+              typeof intrinsicPromiseConstructorDescriptor.value === "function" &&
+              intrinsicPromiseConstructorDescriptor.writable === true &&
+              intrinsicPromiseConstructorDescriptor.enumerable === false &&
+              intrinsicPromiseConstructorDescriptor.configurable === true &&
+              intrinsicPromiseConstructorSource === pristinePromiseConstructorSource
+            );
+
+            if (intrinsicPromiseConstructorVerified) {
+              trustedPromiseConstructor = intrinsicPromiseConstructorDescriptor.value;
+            }
+
+            promiseAuthorityVerified = (
+              intrinsicPromiseConstructorVerified &&
+              PromiseConstructor === trustedPromiseConstructor &&
+              promisePrototype === intrinsicPromisePrototype &&
+              capturedPromiseConstructorSource === pristinePromiseConstructorSource &&
+              promiseThenDescriptor !== undefined &&
+              promiseThenDescriptor.value === promiseThen &&
+              promiseThenDescriptor.writable === true &&
+              promiseThenDescriptor.enumerable === false &&
+              promiseThenDescriptor.configurable === true &&
+              capturedPromiseThenSource === pristinePromiseThenSource
+            );
+          } catch {
+            promiseAuthorityVerified = false;
+            trustedPromiseConstructor = null;
+          }
+
+          if (!promiseAuthorityVerified || typeof promiseSpecies !== "symbol") {
+            boundaryAuthorityAvailable = false;
+          }
+          '''
+
+          text = text[:start] + replacement + text[end:]
+
+          old_species = '''      value: PromiseConstructor,
+          '''
+          new_species = '''      value: trustedPromiseConstructor,
+          '''
+          if old_species not in text:
+            raise SystemExit('safe species constructor assignment not found')
+          text = text.replace(old_species, new_species, 1)
+
+          old_public = '''function generateContractProtectionProposal(options) {
+            return new PromiseConstructor((resolve, reject) => {
+          '''
+          new_public = '''async function rejectBoundaryPromise(error) {
+            throw error;
+          }
+
+          function generateContractProtectionProposal(options) {
+            if (typeof trustedPromiseConstructor !== "function") {
+              return rejectBoundaryPromise(boundaryError());
+            }
+            return new trustedPromiseConstructor((resolve, reject) => {
+          '''
+          if old_public not in text:
+            raise SystemExit('public Promise construction marker not found')
+          text = text.replace(old_public, new_public, 1)
+
+          path.write_text(text)
+          PY
+
+      - name: Add captured-Promise-constructor poisoning regression
+        shell: bash
+        run: |
+          cat >> test/m13-review-remediation.test.js <<'EOF'
+
+          test("callable pre-load Promise constructor poisoning fails closed without constructor authority", () => {
+            const modulePath = path.join(repoRoot, "src", "contract-protection-proposal.js");
+            const code = `
+              "use strict";
+              const NativePromise = Promise;
+              let poisonedConstructorCalls = 0;
+              function PoisonPromise(executor) {
+                poisonedConstructorCalls += 1;
+                return new NativePromise(executor);
+              }
+              PoisonPromise.prototype = NativePromise.prototype;
+              global.Promise = PoisonPromise;
+              const { generateContractProtectionProposal } = require(${JSON.stringify(modulePath)});
+              global.Promise = NativePromise;
+              poisonedConstructorCalls = 0;
+              let generatorCalls = 0;
+              (async () => {
+                const returned = generateContractProtectionProposal({
+                  experiment: null,
+                  sourceAttackId: "wrong-time",
+                  generator() {
+                    generatorCalls += 1;
+                    return {};
+                  }
+                });
+                if (!(returned instanceof NativePromise)) process.exitCode = 6;
+                try {
+                  await returned;
+                  process.exitCode = 2;
+                } catch (error) {
+                  if (!(error instanceof TypeError)) process.exitCode = 3;
+                  if (generatorCalls !== 0) process.exitCode = 4;
+                  if (poisonedConstructorCalls !== 0) process.exitCode = 5;
+                }
+              })();
+            `;
+            const run = spawnSync(process.execPath, ["-e", code], {
+              cwd: repoRoot,
+              encoding: "utf8"
+            });
+            assert.equal(run.status, 0, run.stderr);
+          });
+          EOF
+
+      - name: Syntax check
+        run: node --check src/contract-protection-proposal.js && node --check test/m13-review-remediation.test.js
+
+      - name: Focused M13 proof
+        run: >-
+          node --test
+          test/contract-protection-proposal.test.js
+          test/m13-review-remediation.test.js
+          test/package-contract-protection-proposal.test.js
+          test/provider-adapter-m13.test.js
+
+      - name: Full-suite comparison proof
+        shell: bash
+        run: |
+          set +e
+          npm test 2>&1 | tee /tmp/m13-full.txt
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "Expected the two historical M8 baseline failures, but full suite exited 0."
+            exit 1
+          fi
+          grep -F '# fail 2' /tmp/m13-full.txt
+          grep -F 'cloneAiData rejects prototype-tampered hidden-slot runtime objects' /tmp/m13-full.txt
+          grep -F 'Headers and FormData brands remain rejected when own data is added' /tmp/m13-full.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          text = Path('/tmp/m13-full.txt').read_text()
+          failures = []
+          lines = text.splitlines()
+          for i, line in enumerate(lines):
+              if line.startswith('not ok '):
+                  failures.append(line)
+          expected = [
+              'cloneAiData rejects prototype-tampered hidden-slot runtime objects',
+              'Headers and FormData brands remain rejected when own data is added'
+          ]
+          if len(failures) != 2:
+              raise SystemExit(f'Unexpected failing-test count: {failures}')
+          for name in expected:
+              if not any(name in failure for failure in failures):
+                  raise SystemExit(f'Missing expected historical failure: {name}')
+          PY
+
+      - name: Commit tested remediation and remove temporary workflow
+        shell: bash
+        run: |
+          rm .github/workflows/m13-p1-promise-constructor.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/contract-protection-proposal.js test/m13-review-remediation.test.js .github/workflows/m13-p1-promise-constructor.yml
+          git commit -m 'fix: authenticate M13 Promise constructor authority'
+          git push origin HEAD:milestone-13-runtime-slice-a
