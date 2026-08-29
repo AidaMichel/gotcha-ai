@@ -116,3 +116,67 @@ test("temporary host-brand authority restores the exact prior descriptor", () =>
     assert.deepEqual(after, before);
   `);
 });
+
+
+test("stateful host constructor lookup is captured once and fails closed", () => {
+  runIsolated(`
+    "use strict";
+    const assert = require("node:assert/strict");
+
+    const OriginalHeaders = globalThis.Headers;
+    if (typeof OriginalHeaders !== "function") process.exit(0);
+
+    const saved = new OriginalHeaders();
+    saved.foo = "bar";
+    Object.setPrototypeOf(saved, Object.prototype);
+
+    const poisoned = new Proxy(OriginalHeaders, {});
+    let reads = 0;
+
+    Object.defineProperty(globalThis, "Headers", {
+      configurable: true,
+      get() {
+        reads += 1;
+        return reads === 1 ? poisoned : undefined;
+      }
+    });
+
+    globalThis.structuredClone = undefined;
+    const { cloneAiData } = require(${JSON.stringify(aiDataPath)});
+
+    assert.equal(reads, 1);
+    assert.throws(() => cloneAiData(saved));
+  `);
+});
+
+test("proxy-backed shared host-brand constructor authority fails closed", () => {
+  runIsolated(`
+    "use strict";
+    const assert = require("node:assert/strict");
+
+    const OriginalURL = globalThis.URL;
+    if (typeof OriginalURL !== "function") process.exit(0);
+
+    const saved = new OriginalURL("https://example.com/");
+    saved.foo = "bar";
+    Object.setPrototypeOf(saved, Object.prototype);
+
+    let trapCalls = 0;
+    globalThis.URL = new Proxy(OriginalURL, {
+      get() {
+        trapCalls += 1;
+        throw new Error("URL constructor trap executed");
+      },
+      getOwnPropertyDescriptor() {
+        trapCalls += 1;
+        throw new Error("URL constructor descriptor trap executed");
+      }
+    });
+
+    globalThis.structuredClone = undefined;
+    const { cloneAiData } = require(${JSON.stringify(aiDataPath)});
+
+    assert.throws(() => cloneAiData(saved));
+    assert.equal(trapCalls, 0);
+  `);
+});

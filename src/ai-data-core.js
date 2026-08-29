@@ -514,6 +514,8 @@ function captureMethodFromPrototype(
     : null;
 }
 
+let globalHostBrandAuthorityAvailable = true;
+
 function captureGlobalConstructor(
   name
 ) {
@@ -522,26 +524,20 @@ function captureGlobalConstructor(
   try {
     value = globalThis[name];
   } catch {
+    globalHostBrandAuthorityAvailable = false;
     return null;
   }
 
-  return (
-    typeof value === "function" &&
-    !utilTypePredicates.isProxy(value)
-  )
-    ? value
-    : null;
-}
-
-function globalConstructorRequiresAuthority(
-  name
-) {
-  try {
-    return typeof globalThis[name] ===
-      "function";
-  } catch {
-    return true;
+  if (typeof value !== "function") {
+    return null;
   }
+
+  if (utilTypePredicates.isProxy(value)) {
+    globalHostBrandAuthorityAvailable = false;
+    return null;
+  }
+
+  return value;
 }
 
 function captureIntlConstructor(
@@ -687,24 +683,14 @@ const formDataBrandMethod =
     "get"
   );
 
-const additionalHostBrandAuthorityAvailable =
+const additionalHostBrandMethodAuthorityAvailable =
   (
-    !globalConstructorRequiresAuthority(
-      "Headers"
-    ) ||
-    (
-      headersConstructor !== null &&
-      headersBrandMethod !== null
-    )
+    headersConstructor === null ||
+    headersBrandMethod !== null
   ) &&
   (
-    !globalConstructorRequiresAuthority(
-      "FormData"
-    ) ||
-    (
-      formDataConstructor !== null &&
-      formDataBrandMethod !== null
-    )
+    formDataConstructor === null ||
+    formDataBrandMethod !== null
   );
 
 const additionalHostBrandMethodProbes =
@@ -1141,7 +1127,10 @@ function probeAdditionalHostBrand(
 function hasUnsupportedAdditionalBrand(
   value
 ) {
-  if (!additionalHostBrandAuthorityAvailable) {
+  if (
+    !globalHostBrandAuthorityAvailable ||
+    !additionalHostBrandMethodAuthorityAvailable
+  ) {
     throw hostBrandAuthorityError();
   }
 
