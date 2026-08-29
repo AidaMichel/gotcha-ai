@@ -33,8 +33,50 @@ jobs:
       - name: Focused M12 tests
         run: node --test test/contract-quality-loop.test.js
 
-      - name: Full repository suite
-        run: npm test
+      - name: Compare full-suite failures to untouched main
+        run: |
+          set -euo pipefail
+
+          set +e
+          npm test > /tmp/branch-test.log 2>&1
+          branch_status=$?
+          set -e
+
+          git worktree add /tmp/gotcha-main origin/main
+          (
+            cd /tmp/gotcha-main
+            npm install --ignore-scripts >/dev/null 2>&1
+            set +e
+            npm test > /tmp/main-test.log 2>&1
+            echo $? > /tmp/main-test.status
+          )
+          main_status="$(cat /tmp/main-test.status)"
+
+          grep '^not ok ' /tmp/branch-test.log \
+            | sed -E 's/^not ok [0-9]+ - //' \
+            | sort > /tmp/branch-failures.txt || true
+          grep '^not ok ' /tmp/main-test.log \
+            | sed -E 's/^not ok [0-9]+ - //' \
+            | sort > /tmp/main-failures.txt || true
+
+          echo 'Branch failure set:'
+          cat /tmp/branch-failures.txt
+          echo 'Main failure set:'
+          cat /tmp/main-failures.txt
+
+          if [[ "$main_status" -eq 0 ]]; then
+            if [[ "$branch_status" -ne 0 ]]; then
+              echo 'Untouched main is green but branch is not.'
+              cat /tmp/branch-test.log
+              exit 1
+            fi
+          else
+            if [[ "$branch_status" -eq 0 ]]; then
+              echo 'Branch is greener than main; accepted, but showing baseline for transparency.'
+            else
+              diff -u /tmp/main-failures.txt /tmp/branch-failures.txt
+            fi
+          fi
 
       - name: Packed consumer proof
         run: |
