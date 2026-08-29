@@ -1,0 +1,130 @@
+name: M12 README patch
+
+on:
+  push:
+    branches:
+      - milestone-12-quality-loop
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: milestone-12-quality-loop
+
+      - name: Patch README and remove one-time workflow
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("README.md")
+          text = path.read_text()
+
+          old_exports = '''const {
+            runGotcha,
+            draftQualityContract,
+            confirmQualityContract,
+            runContractAttacks,
+            draftContractProtection,
+            confirmContractProtection,
+            verifyContractProtection
+          } = require("gotcha-ai");'''
+
+          new_exports = '''const {
+            runGotcha,
+            draftQualityContract,
+            confirmQualityContract,
+            runContractAttacks,
+            draftContractProtection,
+            confirmContractProtection,
+            verifyContractProtection,
+            createStructuredProviderAdapter,
+            prepareContractQualityLoop,
+            completeContractQualityLoop
+          } = require("gotcha-ai");'''
+
+          if old_exports not in text:
+            raise SystemExit("public export block not found")
+          text = text.replace(old_exports, new_exports, 1)
+
+          anchor = '''If you cloned the repository, run the deterministic full remediation example with:
+
+          ```bash
+          node examples/contract-remediation.js
+          ```'''
+
+          addition = anchor + '''
+
+          ## Orchestrate the confirmed-contract quality loop
+
+          M12 provides a two-stage convenience layer around the existing M10 remediation APIs without removing the human checkpoint:
+
+          ```text
+          GOTCHA
+            ↓
+          prepareContractQualityLoop()
+            ↓
+          AWAIT HUMAN CONFIRMATION
+            ↓
+          completeContractQualityLoop()
+            ↓
+          CONFIRM / REJECT
+            ↓
+          VERIFY / RE-ATTACK
+          ```
+
+          Preparation still requires the caller to choose the replayable survivor and supply the declarative protection proposal:
+
+          ```js
+          const checkpoint = await prepareContractQualityLoop({
+            experiment: result.experiment,
+            sourceAttackId: result.topFinding.id,
+            proposal
+          });
+          ```
+
+          The human must inspect the exact current `checkpoint.draft` and issue the exact decision that is then submitted. After that explicit boundary, completion either stops on rejection or delegates verification to M10:
+
+          ```js
+          const loopResult = await completeContractQualityLoop({
+            checkpoint,
+            decision: { type: "accept" },
+            evaluator: currentEvaluator,
+            improvedEvaluator
+          });
+          ```
+
+          M12 does not choose a survivor, generate the proposal, auto-confirm a draft, call a model/provider, or generate executable evaluator changes. If a checkpoint or decision crosses mutable/untrusted storage, the current draft must be shown again and a fresh human decision obtained before completion.'''
+
+          if anchor not in text:
+            raise SystemExit("remediation README anchor not found")
+          text = text.replace(anchor, addition, 1)
+
+          old_arch = '''Confirmed Quality Contracts can drive provider-independent AI-assisted attack generation through `runContractAttacks()`. M10 can then bind a replayable survivor to human-authorized declarative protection data and verify a caller-supplied improved evaluator against that exact historical experiment.'''
+          new_arch = '''Confirmed Quality Contracts can drive provider-independent AI-assisted attack generation through `runContractAttacks()`. M10 binds a replayable survivor to human-authorized declarative protection data and verifies a caller-supplied improved evaluator against that exact historical experiment. M12 adds an explicit two-stage orchestration layer around those M10 steps while preserving caller-owned survivor/proposal choices and the human confirmation boundary.'''
+          if old_arch not in text:
+            raise SystemExit("architecture paragraph not found")
+          text = text.replace(old_arch, new_arch, 1)
+
+          old_gap = '''The separate Mutation Pack path can continue from a finding into deterministic protection and remediation verification. An automatic bridge from `runContractAttacks()` into those stages is not implemented.'''
+          new_gap = '''The separate Mutation Pack path can continue from a finding into deterministic protection and remediation verification. For the confirmed-contract path, M12 now provides explicit orchestration from a replayable finding into M10 drafting/confirmation/verification; it intentionally does not automate survivor selection, proposal generation, the human decision, or evaluator changes.'''
+          if old_gap not in text:
+            raise SystemExit("architecture gap paragraph not found")
+          text = text.replace(old_gap, new_gap, 1)
+
+          path.write_text(text)
+          PY
+
+          git config user.name "AidaMichel"
+          git config user.email "126730924+AidaMichel@users.noreply.github.com"
+          git rm .github/workflows/m12-readme-patch.yml
+          git add README.md
+          git diff --cached --check
+          git commit -m "docs: document M12 quality loop"
+          git push
