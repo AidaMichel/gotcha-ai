@@ -55,6 +55,9 @@ const reflectApply =
 const reflectConstruct =
   Reflect.construct;
 
+const deleteProperty =
+  Reflect.deleteProperty;
+
 const defineProperty =
   Object.defineProperty;
 
@@ -84,6 +87,9 @@ const WeakMapConstructor =
 
 const ArrayConstructor =
   Array;
+
+const symbolHasInstance =
+  Symbol.hasInstance;
 
 const functionToString =
   Function.prototype.toString;
@@ -650,6 +656,10 @@ const additionalHostBrandMethodProbes =
   objectFreeze(
     [
       {
+        constructor:
+          captureGlobalConstructor(
+            "Headers"
+          ),
         method:
           capturePrototypeMethod(
             captureGlobalConstructor(
@@ -662,6 +672,10 @@ const additionalHostBrandMethodProbes =
         ]
       },
       {
+        constructor:
+          captureGlobalConstructor(
+            "FormData"
+          ),
         method:
           capturePrototypeMethod(
             captureGlobalConstructor(
@@ -675,6 +689,7 @@ const additionalHostBrandMethodProbes =
       }
     ].filter(
       (probe) =>
+        probe.constructor !== null &&
         probe.method !== null
     )
   );
@@ -909,13 +924,56 @@ function hasUnsupportedHostBrand(
   return false;
 }
 
-function hasUnsupportedAdditionalBrand(
+function probeAdditionalHostBrand(
+  probe,
   value
 ) {
-  for (
-    const probe of
-      additionalHostBrandMethodProbes
+  try {
+    reflectApply(
+      probe.method,
+      value,
+      probe.args
+    );
+
+    return true;
+  } catch {}
+
+  let previousHasInstanceDescriptor;
+
+  try {
+    previousHasInstanceDescriptor =
+      getOwnPropertyDescriptor(
+        probe.constructor,
+        symbolHasInstance
+      );
+  } catch {
+    return false;
+  }
+
+  if (
+    previousHasInstanceDescriptor !==
+      undefined &&
+    !previousHasInstanceDescriptor.configurable
   ) {
+    return false;
+  }
+
+  let installed = false;
+
+  try {
+    defineProperty(
+      probe.constructor,
+      symbolHasInstance,
+      {
+        value(candidate) {
+          return candidate === value;
+        },
+        configurable: true
+      }
+    );
+
+    installed = true;
+
     try {
       reflectApply(
         probe.method,
@@ -924,7 +982,53 @@ function hasUnsupportedAdditionalBrand(
       );
 
       return true;
-    } catch {}
+    } catch {
+      return false;
+    }
+  } catch {
+    return false;
+  } finally {
+    if (installed) {
+      if (
+        previousHasInstanceDescriptor ===
+          undefined
+      ) {
+        if (
+          !deleteProperty(
+            probe.constructor,
+            symbolHasInstance
+          )
+        ) {
+          throw new Error(
+            "Failed to restore host brand probe authority."
+          );
+        }
+      } else {
+        defineProperty(
+          probe.constructor,
+          symbolHasInstance,
+          previousHasInstanceDescriptor
+        );
+      }
+    }
+  }
+}
+
+function hasUnsupportedAdditionalBrand(
+  value
+) {
+  for (
+    const probe of
+      additionalHostBrandMethodProbes
+  ) {
+    if (
+      probeAdditionalHostBrand(
+        probe,
+        value
+      )
+    ) {
+      return true;
+    }
   }
 
   if (
