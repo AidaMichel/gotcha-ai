@@ -1,5 +1,7 @@
 "use strict";
 
+const { runInNewContext } = require("node:vm");
+
 const {
   experimentIntrinsics: authority
 } = require("./contract-attacks-core");
@@ -41,8 +43,15 @@ const {
 
 const MAX_RULES_V1 = 7;
 const MAX_ATTACKS_V1 = 20;
-const promisePrototype = PromiseConstructor.prototype;
-const promiseBrandProbe = forbiddenProbes[6];
+const promisePrototype =
+  typeof PromiseConstructor === "function"
+    ? PromiseConstructor.prototype
+    : null;
+const promiseBrandProbe =
+  forbiddenProbes !== null &&
+  typeof forbiddenProbes === "object"
+    ? forbiddenProbes[6]
+    : undefined;
 
 const CONTRACT_PROTECTION_INSTRUCTIONS_V1 =
   "Propose one specific, testable declarative quality protection for the selected surviving attack.\n" +
@@ -89,7 +98,10 @@ for (let index = 0; index < requiredFunctions.length; index += 1) {
   }
 }
 
-if (!arrayIsArray(forbiddenProbes)) {
+if (
+  typeof arrayIsArray !== "function" ||
+  arrayIsArray(forbiddenProbes) !== true
+) {
   boundaryAuthorityAvailable = false;
 } else {
   for (let index = 0; index < forbiddenProbes.length; index += 1) {
@@ -100,17 +112,61 @@ if (!arrayIsArray(forbiddenProbes)) {
   }
 }
 
+let promiseThenAuthorityVerified = false;
+try {
+  const pristineReflectApply = runInNewContext("Reflect.apply");
+  const pristineFunctionToString = runInNewContext("Function.prototype.toString");
+  const pristineGetOwnPropertyDescriptor = runInNewContext(
+    "Object.getOwnPropertyDescriptor"
+  );
+  const pristinePromiseThenSource = runInNewContext(
+    "Function.prototype.toString.call(Promise.prototype.then)"
+  );
+  const promiseThenDescriptor = pristineReflectApply(
+    pristineGetOwnPropertyDescriptor,
+    undefined,
+    [promisePrototype, "then"]
+  );
+  const capturedPromiseThenSource = pristineReflectApply(
+    pristineFunctionToString,
+    promiseThen,
+    []
+  );
+  promiseThenAuthorityVerified = (
+    promiseThenDescriptor !== undefined &&
+    promiseThenDescriptor.value === promiseThen &&
+    promiseThenDescriptor.writable === true &&
+    promiseThenDescriptor.enumerable === false &&
+    promiseThenDescriptor.configurable === true &&
+    capturedPromiseThenSource === pristinePromiseThenSource
+  );
+} catch {
+  promiseThenAuthorityVerified = false;
+}
+
+if (!promiseThenAuthorityVerified || typeof promiseSpecies !== "symbol") {
+  boundaryAuthorityAvailable = false;
+}
+
 function boundaryError() {
   return new TypeErrorConstructor("Invalid M13 protection-proposal boundary.");
 }
 
-const safePromiseSpeciesContainer = {};
-defineProperty(safePromiseSpeciesContainer, promiseSpecies, {
-  value: PromiseConstructor,
-  writable: false,
-  enumerable: false,
-  configurable: false
-});
+let safePromiseSpeciesContainer = null;
+if (boundaryAuthorityAvailable) {
+  try {
+    safePromiseSpeciesContainer = {};
+    defineProperty(safePromiseSpeciesContainer, promiseSpecies, {
+      value: PromiseConstructor,
+      writable: false,
+      enumerable: false,
+      configurable: false
+    });
+  } catch {
+    safePromiseSpeciesContainer = null;
+    boundaryAuthorityAvailable = false;
+  }
+}
 
 function call(method, receiver, args) {
   return reflectApply(method, receiver, args);
@@ -314,17 +370,17 @@ function recordDescriptorSurface(value, keys) {
   return true;
 }
 
-function cloneCapturedValue(value, seen) {
+function prepareCapturedNode(value, seen) {
   if (
     value === null ||
     typeof value === "string" ||
     typeof value === "boolean"
   ) {
-    return value;
+    return makeRecord([["value", value], ["entries", null]]);
   }
   if (typeof value === "number") {
     if (!isWireNumber(value)) throw boundaryError();
-    return value;
+    return makeRecord([["value", value], ["entries", null]]);
   }
   if (typeof value !== "object" || isProxy(value) === true) {
     throw boundaryError();
@@ -332,39 +388,73 @@ function cloneCapturedValue(value, seen) {
   if (setHasValue(seen, value)) throw boundaryError();
   setAddValue(seen, value);
 
+  const entries = new ArrayConstructor();
+  let target;
+
   if (arrayIsArray(value) === true) {
     if (!exactArray(value)) throw boundaryError();
     const descriptors = getOwnPropertyDescriptors(value);
     const length = descriptors.length.value;
-    const copy = new ArrayConstructor();
+    target = new ArrayConstructor();
     for (let index = 0; index < length; index += 1) {
-      append(copy, cloneCapturedValue(
-        descriptors[stringConstructor(index)].value,
-        seen
-      ));
+      append(entries, makeRecord([
+        ["key", stringConstructor(index)],
+        ["value", descriptors[stringConstructor(index)].value]
+      ]));
     }
-    return copy;
-  }
-
-  if (
-    hasForbiddenBrand(value) ||
-    getPrototypeOf(value) !== objectPrototype ||
-    isExtensible(value) !== true
-  ) {
-    throw boundaryError();
-  }
-  const descriptors = getOwnPropertyDescriptors(value);
-  const keys = ownKeys(descriptors);
-  const copy = {};
-  for (let index = 0; index < keys.length; index += 1) {
-    const key = keys[index];
-    const descriptor = descriptors[key];
-    if (typeof key !== "string" || !ordinaryDescriptor(descriptor)) {
+  } else {
+    if (
+      hasForbiddenBrand(value) ||
+      getPrototypeOf(value) !== objectPrototype ||
+      isExtensible(value) !== true
+    ) {
       throw boundaryError();
     }
-    defineOrdinary(copy, key, cloneCapturedValue(descriptor.value, seen));
+    const descriptors = getOwnPropertyDescriptors(value);
+    const keys = ownKeys(descriptors);
+    target = {};
+    for (let index = 0; index < keys.length; index += 1) {
+      const key = keys[index];
+      const descriptor = descriptors[key];
+      if (typeof key !== "string" || !ordinaryDescriptor(descriptor)) {
+        throw boundaryError();
+      }
+      append(entries, makeRecord([
+        ["key", key],
+        ["value", descriptor.value]
+      ]));
+    }
   }
-  return copy;
+
+  return makeRecord([["value", target], ["entries", entries]]);
+}
+
+function cloneCapturedValue(value, seen) {
+  const root = prepareCapturedNode(value, seen);
+  if (root.entries === null) return root.value;
+
+  const frames = new ArrayConstructor();
+  append(frames, makeRecord([
+    ["target", root.value],
+    ["entries", root.entries]
+  ]));
+
+  for (let cursor = 0; cursor < frames.length; cursor += 1) {
+    const frame = frames[cursor];
+    for (let index = 0; index < frame.entries.length; index += 1) {
+      const entry = frame.entries[index];
+      const child = prepareCapturedNode(entry.value, seen);
+      defineOrdinary(frame.target, entry.key, child.value);
+      if (child.entries !== null) {
+        append(frames, makeRecord([
+          ["target", child.value],
+          ["entries", child.entries]
+        ]));
+      }
+    }
+  }
+
+  return root.value;
 }
 
 function captureInvocation(options) {
@@ -674,11 +764,127 @@ function exactTreeEqual(a, b) {
   return true;
 }
 
+function stringifyWireValue(root) {
+  let encoded = "";
+  const frames = new ArrayConstructor();
+  append(frames, makeRecord([
+    ["value", root],
+    ["entered", false],
+    ["array", false],
+    ["descriptors", null],
+    ["keys", null],
+    ["index", 0],
+    ["length", 0]
+  ]));
+
+  while (frames.length > 0) {
+    const frame = frames[frames.length - 1];
+    const value = frame.value;
+
+    if (frame.entered !== true) {
+      if (
+        value === null ||
+        typeof value === "string" ||
+        typeof value === "boolean" ||
+        typeof value === "number"
+      ) {
+        if (typeof value === "number" && !isWireNumber(value)) {
+          throw boundaryError();
+        }
+        const primitive = jsonStringify(value);
+        if (typeof primitive !== "string") throw boundaryError();
+        encoded += primitive;
+        frames.length -= 1;
+        continue;
+      }
+
+      if (typeof value !== "object" || isProxy(value) === true) {
+        throw boundaryError();
+      }
+
+      if (arrayIsArray(value) === true) {
+        if (!exactArray(value)) throw boundaryError();
+        frame.entered = true;
+        frame.array = true;
+        frame.descriptors = getOwnPropertyDescriptors(value);
+        frame.length = frame.descriptors.length.value;
+        encoded += "[";
+        if (frame.length === 0) {
+          encoded += "]";
+          frames.length -= 1;
+        }
+        continue;
+      }
+
+      if (
+        hasForbiddenBrand(value) ||
+        getPrototypeOf(value) !== objectPrototype ||
+        isExtensible(value) !== true
+      ) {
+        throw boundaryError();
+      }
+
+      const descriptors = getOwnPropertyDescriptors(value);
+      const keys = ownKeys(descriptors);
+      for (let index = 0; index < keys.length; index += 1) {
+        if (
+          typeof keys[index] !== "string" ||
+          !ordinaryDescriptor(descriptors[keys[index]])
+        ) {
+          throw boundaryError();
+        }
+      }
+      frame.entered = true;
+      frame.descriptors = descriptors;
+      frame.keys = keys;
+      frame.length = keys.length;
+      encoded += "{";
+      if (frame.length === 0) {
+        encoded += "}";
+        frames.length -= 1;
+      }
+      continue;
+    }
+
+    if (frame.index >= frame.length) {
+      encoded += frame.array === true ? "]" : "}";
+      frames.length -= 1;
+      continue;
+    }
+
+    if (frame.index > 0) encoded += ",";
+
+    let child;
+    if (frame.array === true) {
+      const key = stringConstructor(frame.index);
+      child = frame.descriptors[key].value;
+    } else {
+      const key = frame.keys[frame.index];
+      const encodedKey = jsonStringify(key);
+      if (typeof encodedKey !== "string") throw boundaryError();
+      encoded += encodedKey + ":";
+      child = frame.descriptors[key].value;
+    }
+    frame.index += 1;
+    append(frames, makeRecord([
+      ["value", child],
+      ["entered", false],
+      ["array", false],
+      ["descriptors", null],
+      ["keys", null],
+      ["index", 0],
+      ["length", 0]
+    ]));
+  }
+
+  return encoded;
+}
+
 function completeExperimentAuthority(experiment) {
   assertPrototypeBaseline();
   const attacksById = validateExperiment(experiment);
   assertTreeGraph(experiment);
-  const encoded = jsonStringify(makeRecord([["experiment", experiment]]));
+  const encoded = stringifyWireValue(makeRecord([["experiment", experiment]]));
   const parsed = jsonParse(encoded);
   if (!exactRecord(parsed, ["experiment"])) throw boundaryError();
   assertPrototypeBaseline();
@@ -696,23 +902,7 @@ function sourceIsSurvivor(experiment, sourceAttackId) {
 }
 
 function cloneWireValue(value, seen) {
-  if (value === null || typeof value !== "object") return value;
-  if (setHasValue(seen, value)) throw boundaryError();
-  setAddValue(seen, value);
-  if (arrayIsArray(value) === true) {
-    const copy = new ArrayConstructor();
-    for (let index = 0; index < value.length; index += 1) {
-      append(copy, cloneWireValue(value[index], seen));
-    }
-    return copy;
-  }
-  const descriptors = getOwnPropertyDescriptors(value);
-  const keys = ownKeys(descriptors);
-  const copy = {};
-  for (let index = 0; index < keys.length; index += 1) {
-    defineOrdinary(copy, keys[index], cloneWireValue(descriptors[keys[index]].value, seen));
-  }
-  return copy;
+  return cloneCapturedValue(value, seen);
 }
 
 function cloneRule(rule) {
