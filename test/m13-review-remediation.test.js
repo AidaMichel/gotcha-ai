@@ -201,3 +201,84 @@ test("callable pre-load Promise constructor poisoning fails closed without const
   });
   assert.equal(run.status, 0, run.stderr);
 });
+
+test("missing global Promise keeps package loadable and M13 fails closed through a native Promise", () => {
+  const modulePath = path.join(repoRoot, "src", "index.js");
+  const code = `
+    "use strict";
+    const NativePromise = Promise;
+    delete global.Promise;
+    let generatorCalls = 0;
+    let api;
+    try {
+      api = require(${JSON.stringify(modulePath)});
+    } catch (error) {
+      console.error(error);
+      process.exit(7);
+    }
+    global.Promise = NativePromise;
+    const returned = api.generateContractProtectionProposal({
+      experiment: null,
+      sourceAttackId: "wrong-time",
+      generator() {
+        generatorCalls += 1;
+        return {};
+      }
+    });
+    if (!(returned instanceof NativePromise)) process.exitCode = 2;
+    returned.then(
+      () => { process.exitCode = 3; },
+      (error) => {
+        if (!(error instanceof TypeError)) process.exitCode = 4;
+        if (generatorCalls !== 0) process.exitCode = 5;
+      }
+    );
+  `;
+  const run = spawnSync(process.execPath, ["-e", code], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  assert.equal(run.status, 0, run.stderr);
+});
+
+test("contract-protection adapter rejects pre-load Promise constructor poisoning without executing it", () => {
+  const modulePath = path.join(repoRoot, "src", "index.js");
+  const code = `
+    "use strict";
+    const NativePromise = Promise;
+    let poisonedConstructorCalls = 0;
+    function PoisonPromise(executor) {
+      poisonedConstructorCalls += 1;
+      return new NativePromise(executor);
+    }
+    PoisonPromise.prototype = NativePromise.prototype;
+    global.Promise = PoisonPromise;
+    const { createStructuredProviderAdapter } = require(${JSON.stringify(modulePath)});
+    global.Promise = NativePromise;
+    poisonedConstructorCalls = 0;
+    let transportCalls = 0;
+    const generator = createStructuredProviderAdapter({
+      transport() {
+        transportCalls += 1;
+        return { version: 1, kind: "gotcha-provider-response", output: {} };
+      },
+      model: "test-model",
+      mode: "contract-protection"
+    });
+    const returned = generator({});
+    if (!(returned instanceof NativePromise)) process.exitCode = 2;
+    returned.then(
+      () => { process.exitCode = 3; },
+      (error) => {
+        if (!(error instanceof TypeError)) process.exitCode = 4;
+        if (poisonedConstructorCalls !== 0) process.exitCode = 5;
+        if (transportCalls !== 0) process.exitCode = 6;
+      }
+    );
+  `;
+  const run = spawnSync(process.execPath, ["-e", code], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  assert.equal(run.status, 0, run.stderr);
+});

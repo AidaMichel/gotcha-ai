@@ -18,6 +18,7 @@ const {
   ObjectPrototype: objectPrototype,
   ObjectPrototypeParent: objectPrototypeParent,
   PromiseConstructor,
+  PromisePrototype: promisePrototype,
   TypeErrorConstructor,
   getOwnPropertyDescriptors,
   getOwnPropertyDescriptor,
@@ -43,10 +44,6 @@ const {
 
 const MAX_RULES_V1 = 7;
 const MAX_ATTACKS_V1 = 20;
-const promisePrototype =
-  typeof PromiseConstructor === "function"
-    ? PromiseConstructor.prototype
-    : null;
 const promiseBrandProbe =
   forbiddenProbes !== null &&
   typeof forbiddenProbes === "object"

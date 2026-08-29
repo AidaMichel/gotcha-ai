@@ -1,7 +1,6 @@
 const { types: utilTypes } = require("node:util");
 
 const functionToString = Function.prototype.toString;
-const promiseThen = Promise.prototype.then;
 const getOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
 const getOwnPropertyDescriptors = Object.getOwnPropertyDescriptors;
 const getPrototypeOf = Object.getPrototypeOf;
@@ -10,8 +9,31 @@ const defineProperty = Object.defineProperty;
 const deleteProperty = Reflect.deleteProperty;
 const ownKeys = Reflect.ownKeys;
 
+const mutationPromiseProbe =
+  (async function mutationPackPromiseProbe() {})();
+const mutationPromisePrototype =
+  getPrototypeOf(mutationPromiseProbe);
+const mutationPromiseConstructorDescriptor =
+  getOwnPropertyDescriptor(mutationPromisePrototype, "constructor");
+const mutationPromiseThenDescriptor =
+  getOwnPropertyDescriptor(mutationPromisePrototype, "then");
+const mutationPromiseConstructor =
+  mutationPromiseConstructorDescriptor !== undefined &&
+  !("get" in mutationPromiseConstructorDescriptor) &&
+  !("set" in mutationPromiseConstructorDescriptor) &&
+  typeof mutationPromiseConstructorDescriptor.value === "function"
+    ? mutationPromiseConstructorDescriptor.value
+    : null;
+const promiseThen =
+  mutationPromiseThenDescriptor !== undefined &&
+  !("get" in mutationPromiseThenDescriptor) &&
+  !("set" in mutationPromiseThenDescriptor) &&
+  typeof mutationPromiseThenDescriptor.value === "function"
+    ? mutationPromiseThenDescriptor.value
+    : null;
+
 const safePromiseSpecies = Object.freeze({
-  [Symbol.species]: Promise
+  [Symbol.species]: mutationPromiseConstructor
 });
 
 const callbackReceiver = Object.freeze(Object.create(null));

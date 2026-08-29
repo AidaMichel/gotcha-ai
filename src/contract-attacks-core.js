@@ -10,6 +10,90 @@ const {
   runInNewContext
 } = require("node:vm");
 
+const promiseCaptureGetOwnPropertyDescriptor =
+  Object.getOwnPropertyDescriptor;
+const promiseCaptureGetPrototypeOf =
+  Object.getPrototypeOf;
+const promiseCaptureIsProxy =
+  utilTypes.isProxy;
+
+const intrinsicPromiseProbe =
+  (async function gotchaIntrinsicPromiseProbe() {})();
+const intrinsicPromisePrototype =
+  promiseCaptureGetPrototypeOf(intrinsicPromiseProbe);
+const intrinsicPromiseConstructorDescriptor =
+  promiseCaptureGetOwnPropertyDescriptor(
+    intrinsicPromisePrototype,
+    "constructor"
+  );
+const intrinsicPromiseThenDescriptor =
+  promiseCaptureGetOwnPropertyDescriptor(
+    intrinsicPromisePrototype,
+    "then"
+  );
+const intrinsicPromiseConstructor =
+  intrinsicPromiseConstructorDescriptor !== undefined &&
+  !("get" in intrinsicPromiseConstructorDescriptor) &&
+  !("set" in intrinsicPromiseConstructorDescriptor) &&
+  typeof intrinsicPromiseConstructorDescriptor.value === "function" &&
+  promiseCaptureIsProxy(intrinsicPromiseConstructorDescriptor.value) !== true
+    ? intrinsicPromiseConstructorDescriptor.value
+    : null;
+const intrinsicPromiseThen =
+  intrinsicPromiseThenDescriptor !== undefined &&
+  !("get" in intrinsicPromiseThenDescriptor) &&
+  !("set" in intrinsicPromiseThenDescriptor) &&
+  typeof intrinsicPromiseThenDescriptor.value === "function" &&
+  promiseCaptureIsProxy(intrinsicPromiseThenDescriptor.value) !== true
+    ? intrinsicPromiseThenDescriptor.value
+    : null;
+
+let capturedAmbientPromiseConstructor = null;
+let capturedAmbientPromisePrototype = null;
+let capturedAmbientPromiseThen = null;
+try {
+  const ambientPromiseCandidate = globalThis.Promise;
+  if (
+    typeof ambientPromiseCandidate === "function" &&
+    promiseCaptureIsProxy(ambientPromiseCandidate) !== true
+  ) {
+    const prototypeDescriptor =
+      promiseCaptureGetOwnPropertyDescriptor(
+        ambientPromiseCandidate,
+        "prototype"
+      );
+    if (
+      prototypeDescriptor !== undefined &&
+      !("get" in prototypeDescriptor) &&
+      !("set" in prototypeDescriptor) &&
+      prototypeDescriptor.value !== null &&
+      typeof prototypeDescriptor.value === "object" &&
+      promiseCaptureIsProxy(prototypeDescriptor.value) !== true
+    ) {
+      const thenDescriptor =
+        promiseCaptureGetOwnPropertyDescriptor(
+          prototypeDescriptor.value,
+          "then"
+        );
+      if (
+        thenDescriptor !== undefined &&
+        !("get" in thenDescriptor) &&
+        !("set" in thenDescriptor) &&
+        typeof thenDescriptor.value === "function" &&
+        promiseCaptureIsProxy(thenDescriptor.value) !== true
+      ) {
+        capturedAmbientPromiseConstructor = ambientPromiseCandidate;
+        capturedAmbientPromisePrototype = prototypeDescriptor.value;
+        capturedAmbientPromiseThen = thenDescriptor.value;
+      }
+    }
+  }
+} catch {
+  capturedAmbientPromiseConstructor = null;
+  capturedAmbientPromisePrototype = null;
+  capturedAmbientPromiseThen = null;
+}
+
 // The M8 core owns the experiment authority. It is created from the same
 // util.types instance observed by this core plus pristine VM operations at
 // core initialization, then retained on the cached core export. No separately
@@ -61,7 +145,9 @@ const experimentIntrinsics =
     ObjectPrototypeParent:
       Object.getPrototypeOf(Object.prototype),
     PromiseConstructor:
-      Promise,
+      capturedAmbientPromiseConstructor,
+    PromisePrototype:
+      capturedAmbientPromisePrototype,
     TypeErrorConstructor:
       TypeError,
     getOwnPropertyDescriptors:
@@ -101,7 +187,7 @@ const experimentIntrinsics =
     mapSet:
       Map.prototype.set,
     PromiseThen:
-      Promise.prototype.then,
+      capturedAmbientPromiseThen,
     PromiseSpecies:
       Symbol.species
   });
@@ -328,13 +414,13 @@ const sharedIteratorPrototype =
   );
 
 const promisePrototype =
-  Promise.prototype;
+  intrinsicPromisePrototype;
 
 const promiseConstructor =
-  Promise;
+  intrinsicPromiseConstructor;
 
 const promiseThen =
-  Promise.prototype.then;
+  intrinsicPromiseThen;
 
 const promiseThenDescriptor =
   getOwnPropertyDescriptor(

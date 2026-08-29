@@ -20,9 +20,28 @@ const deleteProperty = Reflect.deleteProperty;
 const arrayIsArray = Array.isArray;
 
 const ObjectPrototype = Object.prototype;
-const PromiseConstructor = Promise;
-const PromisePrototype = Promise.prototype;
-const PromiseThen = Promise.prototype.then;
+const qualityLoopPromiseProbe =
+  (async function qualityLoopPromiseProbe() {})();
+const PromisePrototype =
+  getPrototypeOf(qualityLoopPromiseProbe);
+const PromiseConstructorDescriptor =
+  getOwnPropertyDescriptor(PromisePrototype, "constructor");
+const PromiseThenDescriptor =
+  getOwnPropertyDescriptor(PromisePrototype, "then");
+const PromiseConstructor =
+  PromiseConstructorDescriptor !== undefined &&
+  !("get" in PromiseConstructorDescriptor) &&
+  !("set" in PromiseConstructorDescriptor) &&
+  typeof PromiseConstructorDescriptor.value === "function"
+    ? PromiseConstructorDescriptor.value
+    : null;
+const PromiseThen =
+  PromiseThenDescriptor !== undefined &&
+  !("get" in PromiseThenDescriptor) &&
+  !("set" in PromiseThenDescriptor) &&
+  typeof PromiseThenDescriptor.value === "function"
+    ? PromiseThenDescriptor.value
+    : null;
 const PromiseSpecies = Symbol.species;
 const TypeErrorConstructor = TypeError;
 

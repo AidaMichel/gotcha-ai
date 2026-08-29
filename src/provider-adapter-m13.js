@@ -1,19 +1,13 @@
 "use strict";
 
 const { types: utilTypes } = require("node:util");
+const { runInNewContext } = require("node:vm");
 const {
   isUnsupportedRuntimeObject
 } = require("./ai-data-core");
-const {
-  createStructuredProviderAdapter: createLegacyStructuredProviderAdapter
-} = require("./provider-adapter");
-
-const PromiseConstructor = Promise;
-const PromisePrototype = Promise.prototype;
 const TypeErrorConstructor = TypeError;
 const ArrayConstructor = Array;
 const WeakSetConstructor = WeakSet;
-const promiseThen = Promise.prototype.then;
 const promiseSpecies = Symbol.species;
 const objectPrototype = Object.prototype;
 const arrayPrototype = Array.prototype;
@@ -50,14 +44,137 @@ const CONTRACT_PROTECTION_INSTRUCTIONS_V1 =
   "The protection statement must describe what the quality system should enforce.\n" +
   "The rationale must explain why this protection addresses the selected survivor.";
 
-const safePromiseConstructor = objectCreate(null);
-defineProperty(safePromiseConstructor, promiseSpecies, {
-  value: PromiseConstructor,
-  writable: false,
-  enumerable: false,
-  configurable: false
-});
-Object.freeze(safePromiseConstructor);
+let capturedAmbientPromiseConstructor = null;
+try {
+  capturedAmbientPromiseConstructor = globalThis.Promise;
+} catch {
+  capturedAmbientPromiseConstructor = null;
+}
+
+let trustedPromiseConstructor = null;
+let trustedPromisePrototype = null;
+let trustedPromiseThen = null;
+let promiseAuthorityAvailable = false;
+try {
+  const pristineReflectApply = runInNewContext("Reflect.apply");
+  const pristineGetPrototypeOf = runInNewContext("Object.getPrototypeOf");
+  const pristineGetOwnPropertyDescriptor = runInNewContext(
+    "Object.getOwnPropertyDescriptor"
+  );
+  const pristineFunctionToString = runInNewContext("Function.prototype.toString");
+  const pristinePromiseConstructorSource = runInNewContext(
+    "Function.prototype.toString.call(Promise)"
+  );
+  const pristinePromiseThenSource = runInNewContext(
+    "Function.prototype.toString.call(Promise.prototype.then)"
+  );
+  const localPromiseProbe =
+    (async function m13AdapterLocalPromiseProbe() {})();
+  const intrinsicPrototype = pristineReflectApply(
+    pristineGetPrototypeOf,
+    undefined,
+    [localPromiseProbe]
+  );
+  const constructorDescriptor = pristineReflectApply(
+    pristineGetOwnPropertyDescriptor,
+    undefined,
+    [intrinsicPrototype, "constructor"]
+  );
+  const thenDescriptor = pristineReflectApply(
+    pristineGetOwnPropertyDescriptor,
+    undefined,
+    [intrinsicPrototype, "then"]
+  );
+  const intrinsicConstructorSource =
+    constructorDescriptor !== undefined &&
+    typeof constructorDescriptor.value === "function"
+      ? pristineReflectApply(
+          pristineFunctionToString,
+          constructorDescriptor.value,
+          []
+        )
+      : null;
+  const intrinsicThenSource =
+    thenDescriptor !== undefined &&
+    typeof thenDescriptor.value === "function"
+      ? pristineReflectApply(
+          pristineFunctionToString,
+          thenDescriptor.value,
+          []
+        )
+      : null;
+  const intrinsicAuthorityValid = (
+    constructorDescriptor !== undefined &&
+    !("get" in constructorDescriptor) &&
+    !("set" in constructorDescriptor) &&
+    typeof constructorDescriptor.value === "function" &&
+    constructorDescriptor.writable === true &&
+    constructorDescriptor.enumerable === false &&
+    constructorDescriptor.configurable === true &&
+    !isProxy(constructorDescriptor.value) &&
+    intrinsicConstructorSource === pristinePromiseConstructorSource &&
+    thenDescriptor !== undefined &&
+    !("get" in thenDescriptor) &&
+    !("set" in thenDescriptor) &&
+    typeof thenDescriptor.value === "function" &&
+    thenDescriptor.writable === true &&
+    thenDescriptor.enumerable === false &&
+    thenDescriptor.configurable === true &&
+    !isProxy(thenDescriptor.value) &&
+    intrinsicThenSource === pristinePromiseThenSource
+  );
+
+  if (intrinsicAuthorityValid) {
+    trustedPromiseConstructor = constructorDescriptor.value;
+    trustedPromisePrototype = intrinsicPrototype;
+    trustedPromiseThen = thenDescriptor.value;
+  }
+
+  let ambientPrototypeMatches = false;
+  if (
+    intrinsicAuthorityValid &&
+    typeof capturedAmbientPromiseConstructor === "function" &&
+    !isProxy(capturedAmbientPromiseConstructor) &&
+    capturedAmbientPromiseConstructor === trustedPromiseConstructor
+  ) {
+    const ambientPrototypeDescriptor = pristineReflectApply(
+      pristineGetOwnPropertyDescriptor,
+      undefined,
+      [capturedAmbientPromiseConstructor, "prototype"]
+    );
+    ambientPrototypeMatches = (
+      ambientPrototypeDescriptor !== undefined &&
+      !("get" in ambientPrototypeDescriptor) &&
+      !("set" in ambientPrototypeDescriptor) &&
+      ambientPrototypeDescriptor.value === trustedPromisePrototype
+    );
+  }
+
+  promiseAuthorityAvailable =
+    intrinsicAuthorityValid && ambientPrototypeMatches;
+} catch {
+  trustedPromiseConstructor = null;
+  trustedPromisePrototype = null;
+  trustedPromiseThen = null;
+  promiseAuthorityAvailable = false;
+}
+
+let safePromiseConstructor = null;
+if (promiseAuthorityAvailable) {
+  try {
+    safePromiseConstructor = objectCreate(null);
+    defineProperty(safePromiseConstructor, promiseSpecies, {
+      value: trustedPromiseConstructor,
+      writable: false,
+      enumerable: false,
+      configurable: false
+    });
+    Object.freeze(safePromiseConstructor);
+  } catch {
+    safePromiseConstructor = null;
+    promiseAuthorityAvailable = false;
+  }
+}
 
 const CONTRACT_PROTECTION_SCHEMA = Object.freeze({
   dialect: "gotcha-structured-v1",
@@ -85,6 +202,10 @@ const CONTRACT_PROTECTION_SCHEMA = Object.freeze({
 
 function boundaryError(message) {
   return new TypeErrorConstructor(message);
+}
+
+async function rejectAdapterBoundaryPromise(error) {
+  throw error;
 }
 
 function isLocalTypeError(error) {
@@ -382,7 +503,7 @@ function observeAcceptedPromise(promise, onFulfilled, onRejected) {
     configurable: true
   });
   try {
-    reflectApply(promiseThen, promise, [onFulfilled, onRejected]);
+    reflectApply(trustedPromiseThen, promise, [onFulfilled, onRejected]);
   } finally {
     if (constructorDescriptor === undefined) {
       deleteProperty(promise, "constructor");
@@ -423,7 +544,15 @@ function createContractProtectionAdapter(options, descriptors) {
   ) throw boundaryError("model must be a non-empty canonical string.");
 
   return function contractProtectionProviderGenerator(generatorRequest) {
-    return new PromiseConstructor((resolve, reject) => {
+    if (
+      !promiseAuthorityAvailable ||
+      typeof trustedPromiseConstructor !== "function"
+    ) {
+      return rejectAdapterBoundaryPromise(
+        boundaryError("Promise authority is unavailable.")
+      );
+    }
+    return new trustedPromiseConstructor((resolve, reject) => {
       let request;
       try {
         const requestDescriptors = exactDataDescriptors(
@@ -479,7 +608,7 @@ function createContractProtectionAdapter(options, descriptors) {
         reflectApply(isPromise, utilTypes, [transportResult])
       ) {
         try {
-          if (getPrototypeOf(transportResult) !== PromisePrototype) {
+          if (getPrototypeOf(transportResult) !== trustedPromisePrototype) {
             throw boundaryError("transport Promise has an unsupported current prototype.");
           }
           observeAcceptedPromise(transportResult, settleResponse, reject);
@@ -510,6 +639,9 @@ function createStructuredProviderAdapter(options) {
     true
   );
   if (descriptors.mode.value !== "contract-protection") {
+    const {
+      createStructuredProviderAdapter: createLegacyStructuredProviderAdapter
+    } = require("./provider-adapter");
     return createLegacyStructuredProviderAdapter(options);
   }
   return createContractProtectionAdapter(options, descriptors);
