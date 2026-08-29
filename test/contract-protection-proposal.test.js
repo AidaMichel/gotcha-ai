@@ -156,7 +156,7 @@ test("M13 generates one bound proposal synchronously and keeps the human boundar
     sourceAttackId: "wrong-time",
     proposal: result.proposal
   });
-  assert.equal(checkpoint.state, "awaiting-human-decision");
+  assert.equal(checkpoint.state, "awaiting-confirmation");
 });
 
 test("M13 validates the complete experiment and source before any generator call", async () => {
