@@ -1,0 +1,222 @@
+name: M13 final Promise authority gate
+
+on:
+  push:
+    branches:
+      - milestone-13-runtime-slice-a
+
+permissions:
+  contents: write
+
+jobs:
+  final-gate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: milestone-13-runtime-slice-a
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Apply tested remediation
+        run: |
+          python3 scripts/qa/m13-promise-authority-r3.py
+          python3 scripts/qa/m13-promise-load-extra.py
+
+      - name: Add permanent regressions
+        shell: bash
+        run: |
+          cat >> test/m13-review-remediation.test.js <<'EOF'
+
+          test("missing global Promise keeps package loadable and M13 fails closed through a native Promise", () => {
+            const modulePath = path.join(repoRoot, "src", "index.js");
+            const code = `
+              "use strict";
+              const NativePromise = Promise;
+              delete global.Promise;
+              let generatorCalls = 0;
+              let api;
+              try {
+                api = require(${JSON.stringify(modulePath)});
+              } catch (error) {
+                console.error(error);
+                process.exit(7);
+              }
+              global.Promise = NativePromise;
+              const returned = api.generateContractProtectionProposal({
+                experiment: null,
+                sourceAttackId: "wrong-time",
+                generator() {
+                  generatorCalls += 1;
+                  return {};
+                }
+              });
+              if (!(returned instanceof NativePromise)) process.exitCode = 2;
+              returned.then(
+                () => { process.exitCode = 3; },
+                (error) => {
+                  if (!(error instanceof TypeError)) process.exitCode = 4;
+                  if (generatorCalls !== 0) process.exitCode = 5;
+                }
+              );
+            `;
+            const run = spawnSync(process.execPath, ["-e", code], {
+              cwd: repoRoot,
+              encoding: "utf8"
+            });
+            assert.equal(run.status, 0, run.stderr);
+          });
+
+          test("contract-protection adapter rejects pre-load Promise constructor poisoning without executing it", () => {
+            const modulePath = path.join(repoRoot, "src", "index.js");
+            const code = `
+              "use strict";
+              const NativePromise = Promise;
+              let poisonedConstructorCalls = 0;
+              function PoisonPromise(executor) {
+                poisonedConstructorCalls += 1;
+                return new NativePromise(executor);
+              }
+              PoisonPromise.prototype = NativePromise.prototype;
+              global.Promise = PoisonPromise;
+              const { createStructuredProviderAdapter } = require(${JSON.stringify(modulePath)});
+              global.Promise = NativePromise;
+              poisonedConstructorCalls = 0;
+              let transportCalls = 0;
+              const generator = createStructuredProviderAdapter({
+                transport() {
+                  transportCalls += 1;
+                  return { version: 1, kind: "gotcha-provider-response", output: {} };
+                },
+                model: "test-model",
+                mode: "contract-protection"
+              });
+              const returned = generator({});
+              if (!(returned instanceof NativePromise)) process.exitCode = 2;
+              returned.then(
+                () => { process.exitCode = 3; },
+                (error) => {
+                  if (!(error instanceof TypeError)) process.exitCode = 4;
+                  if (poisonedConstructorCalls !== 0) process.exitCode = 5;
+                  if (transportCalls !== 0) process.exitCode = 6;
+                }
+              );
+            `;
+            const run = spawnSync(process.execPath, ["-e", code], {
+              cwd: repoRoot,
+              encoding: "utf8"
+            });
+            assert.equal(run.status, 0, run.stderr);
+          });
+          EOF
+
+      - name: Missing-Promise package-load proof Node 20
+        run: |
+          node - <<'NODE'
+          const NativePromise = Promise;
+          delete global.Promise;
+          try {
+            require('./src');
+          } finally {
+            global.Promise = NativePromise;
+          }
+          console.log('package-load-without-global-Promise: PASS');
+          NODE
+
+      - name: Syntax and focused Node 20 proof
+        run: |
+          node --check src/mutation-pack.js
+          node --check src/contract-attacks-core.js
+          node --check src/contract-quality-loop.js
+          node --check src/contract-protection-proposal.js
+          node --check src/provider-adapter-m13.js
+          node --check test/m13-review-remediation.test.js
+          node --test test/contract-protection-proposal.test.js test/m13-review-remediation.test.js test/package-contract-protection-proposal.test.js test/provider-adapter-m13.test.js
+
+      - name: Full Node 20 comparison proof
+        shell: bash
+        run: |
+          set +e
+          npm test 2>&1 | tee /tmp/m13-node20-full.txt
+          set -e
+          python3 - <<'PY'
+          from pathlib import Path
+          text = Path('/tmp/m13-node20-full.txt').read_text()
+          failures = [line for line in text.splitlines() if line.startswith('not ok ')]
+          allowed = [
+              'cloneAiData rejects prototype-tampered hidden-slot runtime objects',
+              'Headers and FormData brands remain rejected when own data is added'
+          ]
+          if len(failures) > 2:
+              raise SystemExit(f'unexpected extra failures: {failures}')
+          for failure in failures:
+              if not any(name in failure for name in allowed):
+                  raise SystemExit(f'unexpected failure: {failure}')
+          print('Node20 failure set:', failures)
+          PY
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Missing-Promise and focused Node 22 proof
+        run: |
+          node - <<'NODE'
+          const NativePromise = Promise;
+          delete global.Promise;
+          try {
+            require('./src');
+          } finally {
+            global.Promise = NativePromise;
+          }
+          NODE
+          node --test test/contract-protection-proposal.test.js test/m13-review-remediation.test.js test/package-contract-protection-proposal.test.js test/provider-adapter-m13.test.js
+
+      - name: Full Node 22 comparison proof
+        shell: bash
+        run: |
+          set +e
+          npm test 2>&1 | tee /tmp/m13-node22-full.txt
+          set -e
+          python3 - <<'PY'
+          from pathlib import Path
+          text = Path('/tmp/m13-node22-full.txt').read_text()
+          failures = [line for line in text.splitlines() if line.startswith('not ok ')]
+          allowed = [
+              'cloneAiData rejects prototype-tampered hidden-slot runtime objects',
+              'Headers and FormData brands remain rejected when own data is added'
+          ]
+          if len(failures) > 2:
+              raise SystemExit(f'unexpected extra failures: {failures}')
+          for failure in failures:
+              if not any(name in failure for name in allowed):
+                  raise SystemExit(f'unexpected failure: {failure}')
+          print('Node22 failure set:', failures)
+          PY
+
+      - name: Diff hygiene
+        run: git diff --check
+
+      - name: Commit tested remediation and remove temporary QA harness
+        shell: bash
+        run: |
+          rm -f .github/workflows/m13-promise-authority-r2.yml
+          rm -f .github/workflows/m13-promise-authority-r3.yml
+          rm -f .github/workflows/m13-promise-load-diagnostic.yml
+          rm -f .github/workflows/m13-promise-authority-final.yml
+          rm -f scripts/qa/m13-promise-authority-r3.py
+          rm -f scripts/qa/m13-promise-load-extra.py
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/mutation-pack.js src/contract-attacks-core.js src/contract-quality-loop.js src/contract-protection-proposal.js src/provider-adapter-m13.js test/m13-review-remediation.test.js .github/workflows/m13-promise-authority-r2.yml .github/workflows/m13-promise-authority-r3.yml .github/workflows/m13-promise-load-diagnostic.yml .github/workflows/m13-promise-authority-final.yml scripts/qa/m13-promise-authority-r3.py scripts/qa/m13-promise-load-extra.py
+          git commit -m 'fix: close M13 Promise authority load gaps'
+          git push origin HEAD:milestone-13-runtime-slice-a
