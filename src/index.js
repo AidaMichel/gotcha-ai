@@ -22,8 +22,12 @@ const {
 } = require("./contract-remediation");
 
 const {
+  generateContractProtectionProposal
+} = require("./contract-protection-proposal");
+
+const {
   createStructuredProviderAdapter
-} = require("./provider-adapter");
+} = require("./provider-adapter-m13");
 
 const {
   prepareContractQualityLoop,
@@ -57,6 +61,7 @@ module.exports = {
   draftContractProtection,
   confirmContractProtection,
   verifyContractProtection,
+  generateContractProtectionProposal,
   createStructuredProviderAdapter,
   prepareContractQualityLoop,
   completeContractQualityLoop
