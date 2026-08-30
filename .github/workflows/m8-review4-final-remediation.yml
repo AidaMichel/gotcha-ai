@@ -1,4 +1,4 @@
-name: M8 Undici Authority Diagnostic
+name: M8 Node18 Clone Diagnostic
 
 on:
   push:
@@ -8,56 +8,43 @@ on:
 jobs:
   diagnose:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        node: [18, 20.20.2, 22, 24]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node }}
-      - name: Inspect Undici globals
+          node-version: 18
+      - name: Probe Node18 clone behavior
         run: |
           node - <<'NODE'
-          const src = process.binding('natives')['internal/deps/undici/undici'] || '';
-          const fts = Function.prototype.toString;
-          for (const name of ['Headers','FormData','Request','Response']) {
-            const gd = Object.getOwnPropertyDescriptor(globalThis, name);
-            console.log('\nGLOBAL', name, gd && Object.keys(gd), 'value', gd && typeof gd.value, 'get', gd && typeof gd.get, 'set', gd && typeof gd.set);
-            if (!gd) continue;
-            if (typeof gd.get === 'function') {
-              const gs = fts.call(gd.get);
-              console.log('global getter source-in-undici', src.includes(gs), gs.slice(0,160));
-            }
-            let C = null;
+          const wt = require('node:worker_threads');
+          const { port1, port2 } = new wt.MessageChannel();
+          if (typeof port1.unref === 'function') port1.unref();
+          if (typeof port2.unref === 'function') port2.unref();
+          function run(label, make) {
+            const value = make();
+            value.foo = 'bar';
+            Object.setPrototypeOf(value, Object.prototype);
             try {
-              if ('value' in gd) C = gd.value;
-              else if (typeof gd.get === 'function') C = Reflect.apply(gd.get, globalThis, []);
-            } catch (e) { console.log('global resolve threw', e.name, e.message); }
-            console.log('resolved', typeof C, C && C.name, C && C.length);
-            if (typeof C !== 'function') continue;
-            const cs = fts.call(C);
-            console.log('constructor source-in-undici', src.includes(cs), cs.slice(0,160));
-            const protoDesc = Object.getOwnPropertyDescriptor(C, 'prototype');
-            const proto = protoDesc && protoDesc.value;
-            console.log('prototype data', !!protoDesc && 'value' in protoDesc, 'proxy?', false, 'proto type', typeof proto);
-            if (!proto || typeof proto !== 'object') continue;
-            const cd = Object.getOwnPropertyDescriptor(proto, 'constructor');
-            console.log('proto constructor identity', !!cd && cd.value === C);
-            const key = name === 'Headers' || name === 'FormData' ? 'get' : name === 'Request' ? 'url' : 'status';
-            const pd = Object.getOwnPropertyDescriptor(proto, key);
-            const fn = pd && (pd.get || pd.value);
-            console.log('probe', key, pd && Object.keys(pd), typeof fn);
-            if (typeof fn === 'function') {
-              const ps = fts.call(fn);
-              console.log('probe source-in-undici', src.includes(ps), 'name', fn.name, 'length', fn.length, ps.slice(0,180));
-              try {
-                const args = key === 'get' ? ['x'] : [];
-                console.log('ordinary receiver', Reflect.apply(fn, {}, args));
-              } catch (e) {
-                console.log('ordinary receiver REJECT', e.name, e.message);
-              }
+              const c = structuredClone(value);
+              console.log(label, 'structuredClone OK', c, Object.keys(c));
+            } catch (e) {
+              console.log(label, 'structuredClone THROW', e.name, e.message);
+            }
+            try {
+              port1.postMessage(value);
+              const r = wt.receiveMessageOnPort(port2);
+              console.log(label, 'MessagePort OK', r && r.message, r && r.message && Object.keys(r.message));
+            } catch (e) {
+              console.log(label, 'MessagePort THROW', e.name, e.message);
             }
           }
+          for (const [name, make] of [
+            ['Headers', () => new Headers()],
+            ['FormData', () => new FormData()],
+            ['Request', () => new Request('https://example.com/')],
+            ['Response', () => new Response('x')]
+          ]) {
+            run(name, make);
+          }
+          port1.close(); port2.close();
           NODE
