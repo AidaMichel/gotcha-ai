@@ -1,4 +1,4 @@
-name: M8 AbortController Capture Diagnostic
+name: M8 AbortController Accessor Source Diagnostic
 
 on:
   push:
@@ -8,48 +8,36 @@ on:
 jobs:
   diagnose:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [16.20.2, 18, 20.20.2, 22, 24]
     steps:
       - uses: actions/checkout@v4
-      - name: Apply current remediation in workspace
-        run: |
-          python3 scripts/qa/m8-review4-final-remediate.py
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('scripts/qa/m8-review4-undici-lazy-fix.py')
-          s = p.read_text()
-          start = s.index("old_reads = ''')") if "old_reads = ''')" in s else s.index("old_reads = '''")
-          end = s.index("marker = ", start)
-          p.write_text(s[:start] + s[end:])
-          PY
-          python3 scripts/qa/m8-review4-undici-lazy-fix.py
-          python3 scripts/qa/m8-review4-blob-auth-fix.py
-          python3 scripts/qa/m8-review4-trim.py
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('src/ai-data-core.js')
-          s = p.read_text()
-          needle = '''const abortBrandGetters =\n  captureAbortBrandGetters();'''
-          replacement = needle + '''\n\nif (process.env.GOTCHA_DEBUG_ABORT === "1") {\n  console.log("DEBUG_ABORT_CAPTURE", {\n    controller: abortBrandGetters.controller !== null,\n    signal: abortBrandGetters.signal !== null,\n    transferableDescriptor: Object.getOwnPropertyDescriptor(nodeUtil, "transferableAbortController")\n  });\n}'''
-          if s.count(needle) != 1:
-              raise SystemExit('abort capture seam not unique')
-          p.write_text(s.replace(needle, replacement, 1))
-          PY
       - uses: actions/setup-node@v4
         with:
-          node-version: 18
-      - name: Trace capture and classification
-        env:
-          GOTCHA_DEBUG_ABORT: "1"
+          node-version: ${{ matrix.node }}
+      - name: Inspect trusted util accessor source
         run: |
           node - <<'NODE'
-          const { cloneAiData } = require('./src/ai-data');
-          const c = new AbortController();
-          c.foo = 'bar';
-          Object.setPrototypeOf(c, Object.prototype);
-          try {
-            cloneAiData(c, 'AbortController');
-            console.log('CLASSIFICATION accepted');
-          } catch (error) {
-            console.log('CLASSIFICATION', error.message);
+          const util = require('node:util');
+          const d = Object.getOwnPropertyDescriptor(util, 'transferableAbortController');
+          const natives = process.binding('natives');
+          console.log('node', process.version, 'descriptor', d && {
+            enumerable:d.enumerable,
+            configurable:d.configurable,
+            get:typeof d.get,
+            set:typeof d.set,
+            value:typeof d.value
+          });
+          if (d && typeof d.get === 'function') {
+            const source = Function.prototype.toString.call(d.get);
+            console.log('name', d.get.name, 'length', d.get.length, 'source', JSON.stringify(source));
+            const matches=[];
+            for (const key of Reflect.ownKeys(natives)) {
+              const nd=Object.getOwnPropertyDescriptor(natives,key);
+              if (nd && typeof nd.value==='string' && nd.value.includes(source)) matches.push(key);
+            }
+            console.log('matches', matches);
           }
           NODE
