@@ -16,65 +16,38 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20.20.2
-      - name: Map Node 20 builtin brand sources
+      - name: Inspect relocated global brand constructors
         run: |
           node - <<'NODE'
           "use strict";
-          const util = require("node:util");
-          const nodeUrl = require("node:url");
-          const nodeBuffer = require("node:buffer");
-          const streamWeb = require("node:stream/web");
           const natives = process.binding("natives");
-
           const specs = [
-            ["nodeUtil", util, "TextEncoder", "encoding", "getter", "internal/encoding"],
-            ["nodeUtil", util, "TextDecoder", "encoding", "getter", "internal/encoding"],
-            ["nodeUrl", nodeUrl, "URL", "href", "getter", "internal/url"],
-            ["nodeBuffer", nodeBuffer, "File", "name", "getter", "internal/file"],
-            ["streamWeb", streamWeb, "ReadableStream", "locked", "getter", "internal/webstreams/readablestream"],
-            ["streamWeb", streamWeb, "WritableStream", "locked", "getter", "internal/webstreams/writablestream"],
-            ["streamWeb", streamWeb, "TransformStream", "readable", "getter", "internal/webstreams/transformstream"],
-            ["streamWeb", streamWeb, "TextEncoderStream", "readable", "getter", "internal/webstreams/encoding"],
-            ["streamWeb", streamWeb, "TextDecoderStream", "readable", "getter", "internal/webstreams/encoding"],
-            ["streamWeb", streamWeb, "CompressionStream", "readable", "getter", "internal/webstreams/compression"],
-            ["streamWeb", streamWeb, "DecompressionStream", "readable", "getter", "internal/webstreams/compression"],
-            ["streamWeb", streamWeb, "CountQueuingStrategy", "highWaterMark", "getter", "internal/webstreams/queuingstrategies"],
-            ["streamWeb", streamWeb, "ByteLengthQueuingStrategy", "highWaterMark", "getter", "internal/webstreams/queuingstrategies"],
-            ["nodeUrl", nodeUrl, "URLSearchParams", "toString", "method", "internal/url"],
-            ["nodeBuffer", nodeBuffer, "Blob", "slice", "method", "internal/blob"]
+            ["TextEncoder", "encoding", "internal/encoding"],
+            ["TextDecoder", "encoding", "internal/encoding"],
+            ["Blob", "slice", "internal/blob"],
+            ["File", "name", "internal/file"]
           ];
-
-          function src(fn) {
-            return typeof fn === "function" ? Function.prototype.toString.call(fn) : null;
-          }
-
           console.log("node", process.version);
-          for (const [moduleLabel, moduleObject, ctorName, prop, kind, sourceModule] of specs) {
-            const moduleSource = natives[sourceModule];
-            const desc = Object.getOwnPropertyDescriptor(moduleObject, ctorName);
-            const ctor = desc && desc.value;
-            const proto = typeof ctor === "function" ? ctor.prototype : null;
-            const pd = proto && Object.getOwnPropertyDescriptor(proto, prop);
-            const callable = pd && (kind === "getter" ? pd.get : pd.value);
-            const ctorSource = src(ctor);
-            const callableSource = src(callable);
+          for (const [name, prop, moduleName] of specs) {
+            const d = Object.getOwnPropertyDescriptor(globalThis, name);
+            let C = d && d.value;
+            if (!C && d && typeof d.get === "function") {
+              try { C = Reflect.apply(d.get, globalThis, []); } catch {}
+            }
+            const source = typeof C === "function" ? Function.prototype.toString.call(C) : null;
+            const pd = C && C.prototype && Object.getOwnPropertyDescriptor(C.prototype, prop);
+            const callable = pd && (pd.get || pd.value);
+            const callableSource = typeof callable === "function" ? Function.prototype.toString.call(callable) : null;
+            const moduleSource = natives[moduleName];
             console.log(JSON.stringify({
-              moduleLabel,
-              ctorName,
-              prop,
-              kind,
-              sourceModule,
-              moduleSourceType: typeof moduleSource,
-              moduleDeclaresClass: typeof moduleSource === "string" && moduleSource.includes(`class ${ctorName}`),
-              moduleDeclaresFunction: typeof moduleSource === "string" && moduleSource.includes(`function ${ctorName}`),
-              exportType: typeof ctor,
-              ctorSource: ctorSource && ctorSource.slice(0,180),
-              ctorSourceIncluded: typeof moduleSource === "string" && typeof ctorSource === "string" && moduleSource.includes(ctorSource),
+              name,
+              descriptor: d ? {hasValue:Object.prototype.hasOwnProperty.call(d,"value"), hasGet:typeof d.get==="function", configurable:d.configurable, enumerable:d.enumerable} : null,
+              type: typeof C,
+              source: source && source.slice(0,180),
+              sourceIncluded: typeof moduleSource === "string" && typeof source === "string" && moduleSource.includes(source),
               callableType: typeof callable,
               callableSource: callableSource && callableSource.slice(0,180),
-              callableSourceIncluded: typeof moduleSource === "string" && typeof callableSource === "string" && moduleSource.includes(callableSource),
-              ctorProxy: typeof ctor === "function" ? util.types.isProxy(ctor) : null,
-              callableProxy: typeof callable === "function" ? util.types.isProxy(callable) : null
+              callableSourceIncluded: typeof moduleSource === "string" && typeof callableSource === "string" && moduleSource.includes(callableSource)
             }));
           }
           NODE
