@@ -1,4 +1,4 @@
-name: M8 Undici Handle Diagnostic
+name: M8 Undici Own-State Diagnostic
 
 on:
   push:
@@ -17,36 +17,30 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-      - name: Find core-owned Undici handles
+      - name: Inspect own state after prototype rewrite
         run: |
           node - <<'NODE'
-          const mod = require('node:module');
           console.log('node', process.version);
-          console.log('builtin undici matches', mod.builtinModules.filter(x => String(x).toLowerCase().includes('undici')));
-          console.log('process.getBuiltinModule', typeof process.getBuiltinModule);
-          for (const spec of ['undici','node:undici','internal/deps/undici/undici','node:internal/deps/undici/undici']) {
-            try {
-              const m = require(spec);
-              console.log('require', spec, 'OK', m && typeof m, m && Object.keys(m).slice(0,20));
-            } catch (e) {
-              console.log('require', spec, 'FAIL', e && e.code, e && e.message);
-            }
-            if (typeof process.getBuiltinModule === 'function') {
-              try {
-                const m = process.getBuiltinModule(spec);
-                console.log('getBuiltinModule', spec, '=>', m && typeof m, m && Object.keys(m).slice(0,20));
-              } catch (e) {
-                console.log('getBuiltinModule', spec, 'FAIL', e && e.code, e && e.message);
-              }
+          const makers = [
+            ['Headers', () => new Headers()],
+            ['FormData', () => new FormData()],
+            ['Request', () => new Request('https://example.com/')],
+            ['Response', () => new Response('x')]
+          ];
+          for (const [name, make] of makers) {
+            if (typeof globalThis[name] !== 'function') continue;
+            const value = make();
+            value.foo = 'bar';
+            Object.setPrototypeOf(value, Object.prototype);
+            const ds = Object.getOwnPropertyDescriptors(value);
+            const keys = Reflect.ownKeys(ds);
+            console.log('\n', name, 'keys', keys.map(k => typeof k === 'symbol' ? 'symbol:' + String(k) : k));
+            for (const k of keys) {
+              const d = ds[k];
+              console.log(' descriptor', typeof k === 'symbol' ? String(k) : k, {
+                enumerable:d.enumerable, configurable:d.configurable, writable:'writable' in d ? d.writable : undefined,
+                get:typeof d.get, set:typeof d.set, valueType:'value' in d ? typeof d.value : undefined
+              });
             }
           }
-          const vm = require('node:vm');
-          try {
-            const d = vm.runInNewContext("Object.getOwnPropertyDescriptor(globalThis, 'Headers')");
-            console.log('vm Headers descriptor', d && Object.keys(d), d && typeof d.value, d && typeof d.get);
-          } catch (e) { console.log('vm descriptor FAIL', e.name, e.message); }
-          try {
-            const t = vm.runInNewContext("typeof Headers");
-            console.log('vm typeof Headers', t);
-          } catch (e) { console.log('vm typeof FAIL', e.name, e.message); }
           NODE
