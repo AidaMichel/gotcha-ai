@@ -1,4 +1,4 @@
-name: M8 Node24 Lazy Global Diagnostic
+name: M8 Node24 Poison Trace
 
 on:
   push:
@@ -12,85 +12,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
-      - name: Inspect Node 24 global authority shapes
-        run: |
-          node - <<'NODE'
-          const natives = process.binding('natives');
-          const fts = Function.prototype.toString;
-          function sourceMatches(fn) {
-            if (typeof fn !== 'function') return [];
-            let source;
-            try { source = fts.call(fn); } catch (e) { return ['TOSTRING_THROW:' + e.message]; }
-            const out = [];
-            for (const key of Reflect.ownKeys(natives)) {
-              const d = Object.getOwnPropertyDescriptor(natives, key);
-              if (d && typeof d.value === 'string' && d.value.includes(source)) out.push(key);
-            }
-            return out;
-          }
-          function describeCallable(fn) {
-            if (typeof fn !== 'function') return null;
-            let source;
-            try { source = fts.call(fn); } catch (e) { source = 'THROW:' + e.message; }
-            return {
-              name: fn.name,
-              length: fn.length,
-              prototypeDescriptor: Object.getOwnPropertyDescriptor(fn, 'prototype'),
-              source,
-              matches: sourceMatches(fn)
-            };
-          }
-          function inspectGlobal(name, probeName, probeKind) {
-            const d = Object.getOwnPropertyDescriptor(globalThis, name);
-            console.log('\nGLOBAL', name, d && {
-              enumerable: d.enumerable,
-              configurable: d.configurable,
-              writable: d.writable,
-              hasValue: Object.prototype.hasOwnProperty.call(d, 'value'),
-              valueType: typeof d.value,
-              getType: typeof d.get,
-              setType: typeof d.set
-            });
-            if (d && typeof d.get === 'function') console.log('GETTER', describeCallable(d.get));
-            if (d && typeof d.set === 'function') console.log('SETTER', describeCallable(d.set));
-            if (d && typeof d.value === 'function') console.log('DATA_CONSTRUCTOR', describeCallable(d.value));
-
-            let C = null;
-            try {
-              if (d && typeof d.value === 'function') C = d.value;
-              else if (d && typeof d.get === 'function') C = Reflect.apply(d.get, globalThis, []);
-            } catch (e) {
-              console.log('RESOLVE_THROW', e.name, e.message);
-            }
-            if (typeof C !== 'function') return;
-            console.log('RESOLVED_CONSTRUCTOR', describeCallable(C));
-            const proto = C.prototype;
-            const pd = proto && Object.getOwnPropertyDescriptor(proto, probeName);
-            console.log('PROBE_DESCRIPTOR', probeName, pd && {
-              enumerable: pd.enumerable,
-              configurable: pd.configurable,
-              writable: pd.writable,
-              getType: typeof pd.get,
-              setType: typeof pd.set,
-              valueType: typeof pd.value
-            });
-            const probe = probeKind === 'getter' ? pd && pd.get : pd && pd.value;
-            if (typeof probe === 'function') console.log('PROBE_CALLABLE', describeCallable(probe));
-          }
-
-          console.log('NODE', process.version);
-          inspectGlobal('Headers', 'get', 'method');
-          inspectGlobal('FormData', 'get', 'method');
-          inspectGlobal('Request', 'url', 'getter');
-          inspectGlobal('Response', 'status', 'getter');
-          inspectGlobal('AbortController', 'signal', 'getter');
-          console.log('\nLIKELY CORE MODULES', Object.keys(natives).filter(k => /abort|undici|pre_execution|internal\/util/.test(k)));
-          NODE
 
       - name: Apply current remediation in workspace
         run: |
@@ -110,49 +31,135 @@ jobs:
           python3 scripts/qa/m8-review4-trim.py
           git diff --check
 
-      - name: Trace poisoned Headers and AbortController accessors
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Trace exact stateful Headers getter case
         run: |
           node - <<'NODE'
+          "use strict";
           const path = require('node:path');
           const aiDataPath = path.resolve('src/ai-data.js');
-
-          function purgeGotcha() {
-            for (const key of Object.keys(require.cache)) {
-              if (key.includes('/gotcha-ai/src/')) delete require.cache[key];
+          const OriginalHeaders = globalThis.Headers;
+          const saved = new OriginalHeaders();
+          saved.foo = 'bar';
+          Object.setPrototypeOf(saved, Object.prototype);
+          const poisoned = new Proxy(OriginalHeaders, {});
+          let reads = 0;
+          Object.defineProperty(globalThis, 'Headers', {
+            configurable: true,
+            get() {
+              reads += 1;
+              console.log('STATEFUL_HEADERS_GET', reads, '\n' + new Error('stateful headers read').stack);
+              return reads === 1 ? poisoned : undefined;
             }
+          });
+          globalThis.structuredClone = undefined;
+          let cloneAiData;
+          try { ({ cloneAiData } = require(aiDataPath)); console.log('LOAD_OK'); }
+          catch (e) { console.log('LOAD_THROW', e.name, e.message, '\n' + e.stack); }
+          console.log('READS_AFTER_LOAD', reads);
+          if (cloneAiData) {
+            try { cloneAiData(saved); console.log('CLONE_ACCEPTED'); }
+            catch (e) { console.log('CLONE_THROW', e.name, e.message); }
           }
+          console.log('READS_FINAL', reads);
+          NODE
 
-          function runCase(name) {
-            console.log('\nPOISON_CASE', name);
-            const original = Object.getOwnPropertyDescriptor(globalThis, name);
-            let getterCalls = 0;
-            let setterCalls = 0;
-            Object.defineProperty(globalThis, name, {
-              configurable: true,
-              enumerable: false,
-              get() {
-                getterCalls += 1;
-                console.log('POISON_GET', name, 'CALL', getterCalls, '\n' + new Error('poison getter').stack);
-                return undefined;
-              },
-              set(value) {
-                setterCalls += 1;
-                console.log('POISON_SET', name, 'CALL', setterCalls, 'VALUE_TYPE', typeof value, '\n' + new Error('poison setter').stack);
-              }
-            });
-            globalThis.structuredClone = undefined;
-            purgeGotcha();
-            try {
-              require(aiDataPath);
-              console.log('LOAD_OK');
-            } catch (e) {
-              console.log('LOAD_THROW', e.name, e.message, '\n' + e.stack);
+      - name: Trace Proxy Headers.get case
+        run: |
+          node - <<'NODE'
+          "use strict";
+          const path = require('node:path');
+          const aiDataPath = path.resolve('src/ai-data.js');
+          const Constructor = globalThis.Headers;
+          const saved = new Constructor();
+          saved.foo = 'bar';
+          Object.setPrototypeOf(saved, Object.prototype);
+          const originalGet = Constructor.prototype.get;
+          let trapCalls = 0;
+          Constructor.prototype.get = new Proxy(originalGet, {
+            apply(target, receiver, args) {
+              trapCalls += 1;
+              console.log('HEADERS_GET_PROXY_APPLY', trapCalls, 'receiverProto', Object.getPrototypeOf(receiver), 'args', args, '\n' + new Error('proxy apply').stack);
+              throw new Error('poisoned Headers.get executed');
             }
-            console.log('COUNTS', { getterCalls, setterCalls });
-            Object.defineProperty(globalThis, name, original);
+          });
+          globalThis.structuredClone = undefined;
+          let cloneAiData;
+          try { ({ cloneAiData } = require(aiDataPath)); console.log('LOAD_OK'); }
+          catch (e) { console.log('LOAD_THROW', e.name, e.message, '\n' + e.stack); }
+          console.log('TRAPS_AFTER_LOAD', trapCalls);
+          if (cloneAiData) {
+            try { cloneAiData(saved); console.log('CLONE_ACCEPTED'); }
+            catch (e) { console.log('CLONE_THROW', e.name, e.message); }
           }
+          console.log('TRAPS_FINAL', trapCalls);
+          NODE
 
-          console.log('NODE', process.version);
-          runCase('Headers');
-          runCase('AbortController');
+      - name: Trace ordinary Headers.get case
+        run: |
+          node - <<'NODE'
+          "use strict";
+          const path = require('node:path');
+          const aiDataPath = path.resolve('src/ai-data.js');
+          const Constructor = globalThis.Headers;
+          const saved = new Constructor();
+          saved.foo = 'bar';
+          Object.setPrototypeOf(saved, Object.prototype);
+          let calls = 0;
+          Constructor.prototype.get = function get() {
+            calls += 1;
+            console.log('HEADERS_GET_ORDINARY', calls, '\n' + new Error('ordinary get call').stack);
+            throw new Error('poisoned Headers.get executed');
+          };
+          globalThis.structuredClone = undefined;
+          let cloneAiData;
+          try { ({ cloneAiData } = require(aiDataPath)); console.log('LOAD_OK'); }
+          catch (e) { console.log('LOAD_THROW', e.name, e.message, '\n' + e.stack); }
+          console.log('CALLS_AFTER_LOAD', calls);
+          if (cloneAiData) {
+            try { cloneAiData(saved); console.log('CLONE_ACCEPTED'); }
+            catch (e) { console.log('CLONE_THROW', e.name, e.message); }
+          }
+          console.log('CALLS_FINAL', calls);
+          NODE
+
+      - name: Trace untrusted AbortController accessor case
+        run: |
+          node - <<'NODE'
+          "use strict";
+          const path = require('node:path');
+          const aiDataPath = path.resolve('src/ai-data.js');
+          const OriginalAbortController = globalThis.AbortController;
+          const saved = new OriginalAbortController();
+          saved.foo = 'bar';
+          Object.setPrototypeOf(saved, Object.prototype);
+          let getterCalls = 0;
+          let setterCalls = 0;
+          Object.defineProperty(globalThis, 'AbortController', {
+            configurable: true,
+            enumerable: false,
+            get() {
+              getterCalls += 1;
+              console.log('ABORT_GET', getterCalls, '\n' + new Error('abort getter').stack);
+              throw new Error('untrusted AbortController getter executed');
+            },
+            set(value) {
+              setterCalls += 1;
+              console.log('ABORT_SET', setterCalls, typeof value, '\n' + new Error('abort setter').stack);
+              throw new Error('untrusted AbortController setter executed');
+            }
+          });
+          globalThis.structuredClone = undefined;
+          let cloneAiData;
+          try { ({ cloneAiData } = require(aiDataPath)); console.log('LOAD_OK'); }
+          catch (e) { console.log('LOAD_THROW', e.name, e.message, '\n' + e.stack); }
+          console.log('COUNTS_AFTER_LOAD', {getterCalls, setterCalls});
+          if (cloneAiData) {
+            try { cloneAiData(saved); console.log('CLONE_ACCEPTED'); }
+            catch (e) { console.log('CLONE_THROW', e.name, e.message); }
+          }
+          console.log('COUNTS_FINAL', {getterCalls, setterCalls});
           NODE
