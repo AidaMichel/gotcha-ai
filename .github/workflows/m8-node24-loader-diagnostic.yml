@@ -13,26 +13,35 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Apply same bounded remediation as gate
+        run: |
+          python3 scripts/qa/m8-review4-final-remediate.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('scripts/qa/m8-review4-undici-lazy-fix.py')
+          s = p.read_text()
+          start = s.index("old_reads = ''')") if "old_reads = ''')" in s else s.index("old_reads = '''")
+          end = s.index("marker = ", start)
+          p.write_text(s[:start] + s[end:])
+          PY
+          python3 scripts/qa/m8-review4-undici-lazy-fix.py
+          python3 scripts/qa/m8-review4-blob-auth-fix.py
+          python3 scripts/qa/m8-review4-abort-symbol-fix.py
+          python3 scripts/qa/m8-review4-abort-private-fix.py
+          python3 scripts/qa/m8-review4-trim.py
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Trace AbortController global access by builtin loads
+      - name: Trace generated ai-data AbortController global access
         shell: bash
         run: |
           node - <<'NODE' > node24-loader-probe.log 2>&1
           "use strict";
-          const modules = [
-            "node:util",
-            "node:perf_hooks",
-            "node:worker_threads",
-            "node:url",
-            "node:buffer",
-            "node:stream/web",
-            "node:crypto",
-            "node:process",
-            "node:vm",
-            "node:async_hooks"
-          ];
+
+          const OriginalAbortController = globalThis.AbortController;
+          const saved = new OriginalAbortController();
+          saved.foo = "bar";
+          Object.setPrototypeOf(saved, Object.prototype);
 
           let getterCalls = 0;
           let setterCalls = 0;
@@ -53,25 +62,29 @@ jobs:
             }
           });
 
-          console.log("node", process.version);
-          for (const moduleName of modules) {
-            const beforeGet = getterCalls;
-            const beforeSet = setterCalls;
-            let error = null;
-            try {
-              require(moduleName);
-            } catch (caught) {
-              error = caught;
-            }
-            console.log(JSON.stringify({
-              moduleName,
-              getterDelta: getterCalls - beforeGet,
-              setterDelta: setterCalls - beforeSet,
-              getterCalls,
-              setterCalls,
-              error: error ? String(error && error.message || error) : null
-            }));
+          globalThis.structuredClone = undefined;
+          let requireError = null;
+          let cloneError = null;
+          let cloneAiData = null;
+
+          try {
+            ({ cloneAiData } = require("./src/ai-data"));
+          } catch (caught) {
+            requireError = caught;
           }
+
+          console.log("node", process.version);
+          console.log("after require", JSON.stringify({ getterCalls, setterCalls, requireError: requireError ? String(requireError.message || requireError) : null }));
+
+          if (cloneAiData) {
+            try {
+              cloneAiData(saved);
+            } catch (caught) {
+              cloneError = caught;
+            }
+          }
+
+          console.log("after clone", JSON.stringify({ getterCalls, setterCalls, cloneError: cloneError ? String(cloneError.message || cloneError) : null }));
           console.log("STACKS");
           for (const stack of stacks) console.log(stack);
           NODE
