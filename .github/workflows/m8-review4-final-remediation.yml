@@ -32,6 +32,7 @@ jobs:
           python3 scripts/qa/m8-review4-abort-symbol-fix.py
           python3 scripts/qa/m8-review4-abort-private-fix.py
           python3 scripts/qa/m8-node24-abort-bootstrap-order-fix.py
+          python3 scripts/qa/m8-node24-urlpattern-brand-fix.py
           python3 scripts/qa/m8-review4-trim.py
 
       - name: Diff hygiene before tests
@@ -166,6 +167,7 @@ jobs:
             scripts/qa/m8-review4-abort-symbol-fix.py \
             scripts/qa/m8-review4-abort-private-fix.py \
             scripts/qa/m8-node24-abort-bootstrap-order-fix.py \
+            scripts/qa/m8-node24-urlpattern-brand-fix.py \
             scripts/qa/m8-review4-trim.py \
             .github/workflows/m8-node24-loader-diagnostic.yml \
             .github/workflows/m8-review4-final-remediation.yml
