@@ -1,19 +1,22 @@
-name: M8 Node24 Poison Trace
+name: M8 Final Host Authority Remediation
 
 on:
   push:
     branches:
       - fix/m8-baseline-runtime-brands
 
+permissions:
+  contents: write
+
 jobs:
-  diagnose:
+  remediate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Apply current remediation in workspace
+      - name: Apply bounded remediation
         run: |
           python3 scripts/qa/m8-review4-final-remediate.py
           python3 - <<'PY'
@@ -29,137 +32,120 @@ jobs:
           python3 scripts/qa/m8-review4-abort-symbol-fix.py
           python3 scripts/qa/m8-review4-abort-private-fix.py
           python3 scripts/qa/m8-review4-trim.py
-          git diff --check
+
+      - name: Diff hygiene before tests
+        run: git diff --check
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 14.21.3
+      - name: Node 14 compatibility
+        run: |
+          node --check src/ai-data-core.js
+          node - <<'NODE'
+          const assert = require('assert').strict;
+          const { Blob } = require('node:buffer');
+          const { cloneAiData } = require('./src/ai-data');
+          assert.deepStrictEqual(cloneAiData({ok:true,nested:{value:1}}), {ok:true,nested:{value:1}});
+          const p = new URLSearchParams('a=1');
+          p.foo = 'bar';
+          Object.setPrototypeOf(p, Object.prototype);
+          assert.throws(() => cloneAiData(p));
+          if (typeof Blob === 'function') {
+            const blob = new Blob(['x']);
+            blob.foo = 'bar';
+            Object.setPrototypeOf(blob, Object.prototype);
+            assert.throws(() => cloneAiData(blob));
+          }
+          NODE
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 16.20.2
+      - name: Node 16 compatibility
+        run: |
+          node --check src/ai-data-core.js
+          node - <<'NODE'
+          const assert = require('assert').strict;
+          const { Blob } = require('node:buffer');
+          const { cloneAiData } = require('./src/ai-data');
+          assert.deepStrictEqual(cloneAiData({ok:true,nested:{value:1}}), {ok:true,nested:{value:1}});
+          const p = new URLSearchParams('a=1');
+          p.foo = 'bar';
+          Object.setPrototypeOf(p, Object.prototype);
+          assert.throws(() => cloneAiData(p));
+          if (typeof Blob === 'function') {
+            const blob = new Blob(['x']);
+            blob.foo = 'bar';
+            Object.setPrototypeOf(blob, Object.prototype);
+            assert.throws(() => cloneAiData(blob));
+          }
+          if (typeof AbortController === 'function') {
+            const c = new AbortController();
+            c.foo = 'bar';
+            Object.setPrototypeOf(c, Object.prototype);
+            assert.throws(() => cloneAiData(c));
+          }
+          NODE
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+      - name: Node 18 focused and full suite
+        run: |
+          npm ci
+          node --check src/ai-data-core.js
+          node --test test/m8-runtime-brand-authority.test.js
+          npm test
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.20.2
+      - name: Node 20 focused and full suite
+        run: |
+          npm ci
+          node --check src/ai-data-core.js
+          node --test test/m8-runtime-brand-authority.test.js
+          npm test
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Node 22 focused and full suite
+        run: |
+          npm ci
+          node --check src/ai-data-core.js
+          node --test test/m8-runtime-brand-authority.test.js
+          npm test
 
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-
-      - name: Trace exact stateful Headers getter case
+      - name: Node 24 focused and full suite
         run: |
-          node - <<'NODE'
-          "use strict";
-          const path = require('node:path');
-          const aiDataPath = path.resolve('src/ai-data.js');
-          const OriginalHeaders = globalThis.Headers;
-          const saved = new OriginalHeaders();
-          saved.foo = 'bar';
-          Object.setPrototypeOf(saved, Object.prototype);
-          const poisoned = new Proxy(OriginalHeaders, {});
-          let reads = 0;
-          Object.defineProperty(globalThis, 'Headers', {
-            configurable: true,
-            get() {
-              reads += 1;
-              console.log('STATEFUL_HEADERS_GET', reads, '\n' + new Error('stateful headers read').stack);
-              return reads === 1 ? poisoned : undefined;
-            }
-          });
-          globalThis.structuredClone = undefined;
-          let cloneAiData;
-          try { ({ cloneAiData } = require(aiDataPath)); console.log('LOAD_OK'); }
-          catch (e) { console.log('LOAD_THROW', e.name, e.message, '\n' + e.stack); }
-          console.log('READS_AFTER_LOAD', reads);
-          if (cloneAiData) {
-            try { cloneAiData(saved); console.log('CLONE_ACCEPTED'); }
-            catch (e) { console.log('CLONE_THROW', e.name, e.message); }
-          }
-          console.log('READS_FINAL', reads);
-          NODE
+          npm ci
+          node --check src/ai-data-core.js
+          node --test test/m8-runtime-brand-authority.test.js
+          npm test
 
-      - name: Trace Proxy Headers.get case
-        run: |
-          node - <<'NODE'
-          "use strict";
-          const path = require('node:path');
-          const aiDataPath = path.resolve('src/ai-data.js');
-          const Constructor = globalThis.Headers;
-          const saved = new Constructor();
-          saved.foo = 'bar';
-          Object.setPrototypeOf(saved, Object.prototype);
-          const originalGet = Constructor.prototype.get;
-          let trapCalls = 0;
-          Constructor.prototype.get = new Proxy(originalGet, {
-            apply(target, receiver, args) {
-              trapCalls += 1;
-              console.log('HEADERS_GET_PROXY_APPLY', trapCalls, 'receiverProto', Object.getPrototypeOf(receiver), 'args', args, '\n' + new Error('proxy apply').stack);
-              throw new Error('poisoned Headers.get executed');
-            }
-          });
-          globalThis.structuredClone = undefined;
-          let cloneAiData;
-          try { ({ cloneAiData } = require(aiDataPath)); console.log('LOAD_OK'); }
-          catch (e) { console.log('LOAD_THROW', e.name, e.message, '\n' + e.stack); }
-          console.log('TRAPS_AFTER_LOAD', trapCalls);
-          if (cloneAiData) {
-            try { cloneAiData(saved); console.log('CLONE_ACCEPTED'); }
-            catch (e) { console.log('CLONE_THROW', e.name, e.message); }
-          }
-          console.log('TRAPS_FINAL', trapCalls);
-          NODE
+      - name: Final diff hygiene
+        run: git diff --check
 
-      - name: Trace ordinary Headers.get case
+      - name: Commit proven remediation and remove harness
+        env:
+          BRANCH: fix/m8-baseline-runtime-brands
         run: |
-          node - <<'NODE'
-          "use strict";
-          const path = require('node:path');
-          const aiDataPath = path.resolve('src/ai-data.js');
-          const Constructor = globalThis.Headers;
-          const saved = new Constructor();
-          saved.foo = 'bar';
-          Object.setPrototypeOf(saved, Object.prototype);
-          let calls = 0;
-          Constructor.prototype.get = function get() {
-            calls += 1;
-            console.log('HEADERS_GET_ORDINARY', calls, '\n' + new Error('ordinary get call').stack);
-            throw new Error('poisoned Headers.get executed');
-          };
-          globalThis.structuredClone = undefined;
-          let cloneAiData;
-          try { ({ cloneAiData } = require(aiDataPath)); console.log('LOAD_OK'); }
-          catch (e) { console.log('LOAD_THROW', e.name, e.message, '\n' + e.stack); }
-          console.log('CALLS_AFTER_LOAD', calls);
-          if (cloneAiData) {
-            try { cloneAiData(saved); console.log('CLONE_ACCEPTED'); }
-            catch (e) { console.log('CLONE_THROW', e.name, e.message); }
-          }
-          console.log('CALLS_FINAL', calls);
-          NODE
-
-      - name: Trace untrusted AbortController accessor case
-        run: |
-          node - <<'NODE'
-          "use strict";
-          const path = require('node:path');
-          const aiDataPath = path.resolve('src/ai-data.js');
-          const OriginalAbortController = globalThis.AbortController;
-          const saved = new OriginalAbortController();
-          saved.foo = 'bar';
-          Object.setPrototypeOf(saved, Object.prototype);
-          let getterCalls = 0;
-          let setterCalls = 0;
-          Object.defineProperty(globalThis, 'AbortController', {
-            configurable: true,
-            enumerable: false,
-            get() {
-              getterCalls += 1;
-              console.log('ABORT_GET', getterCalls, '\n' + new Error('abort getter').stack);
-              throw new Error('untrusted AbortController getter executed');
-            },
-            set(value) {
-              setterCalls += 1;
-              console.log('ABORT_SET', setterCalls, typeof value, '\n' + new Error('abort setter').stack);
-              throw new Error('untrusted AbortController setter executed');
-            }
-          });
-          globalThis.structuredClone = undefined;
-          let cloneAiData;
-          try { ({ cloneAiData } = require(aiDataPath)); console.log('LOAD_OK'); }
-          catch (e) { console.log('LOAD_THROW', e.name, e.message, '\n' + e.stack); }
-          console.log('COUNTS_AFTER_LOAD', {getterCalls, setterCalls});
-          if (cloneAiData) {
-            try { cloneAiData(saved); console.log('CLONE_ACCEPTED'); }
-            catch (e) { console.log('CLONE_THROW', e.name, e.message); }
-          }
-          console.log('COUNTS_FINAL', {getterCalls, setterCalls});
-          NODE
+          rm -f \
+            scripts/qa/m8-review4-final-remediate.py \
+            scripts/qa/m8-review4-undici-lazy-fix.py \
+            scripts/qa/m8-review4-blob-auth-fix.py \
+            scripts/qa/m8-review4-abort-symbol-fix.py \
+            scripts/qa/m8-review4-abort-private-fix.py \
+            scripts/qa/m8-review4-trim.py \
+            .github/workflows/m8-review4-final-remediation.yml
+          git add -A
+          git diff --cached --check
+          git config user.name "AidaMichel"
+          git config user.email "126730924+AidaMichel@users.noreply.github.com"
+          git commit -m "fix: replace ambient host probe authority"
+          git push origin HEAD:"$BRANCH"
