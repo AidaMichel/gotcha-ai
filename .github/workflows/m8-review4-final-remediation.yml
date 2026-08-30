@@ -1,4 +1,4 @@
-name: M8 Undici Own-State Diagnostic
+name: M8 Headers Inspect Diagnostic
 
 on:
   push:
@@ -17,30 +17,28 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-      - name: Inspect own state after prototype rewrite
+      - name: Inspect rewritten Headers safely
         run: |
           node - <<'NODE'
+          const util = require('node:util');
           console.log('node', process.version);
-          const makers = [
-            ['Headers', () => new Headers()],
-            ['FormData', () => new FormData()],
-            ['Request', () => new Request('https://example.com/')],
-            ['Response', () => new Response('x')]
+          const values = [
+            ['plain', {foo:'bar'}],
+            ['null-proto', Object.assign(Object.create(null), {foo:'bar'})]
           ];
-          for (const [name, make] of makers) {
-            if (typeof globalThis[name] !== 'function') continue;
-            const value = make();
-            value.foo = 'bar';
-            Object.setPrototypeOf(value, Object.prototype);
-            const ds = Object.getOwnPropertyDescriptors(value);
-            const keys = Reflect.ownKeys(ds);
-            console.log('\n', name, 'keys', keys.map(k => typeof k === 'symbol' ? 'symbol:' + String(k) : k));
-            for (const k of keys) {
-              const d = ds[k];
-              console.log(' descriptor', typeof k === 'symbol' ? String(k) : k, {
-                enumerable:d.enumerable, configurable:d.configurable, writable:'writable' in d ? d.writable : undefined,
-                get:typeof d.get, set:typeof d.set, valueType:'value' in d ? typeof d.value : undefined
-              });
-            }
+          if (typeof Headers === 'function') {
+            const h = new Headers([['x','y']]); h.foo='bar'; Object.setPrototypeOf(h, Object.prototype); values.push(['Headers', h]);
+          }
+          if (typeof FormData === 'function') {
+            const f = new FormData(); f.append('x','y'); f.foo='bar'; Object.setPrototypeOf(f, Object.prototype); values.push(['FormData', f]);
+          }
+          for (const [name, value] of values) {
+            let s;
+            try {
+              s = util.inspect(value, { showHidden:true, customInspect:false, getters:false, depth:1, maxArrayLength:5, maxStringLength:80 });
+              console.log(name, 'inspect=', JSON.stringify(s));
+            } catch (e) { console.log(name, 'inspect THROW', e.name, e.message); }
+            try { console.log(name, 'tag=', Object.prototype.toString.call(value)); }
+            catch (e) { console.log(name, 'tag THROW', e.name, e.message); }
           }
           NODE
