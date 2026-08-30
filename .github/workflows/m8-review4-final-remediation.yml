@@ -1,76 +1,38 @@
-name: M8 Final Host Authority Remediation
+name: M8 AbortController Diagnostic
 
 on:
   push:
     branches:
       - fix/m8-baseline-runtime-brands
 
-permissions:
-  contents: write
-
 jobs:
-  remediate:
+  diagnose:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Apply bounded remediation
-        run: |
-          python3 scripts/qa/m8-review4-final-remediate.py
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('scripts/qa/m8-review4-undici-lazy-fix.py')
-          s = p.read_text()
-          start = s.index("old_reads = ''')") if "old_reads = ''')" in s else s.index("old_reads = '''")
-          end = s.index("marker = ", start)
-          p.write_text(s[:start] + s[end:])
-          PY
-          python3 scripts/qa/m8-review4-undici-lazy-fix.py
-          python3 scripts/qa/m8-review4-blob-auth-fix.py
-          python3 scripts/qa/m8-review4-trim.py
-
-      - name: Diff hygiene before tests
-        run: git diff --check
-
       - uses: actions/setup-node@v4
         with:
           node-version: 18
-      - name: Diagnose AbortController authority
+      - name: Verify module-owned getter on rewritten receiver
         run: |
           node - <<'NODE'
           const util = require('node:util');
-          console.log('node', process.version);
-          console.log('transferableAbortController', typeof util.transferableAbortController);
-          console.log('transferableAbortSignal', typeof util.transferableAbortSignal);
-          if (typeof util.transferableAbortController === 'function') {
-            const c = util.transferableAbortController();
-            let p = Object.getPrototypeOf(c);
-            let i = 0;
-            while (p && i < 5) {
-              console.log('controller proto', i, Object.getOwnPropertyNames(p), Object.getOwnPropertySymbols(p).map(String));
-              const d = Object.getOwnPropertyDescriptor(p, 'signal');
-              if (d) console.log('signal descriptor level', i, d, 'get source', d.get && Function.prototype.toString.call(d.get));
-              p = Object.getPrototypeOf(p);
-              i += 1;
-            }
-            const s = c.signal;
-            p = Object.getPrototypeOf(s);
-            i = 0;
-            while (p && i < 5) {
-              console.log('signal proto', i, Object.getOwnPropertyNames(p), Object.getOwnPropertySymbols(p).map(String));
-              const d = Object.getOwnPropertyDescriptor(p, 'aborted');
-              if (d) console.log('aborted descriptor level', i, d, 'get source', d.get && Function.prototype.toString.call(d.get));
-              p = Object.getPrototypeOf(p);
-              i += 1;
-            }
+          const c = util.transferableAbortController();
+          const getter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(c), 'signal').get;
+          const normal = new AbortController();
+          const normalSignal = normal.signal;
+          Object.setPrototypeOf(normal, Object.prototype);
+          try {
+            const result = Reflect.apply(getter, normal, []);
+            console.log('controller getter accepted rewritten normal', result === normalSignal, result);
+          } catch (error) {
+            console.log('controller getter rejected rewritten normal', error.name, error.message);
+          }
+          const signalGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(c.signal), 'aborted').get;
+          Object.setPrototypeOf(normalSignal, Object.prototype);
+          try {
+            console.log('signal getter accepted rewritten normal signal', Reflect.apply(signalGetter, normalSignal, []));
+          } catch (error) {
+            console.log('signal getter rejected rewritten normal signal', error.name, error.message);
           }
           NODE
-
-      - name: Node 18 focused and full suite
-        run: |
-          npm ci
-          node --check src/ai-data-core.js
-          node --test test/m8-runtime-brand-authority.test.js
-          npm test
