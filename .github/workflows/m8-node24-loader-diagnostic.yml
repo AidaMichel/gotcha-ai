@@ -1,0 +1,82 @@
+name: M8 Node 24 Loader Diagnostic
+
+on:
+  push:
+    branches:
+      - fix/m8-baseline-runtime-brands
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Trace AbortController global access by builtin loads
+        shell: bash
+        run: |
+          node - <<'NODE' > node24-loader-probe.log 2>&1
+          "use strict";
+          const modules = [
+            "node:util",
+            "node:perf_hooks",
+            "node:worker_threads",
+            "node:url",
+            "node:buffer",
+            "node:stream/web",
+            "node:crypto",
+            "node:process",
+            "node:vm",
+            "node:async_hooks"
+          ];
+
+          let getterCalls = 0;
+          let setterCalls = 0;
+          const stacks = [];
+
+          Object.defineProperty(globalThis, "AbortController", {
+            configurable: true,
+            enumerable: false,
+            get() {
+              getterCalls += 1;
+              stacks.push(new Error("AbortController getter access").stack);
+              throw new Error("diagnostic poisoned AbortController getter");
+            },
+            set() {
+              setterCalls += 1;
+              stacks.push(new Error("AbortController setter access").stack);
+              throw new Error("diagnostic poisoned AbortController setter");
+            }
+          });
+
+          console.log("node", process.version);
+          for (const moduleName of modules) {
+            const beforeGet = getterCalls;
+            const beforeSet = setterCalls;
+            let error = null;
+            try {
+              require(moduleName);
+            } catch (caught) {
+              error = caught;
+            }
+            console.log(JSON.stringify({
+              moduleName,
+              getterDelta: getterCalls - beforeGet,
+              setterDelta: setterCalls - beforeSet,
+              getterCalls,
+              setterCalls,
+              error: error ? String(error && error.message || error) : null
+            }));
+          }
+          console.log("STACKS");
+          for (const stack of stacks) console.log(stack);
+          NODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: m8-node24-loader-diagnostic
+          path: node24-loader-probe.log
+          if-no-files-found: error
