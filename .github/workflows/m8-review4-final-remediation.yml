@@ -36,112 +36,41 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 14.21.3
-      - name: Node 14 compatibility
-        run: |
-          node --check src/ai-data-core.js
-          node - <<'NODE'
-          const assert = require('assert').strict;
-          const { Blob } = require('node:buffer');
-          const { cloneAiData } = require('./src/ai-data');
-          assert.deepStrictEqual(cloneAiData({ok:true,nested:{value:1}}), {ok:true,nested:{value:1}});
-          const p = new URLSearchParams('a=1');
-          p.foo = 'bar';
-          Object.setPrototypeOf(p, Object.prototype);
-          assert.throws(() => cloneAiData(p));
-          if (typeof Blob === 'function') {
-            const blob = new Blob(['x']);
-            blob.foo = 'bar';
-            Object.setPrototypeOf(blob, Object.prototype);
-            assert.throws(() => cloneAiData(blob));
-          }
-          NODE
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 16.20.2
-      - name: Node 16 compatibility
-        run: |
-          node --check src/ai-data-core.js
-          node - <<'NODE'
-          const assert = require('assert').strict;
-          const { Blob } = require('node:buffer');
-          const { cloneAiData } = require('./src/ai-data');
-          assert.deepStrictEqual(cloneAiData({ok:true,nested:{value:1}}), {ok:true,nested:{value:1}});
-          const p = new URLSearchParams('a=1');
-          p.foo = 'bar';
-          Object.setPrototypeOf(p, Object.prototype);
-          assert.throws(() => cloneAiData(p));
-          if (typeof Blob === 'function') {
-            const blob = new Blob(['x']);
-            blob.foo = 'bar';
-            Object.setPrototypeOf(blob, Object.prototype);
-            assert.throws(() => cloneAiData(blob));
-          }
-          if (typeof AbortController === 'function') {
-            const c = new AbortController();
-            c.foo = 'bar';
-            Object.setPrototypeOf(c, Object.prototype);
-            assert.throws(() => cloneAiData(c));
-          }
-          NODE
-
-      - uses: actions/setup-node@v4
-        with:
           node-version: 18
+      - name: Diagnose AbortController authority
+        run: |
+          node - <<'NODE'
+          const util = require('node:util');
+          console.log('node', process.version);
+          console.log('transferableAbortController', typeof util.transferableAbortController);
+          console.log('transferableAbortSignal', typeof util.transferableAbortSignal);
+          if (typeof util.transferableAbortController === 'function') {
+            const c = util.transferableAbortController();
+            let p = Object.getPrototypeOf(c);
+            let i = 0;
+            while (p && i < 5) {
+              console.log('controller proto', i, Object.getOwnPropertyNames(p), Object.getOwnPropertySymbols(p).map(String));
+              const d = Object.getOwnPropertyDescriptor(p, 'signal');
+              if (d) console.log('signal descriptor level', i, d, 'get source', d.get && Function.prototype.toString.call(d.get));
+              p = Object.getPrototypeOf(p);
+              i += 1;
+            }
+            const s = c.signal;
+            p = Object.getPrototypeOf(s);
+            i = 0;
+            while (p && i < 5) {
+              console.log('signal proto', i, Object.getOwnPropertyNames(p), Object.getOwnPropertySymbols(p).map(String));
+              const d = Object.getOwnPropertyDescriptor(p, 'aborted');
+              if (d) console.log('aborted descriptor level', i, d, 'get source', d.get && Function.prototype.toString.call(d.get));
+              p = Object.getPrototypeOf(p);
+              i += 1;
+            }
+          }
+          NODE
+
       - name: Node 18 focused and full suite
         run: |
           npm ci
           node --check src/ai-data-core.js
           node --test test/m8-runtime-brand-authority.test.js
           npm test
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20.20.2
-      - name: Node 20 focused and full suite
-        run: |
-          npm ci
-          node --check src/ai-data-core.js
-          node --test test/m8-runtime-brand-authority.test.js
-          npm test
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Node 22 focused and full suite
-        run: |
-          npm ci
-          node --check src/ai-data-core.js
-          node --test test/m8-runtime-brand-authority.test.js
-          npm test
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-      - name: Node 24 focused and full suite
-        run: |
-          npm ci
-          node --check src/ai-data-core.js
-          node --test test/m8-runtime-brand-authority.test.js
-          npm test
-
-      - name: Final diff hygiene
-        run: git diff --check
-
-      - name: Commit proven remediation and remove harness
-        env:
-          BRANCH: fix/m8-baseline-runtime-brands
-        run: |
-          rm -f \
-            scripts/qa/m8-review4-final-remediate.py \
-            scripts/qa/m8-review4-undici-lazy-fix.py \
-            scripts/qa/m8-review4-blob-auth-fix.py \
-            scripts/qa/m8-review4-trim.py \
-            .github/workflows/m8-review4-final-remediation.yml
-          git add -A
-          git diff --cached --check
-          git config user.name "AidaMichel"
-          git config user.email "126730924+AidaMichel@users.noreply.github.com"
-          git commit -m "fix: replace ambient host probe authority"
-          git push origin HEAD:"$BRANCH"
