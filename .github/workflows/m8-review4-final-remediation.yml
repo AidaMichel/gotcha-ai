@@ -1,4 +1,4 @@
-name: M8 AbortController Accessor Source Diagnostic
+name: M8 VM AbortController Diagnostic
 
 on:
   push:
@@ -17,27 +17,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-      - name: Inspect trusted util accessor source
+      - name: Inspect VM globals and cross-realm brand probes
         run: |
           node - <<'NODE'
-          const util = require('node:util');
-          const d = Object.getOwnPropertyDescriptor(util, 'transferableAbortController');
-          const natives = process.binding('natives');
-          console.log('node', process.version, 'descriptor', d && {
-            enumerable:d.enumerable,
-            configurable:d.configurable,
-            get:typeof d.get,
-            set:typeof d.set,
-            value:typeof d.value
-          });
-          if (d && typeof d.get === 'function') {
-            const source = Function.prototype.toString.call(d.get);
-            console.log('name', d.get.name, 'length', d.get.length, 'source', JSON.stringify(source));
-            const matches=[];
-            for (const key of Reflect.ownKeys(natives)) {
-              const nd=Object.getOwnPropertyDescriptor(natives,key);
-              if (nd && typeof nd.value==='string' && nd.value.includes(source)) matches.push(key);
-            }
-            console.log('matches', matches);
+          const vm = require('node:vm');
+          console.log('node', process.version, 'typeof VM AbortController', vm.runInNewContext('typeof AbortController'), 'typeof VM AbortSignal', vm.runInNewContext('typeof AbortSignal'));
+          let vmController;
+          try { vmController = vm.runInNewContext('typeof AbortController === "function" ? new AbortController() : null'); } catch (e) { console.log('vm construct error',e.name,e.message); }
+          if (vmController) {
+            const getter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(vmController), 'signal').get;
+            const local = new AbortController();
+            const expected = local.signal;
+            Object.setPrototypeOf(local,Object.prototype);
+            try { const got=Reflect.apply(getter,local,[]); console.log('vm getter accepted local',got===expected); } catch(e) { console.log('vm getter rejected local',e.name,e.message); }
           }
           NODE
