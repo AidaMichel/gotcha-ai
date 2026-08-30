@@ -1,0 +1,68 @@
+name: M8 Module Authority Diagnostic
+
+on:
+  push:
+    branches:
+      - temp/m8-module-authority-diagnostic
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Probe mutable builtin export authority
+        run: |
+          node - <<'NODE'
+          "use strict";
+          const assert = require("node:assert/strict");
+          const nodeUrl = require("node:url");
+          const OriginalURL = nodeUrl.URL;
+          assert.equal(typeof OriginalURL, "function");
+
+          const saved = new OriginalURL("https://example.com/");
+          saved.foo = "bar";
+          Object.setPrototypeOf(saved, Object.prototype);
+
+          let getterCalls = 0;
+          function FakeURL() {}
+          Object.defineProperty(FakeURL.prototype, "href", {
+            configurable: true,
+            get() {
+              getterCalls += 1;
+              throw new Error("poisoned node:url URL getter executed");
+            }
+          });
+
+          nodeUrl.URL = FakeURL;
+          globalThis.structuredClone = undefined;
+
+          const { cloneAiData } = require("./src/ai-data");
+          let result;
+          let error = null;
+          try {
+            result = cloneAiData(saved, "url");
+          } catch (caught) {
+            error = caught;
+          }
+
+          console.log(JSON.stringify({
+            node: process.version,
+            getterCalls,
+            threw: error !== null,
+            error: error ? String(error.message || error) : null,
+            result
+          }));
+
+          assert.equal(getterCalls, 0, "attacker-controlled builtin export getter must not execute");
+          assert.ok(error, "prototype-rewritten genuine URL must fail closed");
+          NODE
