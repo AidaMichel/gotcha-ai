@@ -1,45 +1,139 @@
-name: M8 Lazy Accessor Shape Diagnostic
+name: M8 Final Host Authority Remediation
 
 on:
   push:
     branches:
       - fix/m8-baseline-runtime-brands
 
+permissions:
+  contents: write
+
 jobs:
-  diagnose:
+  remediate:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        node: [18, 20.20.2, 22, 24]
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply bounded remediation
+        run: |
+          python3 scripts/qa/m8-review4-final-remediate.py
+          python3 scripts/qa/m8-review4-undici-lazy-fix.py
+          python3 scripts/qa/m8-review4-blob-auth-fix.py
+          python3 scripts/qa/m8-review4-trim.py
+
+      - name: Diff hygiene before tests
+        run: git diff --check
+
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node }}
-      - name: Inspect accessor pair
+          node-version: 14.21.3
+      - name: Node 14 compatibility
         run: |
+          node --check src/ai-data-core.js
           node - <<'NODE'
-          const natives = process.binding('natives');
-          const fts = Function.prototype.toString;
-          function modulesContaining(source) {
-            const out=[];
-            for (const k of Reflect.ownKeys(natives)) {
-              if (typeof k !== 'string') continue;
-              const d=Object.getOwnPropertyDescriptor(natives,k);
-              if (d && typeof d.value==='string' && d.value.includes(source)) out.push(k);
-            }
-            return out;
-          }
-          console.log('node', process.version);
-          for (const name of ['Headers','FormData','Request','Response']) {
-            const d=Object.getOwnPropertyDescriptor(globalThis,name);
-            console.log('\n',name,'descriptor',d && {enumerable:d.enumerable,configurable:d.configurable,get:typeof d.get,set:typeof d.set,value:typeof d.value});
-            for (const key of ['get','set']) {
-              const fn=d && d[key];
-              if (typeof fn!=='function') continue;
-              const s=fts.call(fn);
-              console.log(key,'name',fn.name,'length',fn.length,'protoDesc',Object.getOwnPropertyDescriptor(fn,'prototype'),'modules',modulesContaining(s),'source',JSON.stringify(s));
-            }
+          const assert = require('assert').strict;
+          const { Blob } = require('node:buffer');
+          const { cloneAiData } = require('./src/ai-data');
+          assert.deepStrictEqual(cloneAiData({ok:true,nested:{value:1}}), {ok:true,nested:{value:1}});
+          const p = new URLSearchParams('a=1');
+          p.foo = 'bar';
+          Object.setPrototypeOf(p, Object.prototype);
+          assert.throws(() => cloneAiData(p));
+          if (typeof Blob === 'function') {
+            const blob = new Blob(['x']);
+            blob.foo = 'bar';
+            Object.setPrototypeOf(blob, Object.prototype);
+            assert.throws(() => cloneAiData(blob));
           }
           NODE
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 16.20.2
+      - name: Node 16 compatibility
+        run: |
+          node --check src/ai-data-core.js
+          node - <<'NODE'
+          const assert = require('assert').strict;
+          const { Blob } = require('node:buffer');
+          const { cloneAiData } = require('./src/ai-data');
+          assert.deepStrictEqual(cloneAiData({ok:true,nested:{value:1}}), {ok:true,nested:{value:1}});
+          const p = new URLSearchParams('a=1');
+          p.foo = 'bar';
+          Object.setPrototypeOf(p, Object.prototype);
+          assert.throws(() => cloneAiData(p));
+          if (typeof Blob === 'function') {
+            const blob = new Blob(['x']);
+            blob.foo = 'bar';
+            Object.setPrototypeOf(blob, Object.prototype);
+            assert.throws(() => cloneAiData(blob));
+          }
+          if (typeof AbortController === 'function') {
+            const c = new AbortController();
+            c.foo = 'bar';
+            Object.setPrototypeOf(c, Object.prototype);
+            assert.throws(() => cloneAiData(c));
+          }
+          NODE
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+      - name: Node 18 focused and full suite
+        run: |
+          npm ci
+          node --check src/ai-data-core.js
+          node --test test/m8-runtime-brand-authority.test.js
+          npm test
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.20.2
+      - name: Node 20 focused and full suite
+        run: |
+          npm ci
+          node --check src/ai-data-core.js
+          node --test test/m8-runtime-brand-authority.test.js
+          npm test
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Node 22 focused and full suite
+        run: |
+          npm ci
+          node --check src/ai-data-core.js
+          node --test test/m8-runtime-brand-authority.test.js
+          npm test
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Node 24 focused and full suite
+        run: |
+          npm ci
+          node --check src/ai-data-core.js
+          node --test test/m8-runtime-brand-authority.test.js
+          npm test
+
+      - name: Final diff hygiene
+        run: git diff --check
+
+      - name: Commit proven remediation and remove harness
+        env:
+          BRANCH: fix/m8-baseline-runtime-brands
+        run: |
+          rm -f \
+            scripts/qa/m8-review4-final-remediate.py \
+            scripts/qa/m8-review4-undici-lazy-fix.py \
+            scripts/qa/m8-review4-blob-auth-fix.py \
+            scripts/qa/m8-review4-trim.py \
+            .github/workflows/m8-review4-final-remediation.yml
+          git add -A
+          git diff --cached --check
+          git config user.name "AidaMichel"
+          git config user.email "126730924+AidaMichel@users.noreply.github.com"
+          git commit -m "fix: replace ambient host probe authority"
+          git push origin HEAD:"$BRANCH"
