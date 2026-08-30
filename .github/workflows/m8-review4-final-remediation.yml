@@ -17,18 +17,12 @@ jobs:
           fetch-depth: 0
 
       - name: Apply bounded remediation
-        run: python3 scripts/qa/m8-review4-final-remediate.py
-
-      - name: Capture diff hygiene
-        run: git diff --check > diff-check.txt 2>&1 || true
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: m8-diff-check
-          path: diff-check.txt
+        run: |
+          python3 scripts/qa/m8-review4-final-remediate.py
+          python3 scripts/qa/m8-review4-trim.py
 
       - name: Diff hygiene before tests
-        run: test ! -s diff-check.txt
+        run: git diff --check
 
       - uses: actions/setup-node@v4
         with:
@@ -105,7 +99,7 @@ jobs:
         env:
           BRANCH: fix/m8-baseline-runtime-brands
         run: |
-          rm -f scripts/qa/m8-review4-final-remediate.py .github/workflows/m8-review4-final-remediation.yml diff-check.txt
+          rm -f scripts/qa/m8-review4-final-remediate.py scripts/qa/m8-review4-trim.py .github/workflows/m8-review4-final-remediation.yml
           git add -A
           git diff --cached --check
           git config user.name "AidaMichel"
