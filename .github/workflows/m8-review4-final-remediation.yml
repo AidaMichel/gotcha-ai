@@ -30,91 +30,78 @@ jobs:
       - name: Node 14 compatibility diagnostic
         run: |
           set +e
-          {
-            node --check src/ai-data-core.js
-            node - <<'NODE'
-          const assert = require('assert').strict;
-          const { cloneAiData } = require('./src/ai-data');
-          assert.deepStrictEqual(cloneAiData({ok:true,nested:{value:1}}), {ok:true,nested:{value:1}});
-          const p = new URLSearchParams('a=1');
-          p.foo = 'bar';
-          Object.setPrototypeOf(p, Object.prototype);
-          assert.throws(() => cloneAiData(p));
+          node - <<'NODE' > node14.txt 2>&1
+          function getter(C, key) {
+            if (typeof C !== 'function' || !C.prototype) return null;
+            const d = Object.getOwnPropertyDescriptor(C.prototype, key);
+            return d && d.get || null;
+          }
+          function method(C, key) {
+            if (typeof C !== 'function' || !C.prototype) return null;
+            const d = Object.getOwnPropertyDescriptor(C.prototype, key);
+            return d && d.value || null;
+          }
+          function check(label, fn, args) {
+            if (typeof fn !== 'function') return console.log(label, 'ABSENT');
+            try { console.log(label, 'ACCEPT', Reflect.apply(fn, {}, args || [])); }
+            catch (e) { console.log(label, 'REJECT', e && e.name, e && e.message); }
+          }
+          const u = require('node:util');
+          const url = require('node:url');
+          const b = require('node:buffer');
+          let sw = null; try { sw = require('node:stream/web'); } catch {}
+          check('TextEncoder.encoding', getter(u.TextEncoder, 'encoding'));
+          check('TextDecoder.encoding', getter(u.TextDecoder, 'encoding'));
+          check('URL.href', getter(url.URL, 'href'));
+          check('URLSearchParams.toString', method(url.URLSearchParams, 'toString'));
+          check('Blob.size', getter(b.Blob, 'size'));
+          check('File.name', getter(b.File, 'name'));
+          if (sw) {
+            for (const [name,key] of [['ReadableStream','locked'],['WritableStream','locked'],['TransformStream','readable'],['TextEncoderStream','readable'],['TextDecoderStream','readable'],['CompressionStream','readable'],['DecompressionStream','readable'],['CountQueuingStrategy','highWaterMark'],['ByteLengthQueuingStrategy','highWaterMark']]) {
+              check(name + '.' + key, getter(sw[name], key));
+            }
+          }
+          try {
+            const { cloneAiData } = require('./src/ai-data');
+            console.log('plain clone', cloneAiData({ok:true,nested:{value:1}}));
+          } catch (e) {
+            console.log('plain clone FAILED', e && e.stack || e);
+          }
           NODE
-          } > node14.txt 2>&1
-          status=$?
-          echo "EXIT_STATUS=$status" >> node14.txt
           exit 0
       - uses: actions/upload-artifact@v4
         with:
           name: m8-node14-diagnostic
           path: node14.txt
-      - name: Node 14 compatibility gate
-        run: grep -q '^EXIT_STATUS=0$' node14.txt
+      - name: Stop after Node 14 diagnostic
+        run: exit 1
 
       - uses: actions/setup-node@v4
         with:
           node-version: 16.20.2
       - name: Node 16 compatibility
-        run: |
-          node --check src/ai-data-core.js
-          node - <<'NODE'
-          const assert = require('assert').strict;
-          const { cloneAiData } = require('./src/ai-data');
-          assert.deepStrictEqual(cloneAiData({ok:true,nested:{value:1}}), {ok:true,nested:{value:1}});
-          const p = new URLSearchParams('a=1');
-          p.foo = 'bar';
-          Object.setPrototypeOf(p, Object.prototype);
-          assert.throws(() => cloneAiData(p));
-          if (typeof AbortController === 'function') {
-            const c = new AbortController();
-            c.foo = 'bar';
-            Object.setPrototypeOf(c, Object.prototype);
-            assert.throws(() => cloneAiData(c));
-          }
-          NODE
+        run: echo skipped
 
       - uses: actions/setup-node@v4
         with:
           node-version: 20.20.2
       - name: Node 20 focused and full suite
-        run: |
-          npm ci
-          node --check src/ai-data-core.js
-          node --test test/m8-runtime-brand-authority.test.js
-          npm test
+        run: echo skipped
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - name: Node 22 focused and full suite
-        run: |
-          npm ci
-          node --check src/ai-data-core.js
-          node --test test/m8-runtime-brand-authority.test.js
-          npm test
+        run: echo skipped
 
       - uses: actions/setup-node@v4
         with:
           node-version: 24
       - name: Node 24 focused and full suite
-        run: |
-          npm ci
-          node --check src/ai-data-core.js
-          node --test test/m8-runtime-brand-authority.test.js
-          npm test
+        run: echo skipped
 
       - name: Final diff hygiene
         run: git diff --check
 
       - name: Commit proven remediation and remove harness
-        env:
-          BRANCH: fix/m8-baseline-runtime-brands
-        run: |
-          rm -f scripts/qa/m8-review4-final-remediate.py scripts/qa/m8-review4-trim.py .github/workflows/m8-review4-final-remediation.yml node14.txt
-          git add -A
-          git diff --cached --check
-          git config user.name "AidaMichel"
-          git config user.email "126730924+AidaMichel@users.noreply.github.com"
-          git commit -m "fix: replace ambient host probe authority"
-          git push origin HEAD:"$BRANCH"
+        run: exit 1
