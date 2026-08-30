@@ -1,4 +1,4 @@
-name: M8 Native Binding Diagnostic
+name: M8 V8 Serialization Diagnostic
 
 on:
   push:
@@ -17,26 +17,23 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-      - name: Inspect native utility bindings
+      - name: Compare V8 serialization
         run: |
           node - <<'NODE'
-          console.log('node', process.version);
-          for (const bindingName of ['util','types']) {
+          const v8 = require('node:v8');
+          const crypto = require('node:crypto');
+          function dump(label, value) {
             try {
-              const b = process.binding(bindingName);
-              console.log('binding', bindingName, Reflect.ownKeys(b));
-              const values = [['plain',{foo:'bar'}]];
-              if (typeof Headers === 'function') {
-                const h = new Headers([['x','y']]); h.foo='bar'; Object.setPrototypeOf(h,Object.prototype); values.push(['Headers',h]);
-              }
-              for (const fnName of ['getConstructorName','getOwnNonIndexProperties','isExternal','isProxy']) {
-                const fn = b && b[fnName];
-                if (typeof fn !== 'function') continue;
-                for (const [label,v] of values) {
-                  try { console.log(bindingName, fnName, label, Reflect.apply(fn,b,[v])); }
-                  catch(e) { console.log(bindingName, fnName, label, 'THROW', e.name, e.message); }
-                }
-              }
-            } catch (e) { console.log('binding', bindingName, 'FAIL', e.name, e.message); }
+              const b = v8.serialize(value);
+              console.log(label, b.length, crypto.createHash('sha256').update(b).digest('hex'), b.toString('hex'));
+            } catch (e) { console.log(label, 'THROW', e.name, e.message); }
+          }
+          console.log('node', process.version);
+          dump('plain', {foo:'bar'});
+          if (typeof Headers === 'function') {
+            const h = new Headers([['x','y']]); h.foo='bar'; Object.setPrototypeOf(h,Object.prototype); dump('Headers',h);
+          }
+          if (typeof FormData === 'function') {
+            const f = new FormData(); f.append('x','y'); f.foo='bar'; Object.setPrototypeOf(f,Object.prototype); dump('FormData',f);
           }
           NODE
