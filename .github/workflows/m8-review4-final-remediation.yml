@@ -19,6 +19,14 @@ jobs:
       - name: Apply bounded remediation
         run: |
           python3 scripts/qa/m8-review4-final-remediate.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('scripts/qa/m8-review4-undici-lazy-fix.py')
+          s = p.read_text()
+          start = s.index("old_reads = ''')") if "old_reads = ''')" in s else s.index("old_reads = '''")
+          end = s.index("marker = ", start)
+          p.write_text(s[:start] + s[end:])
+          PY
           python3 scripts/qa/m8-review4-undici-lazy-fix.py
           python3 scripts/qa/m8-review4-blob-auth-fix.py
           python3 scripts/qa/m8-review4-trim.py
