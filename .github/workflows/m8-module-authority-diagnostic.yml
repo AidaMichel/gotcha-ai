@@ -11,58 +11,26 @@ permissions:
 jobs:
   diagnose:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        node: [22, 24]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node }}
-      - name: Probe mutable builtin export authority
+          node-version: 24
+      - name: Map URLPattern builtin source
         run: |
           node - <<'NODE'
           "use strict";
-          const assert = require("node:assert/strict");
           const nodeUrl = require("node:url");
-          const OriginalURL = nodeUrl.URL;
-          assert.equal(typeof OriginalURL, "function");
-
-          const saved = new OriginalURL("https://example.com/");
-          saved.foo = "bar";
-          Object.setPrototypeOf(saved, Object.prototype);
-
-          let getterCalls = 0;
-          function FakeURL() {}
-          Object.defineProperty(FakeURL.prototype, "href", {
-            configurable: true,
-            get() {
-              getterCalls += 1;
-              throw new Error("poisoned node:url URL getter executed");
-            }
-          });
-
-          nodeUrl.URL = FakeURL;
-          globalThis.structuredClone = undefined;
-
-          const { cloneAiData } = require("./src/ai-data");
-          let result;
-          let error = null;
-          try {
-            result = cloneAiData(saved, "url");
-          } catch (caught) {
-            error = caught;
+          const natives = process.binding("natives");
+          const C = nodeUrl.URLPattern;
+          console.log("node", process.version, "constructor", typeof C);
+          if (typeof C !== "function") process.exit(0);
+          const getter = Object.getOwnPropertyDescriptor(C.prototype, "pathname")?.get;
+          for (const [label, fn] of [["constructor", C], ["pathname", getter]]) {
+            const source = Function.prototype.toString.call(fn);
+            const hits = Object.entries(natives)
+              .filter(([, moduleSource]) => typeof moduleSource === "string" && moduleSource.includes(source))
+              .map(([name]) => name);
+            console.log(label, JSON.stringify(source.slice(0, 300)), JSON.stringify(hits));
           }
-
-          console.log(JSON.stringify({
-            node: process.version,
-            getterCalls,
-            threw: error !== null,
-            error: error ? String(error.message || error) : null,
-            result
-          }));
-
-          assert.equal(getterCalls, 0, "attacker-controlled builtin export getter must not execute");
-          assert.ok(error, "prototype-rewritten genuine URL must fail closed");
           NODE
