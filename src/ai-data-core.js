@@ -1,9 +1,12 @@
 "use strict";
 
+const nodeUtil =
+  require("node:util");
+
 const {
   types: utilTypes,
   inspect
-} = require("node:util");
+} = nodeUtil;
 
 const utilTypePredicates =
   Object.freeze(
@@ -22,8 +25,24 @@ const {
 const workerThreads =
   require("node:worker_threads");
 
+const nodeUrl =
+  require("node:url");
+
+const nodeBuffer =
+  require("node:buffer");
+
+let streamWeb = null;
+
+try {
+  streamWeb =
+    require("node:stream/web");
+} catch {}
+
 const nodeCrypto =
   require("node:crypto");
+
+const nodeProcess =
+  require("node:process");
 
 const vm =
   require("node:vm");
@@ -79,6 +98,9 @@ const numberIsFinite =
 const numberIsInteger =
   Number.isInteger;
 
+const numberParseInt =
+  Number.parseInt;
+
 const WeakSetConstructor =
   WeakSet;
 
@@ -92,13 +114,14 @@ const symbolHasInstance =
   Symbol.hasInstance;
 
 const functionToString =
-  Function.prototype.toString;
+  vm.runInNewContext(
+    "Function.prototype.toString"
+  );
 
-const structuredCloneFunction =
-  typeof globalThis.structuredClone ===
-    "function"
-    ? globalThis.structuredClone
-    : null;
+const stringIncludes =
+  vm.runInNewContext(
+    "String.prototype.includes"
+  );
 
 const objectConstructorSource =
   reflectApply(
@@ -317,22 +340,39 @@ function isArrayIndexKey(
   );
 }
 
-function captureNavigatorLocks() {
+function captureNavigatorSingleton() {
   try {
-    if (
-      globalThis.navigator ===
-        undefined ||
-      globalThis.navigator === null
-    ) {
-      return null;
-    }
+    const value =
+      globalThis.navigator;
 
+    return (
+      value !== null &&
+      typeof value === "object" &&
+      !utilTypePredicates.isProxy(value)
+    )
+      ? value
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+const navigatorSingleton =
+  captureNavigatorSingleton();
+
+function captureNavigatorLocks() {
+  if (navigatorSingleton === null) {
+    return null;
+  }
+
+  try {
     const locks =
-      globalThis.navigator.locks;
+      navigatorSingleton.locks;
 
     return (
       locks !== null &&
-      typeof locks === "object"
+      typeof locks === "object" &&
+      !utilTypePredicates.isProxy(locks)
     )
       ? locks
       : null;
@@ -344,10 +384,30 @@ function captureNavigatorLocks() {
 const navigatorLocks =
   captureNavigatorLocks();
 
+function captureCryptoSingleton() {
+  try {
+    const value =
+      globalThis.crypto;
+
+    return (
+      value !== null &&
+      typeof value === "object" &&
+      !utilTypePredicates.isProxy(value)
+    )
+      ? value
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+const cryptoSingleton =
+  captureCryptoSingleton();
+
 function captureCryptoSubtleSingleton() {
   try {
     const cryptoObject =
-      globalThis.crypto;
+      cryptoSingleton;
 
     if (
       cryptoObject === undefined ||
@@ -408,7 +468,9 @@ const unsupportedHostSingletons =
   objectFreeze(
     [
       workerThreads.locks,
+      navigatorSingleton,
       navigatorLocks,
+      cryptoSingleton,
       cryptoSubtleSingleton,
       nodeCryptoSubtleSingleton
     ].filter(
@@ -429,61 +491,133 @@ function hasUnsupportedHostSingleton(
     );
 }
 
-function capturePrototypeGetter(
-  constructor,
-  propertyName
+function captureConstructorPrototype(
+  constructor
 ) {
   if (
     typeof constructor !== "function" ||
-    constructor.prototype === null ||
-    typeof constructor.prototype !==
-      "object"
+    utilTypePredicates.isProxy(constructor)
   ) {
     return null;
   }
 
-  const descriptor =
-    getOwnPropertyDescriptor(
-      constructor.prototype,
-      propertyName
-    );
+  let descriptor;
+
+  try {
+    descriptor =
+      getOwnPropertyDescriptor(
+        constructor,
+        "prototype"
+      );
+  } catch {
+    return null;
+  }
+
+  if (
+    descriptor === undefined ||
+    "get" in descriptor ||
+    "set" in descriptor ||
+    descriptor.value === null ||
+    typeof descriptor.value !== "object" ||
+    utilTypePredicates.isProxy(
+      descriptor.value
+    )
+  ) {
+    return null;
+  }
+
+  return descriptor.value;
+}
+
+function captureGetterFromPrototypeObject(
+  prototype,
+  propertyName
+) {
+  if (
+    prototype === null ||
+    typeof prototype !== "object" ||
+    utilTypePredicates.isProxy(prototype)
+  ) {
+    return null;
+  }
+
+  let descriptor;
+
+  try {
+    descriptor =
+      getOwnPropertyDescriptor(
+        prototype,
+        propertyName
+      );
+  } catch {
+    return null;
+  }
 
   return (
     descriptor !== undefined &&
-    typeof descriptor.get ===
-      "function"
+    typeof descriptor.get === "function" &&
+    !utilTypePredicates.isProxy(
+      descriptor.get
+    )
   )
     ? descriptor.get
     : null;
+}
+
+function captureMethodFromPrototypeObject(
+  prototype,
+  propertyName
+) {
+  if (
+    prototype === null ||
+    typeof prototype !== "object" ||
+    utilTypePredicates.isProxy(prototype)
+  ) {
+    return null;
+  }
+
+  let descriptor;
+
+  try {
+    descriptor =
+      getOwnPropertyDescriptor(
+        prototype,
+        propertyName
+      );
+  } catch {
+    return null;
+  }
+
+  return (
+    descriptor !== undefined &&
+    "value" in descriptor &&
+    typeof descriptor.value === "function" &&
+    !utilTypePredicates.isProxy(
+      descriptor.value
+    )
+  )
+    ? descriptor.value
+    : null;
+}
+
+function capturePrototypeGetter(
+  constructor,
+  propertyName
+) {
+  return captureGetterFromPrototypeObject(
+    captureConstructorPrototype(constructor),
+    propertyName
+  );
 }
 
 function capturePrototypeMethod(
   constructor,
   propertyName
 ) {
-  if (
-    typeof constructor !== "function" ||
-    constructor.prototype === null ||
-    typeof constructor.prototype !==
-      "object"
-  ) {
-    return null;
-  }
-
-  const descriptor =
-    getOwnPropertyDescriptor(
-      constructor.prototype,
-      propertyName
-    );
-
-  return (
-    descriptor !== undefined &&
-    "value" in descriptor &&
-    typeof descriptor.value ===
-      "function"
-  )
-    ? descriptor.value
-    : null;
+  return captureMethodFromPrototypeObject(
+    captureConstructorPrototype(constructor),
+    propertyName
+  );
 }
 
 function captureMethodFromPrototype(
@@ -514,11 +648,217 @@ function captureMethodFromPrototype(
     : null;
 }
 
-function hasTrustedHostProbeCallableShape(
-  callable,
-  expectedName,
-  expectedLength,
-  sourcePrefix
+const nodeMajorVersion =
+  numberParseInt(
+    nodeProcess.versions.node,
+    10
+  );
+
+const undiciRuntimeExpected =
+  numberIsFinite(nodeMajorVersion) &&
+  nodeMajorVersion >= 20;
+
+let undiciHostBrandAuthorityAvailable =
+  true;
+
+function captureUndiciNativeSource() {
+  if (!undiciRuntimeExpected) {
+    return null;
+  }
+
+  let bindingDescriptor;
+
+  try {
+    bindingDescriptor =
+      getOwnPropertyDescriptor(
+        nodeProcess,
+        "binding"
+      );
+  } catch {
+    undiciHostBrandAuthorityAvailable = false;
+    return null;
+  }
+
+  if (
+    bindingDescriptor === undefined ||
+    "get" in bindingDescriptor ||
+    "set" in bindingDescriptor ||
+    typeof bindingDescriptor.value !== "function" ||
+    utilTypePredicates.isProxy(
+      bindingDescriptor.value
+    )
+  ) {
+    undiciHostBrandAuthorityAvailable = false;
+    return null;
+  }
+
+  let natives;
+
+  try {
+    natives =
+      reflectApply(
+        bindingDescriptor.value,
+        nodeProcess,
+        ["natives"]
+      );
+  } catch {
+    undiciHostBrandAuthorityAvailable = false;
+    return null;
+  }
+
+  if (
+    natives === null ||
+    typeof natives !== "object" ||
+    utilTypePredicates.isProxy(natives)
+  ) {
+    undiciHostBrandAuthorityAvailable = false;
+    return null;
+  }
+
+  let sourceDescriptor;
+
+  try {
+    sourceDescriptor =
+      getOwnPropertyDescriptor(
+        natives,
+        "internal/deps/undici/undici"
+      );
+  } catch {
+    undiciHostBrandAuthorityAvailable = false;
+    return null;
+  }
+
+  if (
+    sourceDescriptor === undefined ||
+    "get" in sourceDescriptor ||
+    "set" in sourceDescriptor ||
+    typeof sourceDescriptor.value !== "string" ||
+    sourceDescriptor.value === ""
+  ) {
+    undiciHostBrandAuthorityAvailable = false;
+    return null;
+  }
+
+  return sourceDescriptor.value;
+}
+
+const undiciNativeSource =
+  captureUndiciNativeSource();
+
+function sourceBelongsToUndiciBundle(
+  callable
+) {
+  if (
+    undiciNativeSource === null ||
+    typeof callable !== "function" ||
+    utilTypePredicates.isProxy(callable)
+  ) {
+    return false;
+  }
+
+  let source;
+
+  try {
+    source =
+      reflectApply(
+        functionToString,
+        callable,
+        []
+      );
+
+    return reflectApply(
+      stringIncludes,
+      undiciNativeSource,
+      [source]
+    );
+  } catch {
+    return false;
+  }
+}
+
+function captureEmbeddedNodeSource(
+  moduleName
+) {
+  let bindingDescriptor;
+
+  try {
+    bindingDescriptor =
+      getOwnPropertyDescriptor(
+        nodeProcess,
+        "binding"
+      );
+  } catch {
+    return null;
+  }
+
+  if (
+    bindingDescriptor === undefined ||
+    "get" in bindingDescriptor ||
+    "set" in bindingDescriptor ||
+    typeof bindingDescriptor.value !== "function" ||
+    utilTypePredicates.isProxy(
+      bindingDescriptor.value
+    )
+  ) {
+    return null;
+  }
+
+  let natives;
+
+  try {
+    natives =
+      reflectApply(
+        bindingDescriptor.value,
+        nodeProcess,
+        ["natives"]
+      );
+  } catch {
+    return null;
+  }
+
+  if (
+    natives === null ||
+    typeof natives !== "object" ||
+    utilTypePredicates.isProxy(natives)
+  ) {
+    return null;
+  }
+
+  let descriptor;
+
+  try {
+    descriptor =
+      getOwnPropertyDescriptor(
+        natives,
+        moduleName
+      );
+  } catch {
+    return null;
+  }
+
+  return (
+    descriptor !== undefined &&
+    !("get" in descriptor) &&
+    !("set" in descriptor) &&
+    typeof descriptor.value === "string" &&
+    descriptor.value !== ""
+  )
+    ? descriptor.value
+    : null;
+}
+
+const undiciLazyAccessorCoreSources =
+  objectFreeze([
+    captureEmbeddedNodeSource(
+      "internal/util"
+    ),
+    captureEmbeddedNodeSource(
+      "internal/process/pre_execution"
+    )
+  ]);
+
+function sourceBelongsToUndiciLazyCore(
+  callable
 ) {
   if (
     typeof callable !== "function" ||
@@ -527,27 +867,9 @@ function hasTrustedHostProbeCallableShape(
     return false;
   }
 
-  let prototypeDescriptor;
-  let nameDescriptor;
-  let lengthDescriptor;
   let source;
 
   try {
-    prototypeDescriptor =
-      getOwnPropertyDescriptor(
-        callable,
-        "prototype"
-      );
-    nameDescriptor =
-      getOwnPropertyDescriptor(
-        callable,
-        "name"
-      );
-    lengthDescriptor =
-      getOwnPropertyDescriptor(
-        callable,
-        "length"
-      );
     source =
       reflectApply(
         functionToString,
@@ -558,129 +880,322 @@ function hasTrustedHostProbeCallableShape(
     return false;
   }
 
-  if (
-    prototypeDescriptor !== undefined ||
-    nameDescriptor === undefined ||
-    "get" in nameDescriptor ||
-    "set" in nameDescriptor ||
-    nameDescriptor.value !== expectedName ||
-    lengthDescriptor === undefined ||
-    "get" in lengthDescriptor ||
-    "set" in lengthDescriptor ||
-    lengthDescriptor.value !== expectedLength
+  for (
+    const moduleSource of
+      undiciLazyAccessorCoreSources
   ) {
+    if (
+      typeof moduleSource === "string" &&
+      reflectApply(
+        stringIncludes,
+        moduleSource,
+        [source]
+      )
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function hasExpectedCallableMetadata(
+  callable,
+  expectedName,
+  expectedLength
+) {
+  let nameDescriptor;
+  let lengthDescriptor;
+
+  try {
+    nameDescriptor =
+      getOwnPropertyDescriptor(
+        callable,
+        "name"
+      );
+    lengthDescriptor =
+      getOwnPropertyDescriptor(
+        callable,
+        "length"
+      );
+  } catch {
     return false;
   }
 
   return (
-    source.includes("[native code]") ||
-    source.startsWith(sourcePrefix)
+    nameDescriptor !== undefined &&
+    !("get" in nameDescriptor) &&
+    !("set" in nameDescriptor) &&
+    nameDescriptor.value === expectedName &&
+    lengthDescriptor !== undefined &&
+    !("get" in lengthDescriptor) &&
+    !("set" in lengthDescriptor) &&
+    lengthDescriptor.value === expectedLength
   );
 }
 
-let globalHostBrandAuthorityAvailable = true;
-
-function captureGlobalConstructor(
-  name
+function hasExpectedLazyAccessorMetadata(
+  callable,
+  shortName,
+  qualifiedName,
+  expectedLength
 ) {
-  let value;
+  let nameDescriptor;
+  let lengthDescriptor;
 
   try {
-    value = globalThis[name];
+    nameDescriptor =
+      getOwnPropertyDescriptor(
+        callable,
+        "name"
+      );
+    lengthDescriptor =
+      getOwnPropertyDescriptor(
+        callable,
+        "length"
+      );
   } catch {
-    globalHostBrandAuthorityAvailable = false;
-    return null;
+    return false;
   }
 
-  if (typeof value !== "function") {
-    return null;
-  }
-
-  if (utilTypePredicates.isProxy(value)) {
-    globalHostBrandAuthorityAvailable = false;
-    return null;
-  }
-
-  return value;
+  return (
+    nameDescriptor !== undefined &&
+    !("get" in nameDescriptor) &&
+    !("set" in nameDescriptor) &&
+    (
+      nameDescriptor.value === shortName ||
+      nameDescriptor.value === qualifiedName
+    ) &&
+    lengthDescriptor !== undefined &&
+    !("get" in lengthDescriptor) &&
+    !("set" in lengthDescriptor) &&
+    lengthDescriptor.value === expectedLength
+  );
 }
 
-function captureGlobalHostBrandGetter(
-  constructorName,
-  propertyName
+function resolveRequiredUndiciConstructor(
+  constructorName
 ) {
-  const constructor =
-    captureGlobalConstructor(
-      constructorName
-    );
+  let globalDescriptor;
 
-  if (constructor === null) {
+  try {
+    globalDescriptor =
+      getOwnPropertyDescriptor(
+        globalThis,
+        constructorName
+      );
+  } catch {
     return null;
+  }
+
+  if (globalDescriptor === undefined) {
+    return null;
+  }
+
+  if (
+    !("get" in globalDescriptor) &&
+    !("set" in globalDescriptor)
+  ) {
+    return (
+      typeof globalDescriptor.value === "function" &&
+      !utilTypePredicates.isProxy(
+        globalDescriptor.value
+      )
+    )
+      ? globalDescriptor.value
+      : null;
   }
 
   const getter =
-    capturePrototypeGetter(
-      constructor,
-      propertyName
-    );
+    globalDescriptor.get;
+  const setter =
+    globalDescriptor.set;
 
   if (
-    getter === null ||
-    !hasTrustedHostProbeCallableShape(
+    globalDescriptor.enumerable !== false ||
+    globalDescriptor.configurable !== true ||
+    typeof getter !== "function" ||
+    typeof setter !== "function" ||
+    utilTypePredicates.isProxy(getter) ||
+    utilTypePredicates.isProxy(setter) ||
+    !hasExpectedLazyAccessorMetadata(
       getter,
-      `get ${propertyName}`,
-      0,
-      `get ${propertyName}(`
-    )
+      "get",
+      `get ${constructorName}`,
+      0
+    ) ||
+    !hasExpectedLazyAccessorMetadata(
+      setter,
+      "set",
+      `set ${constructorName}`,
+      1
+    ) ||
+    !sourceBelongsToUndiciLazyCore(getter) ||
+    !sourceBelongsToUndiciLazyCore(setter)
   ) {
-    globalHostBrandAuthorityAvailable = false;
     return null;
   }
 
-  return getter;
+  let constructor;
+
+  try {
+    constructor =
+      reflectApply(
+        getter,
+        globalThis,
+        []
+      );
+  } catch {
+    return null;
+  }
+
+  if (
+    typeof constructor !== "function" ||
+    utilTypePredicates.isProxy(constructor)
+  ) {
+    return null;
+  }
+
+  let resolvedDescriptor;
+
+  try {
+    resolvedDescriptor =
+      getOwnPropertyDescriptor(
+        globalThis,
+        constructorName
+      );
+  } catch {
+    return null;
+  }
+
+  if (
+    resolvedDescriptor === undefined ||
+    "get" in resolvedDescriptor ||
+    "set" in resolvedDescriptor ||
+    resolvedDescriptor.value !== constructor
+  ) {
+    return null;
+  }
+
+  return constructor;
 }
 
-function captureGlobalHostBrandMethod(
+function captureRequiredUndiciProbe(
   constructorName,
   propertyName,
-  expectedLength
+  kind,
+  expectedLength,
+  args
 ) {
+  if (
+    !undiciRuntimeExpected ||
+    !abortControllerBrandAuthorityAvailable
+  ) {
+    if (
+      undiciRuntimeExpected &&
+      !abortControllerBrandAuthorityAvailable
+    ) {
+      undiciHostBrandAuthorityAvailable = false;
+    }
+
+    return null;
+  }
+
+  if (undiciNativeSource === null) {
+    undiciHostBrandAuthorityAvailable = false;
+    return null;
+  }
+
   const constructor =
-    captureGlobalConstructor(
+    resolveRequiredUndiciConstructor(
       constructorName
     );
 
-  if (constructor === null) {
-    return {
-      constructor: null,
-      method: null
-    };
-  }
-
-  const method =
-    capturePrototypeMethod(
-      constructor,
-      propertyName
-    );
-
   if (
-    method === null ||
-    !hasTrustedHostProbeCallableShape(
-      method,
-      propertyName,
-      expectedLength,
-      `${propertyName}(`
+    constructor === null ||
+    !hasExpectedCallableMetadata(
+      constructor,
+      constructorName,
+      0
+    ) ||
+    !sourceBelongsToUndiciBundle(
+      constructor
     )
   ) {
-    globalHostBrandAuthorityAvailable = false;
-    return {
-      constructor,
-      method: null
-    };
+    undiciHostBrandAuthorityAvailable = false;
+    return null;
+  }
+
+  const prototype =
+    captureConstructorPrototype(
+      constructor
+    );
+
+  if (prototype === null) {
+    undiciHostBrandAuthorityAvailable = false;
+    return null;
+  }
+
+  let constructorDescriptor;
+  let probeDescriptor;
+
+  try {
+    constructorDescriptor =
+      getOwnPropertyDescriptor(
+        prototype,
+        "constructor"
+      );
+    probeDescriptor =
+      getOwnPropertyDescriptor(
+        prototype,
+        propertyName
+      );
+  } catch {
+    undiciHostBrandAuthorityAvailable = false;
+    return null;
+  }
+
+  if (
+    constructorDescriptor === undefined ||
+    "get" in constructorDescriptor ||
+    "set" in constructorDescriptor ||
+    constructorDescriptor.value !== constructor ||
+    probeDescriptor === undefined
+  ) {
+    undiciHostBrandAuthorityAvailable = false;
+    return null;
+  }
+
+  const callable =
+    kind === "getter"
+      ? probeDescriptor.get
+      : probeDescriptor.value;
+
+  const expectedName =
+    kind === "getter"
+      ? `get ${propertyName}`
+      : propertyName;
+
+  if (
+    typeof callable !== "function" ||
+    utilTypePredicates.isProxy(callable) ||
+    !hasExpectedCallableMetadata(
+      callable,
+      expectedName,
+      expectedLength
+    ) ||
+    !sourceBelongsToUndiciBundle(
+      callable
+    )
+  ) {
+    undiciHostBrandAuthorityAvailable = false;
+    return null;
   }
 
   return {
     constructor,
-    method
+    method: callable,
+    args
   };
 }
 
@@ -765,127 +1280,518 @@ function hasUnsupportedPerformanceObserverBrand(
   }
 }
 
-const HOST_BRAND_GETTER_SPECS =
-  objectFreeze([
-    ["Crypto", "subtle"],
-    ["Navigator", "userAgent"],
-    ["AbortController", "signal"],
-    ["AbortSignal", "aborted"],
-    ["TextEncoder", "encoding"],
-    ["TextDecoder", "encoding"],
-    ["URL", "href"],
-    ["URLPattern", "pathname"],
-    ["URLSearchParams", "size"],
-    ["Blob", "size"],
-    ["File", "name"],
-    ["Request", "url"],
-    ["Response", "status"],
-    ["ReadableStream", "locked"],
-    ["WritableStream", "locked"],
-    ["TransformStream", "readable"],
-    ["TextEncoderStream", "readable"],
-    ["TextDecoderStream", "readable"],
-    ["CompressionStream", "readable"],
-    ["DecompressionStream", "readable"],
-    ["CountQueuingStrategy", "highWaterMark"],
-    ["ByteLengthQueuingStrategy", "highWaterMark"]
-  ]);
+function captureModuleConstructor(
+  moduleObject,
+  name
+) {
+  if (
+    moduleObject === null ||
+    typeof moduleObject !== "object" ||
+    utilTypePredicates.isProxy(moduleObject)
+  ) {
+    return null;
+  }
 
-const unsupportedHostBrandGetters =
+  let descriptor;
+
+  try {
+    descriptor =
+      getOwnPropertyDescriptor(
+        moduleObject,
+        name
+      );
+  } catch {
+    return null;
+  }
+
+  return (
+    descriptor !== undefined &&
+    "value" in descriptor &&
+    typeof descriptor.value === "function" &&
+    !utilTypePredicates.isProxy(
+      descriptor.value
+    )
+  )
+    ? descriptor.value
+    : null;
+}
+
+function hasOpaqueNestedSymbolState(
+  value
+) {
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    utilTypePredicates.isProxy(value)
+  ) {
+    return false;
+  }
+
+  let descriptors;
+
+  try {
+    descriptors =
+      getOwnPropertyDescriptors(value);
+  } catch {
+    return false;
+  }
+
+  for (const key of ownKeys(descriptors)) {
+    if (typeof key !== "symbol") {
+      continue;
+    }
+
+    const descriptor = descriptors[key];
+
+    if (
+      descriptor === undefined ||
+      "get" in descriptor ||
+      "set" in descriptor
+    ) {
+      continue;
+    }
+
+    const child = descriptor.value;
+
+    if (
+      child === null ||
+      typeof child !== "object"
+    ) {
+      continue;
+    }
+
+    if (utilTypePredicates.isProxy(child)) {
+      return true;
+    }
+
+    let childDescriptors;
+
+    try {
+      childDescriptors =
+        getOwnPropertyDescriptors(child);
+    } catch {
+      return true;
+    }
+
+    for (
+      const childKey of
+        ownKeys(childDescriptors)
+    ) {
+      if (typeof childKey === "symbol") {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+const abortControllerRuntimeExpected =
+  numberIsFinite(nodeMajorVersion) &&
+  nodeMajorVersion >= 20;
+
+const abortControllerNativeSource =
+  abortControllerRuntimeExpected
+    ? captureEmbeddedNodeSource(
+        "internal/abort_controller"
+      )
+    : null;
+
+function sourceBelongsToAbortControllerNative(
+  callable
+) {
+  if (
+    abortControllerNativeSource === null ||
+    typeof callable !== "function" ||
+    utilTypePredicates.isProxy(callable)
+  ) {
+    return false;
+  }
+
+  let source;
+
+  try {
+    source =
+      reflectApply(
+        functionToString,
+        callable,
+        []
+      );
+
+    return reflectApply(
+      stringIncludes,
+      abortControllerNativeSource,
+      [source]
+    );
+  } catch {
+    return false;
+  }
+}
+
+function resolveTrustedAbortControllerConstructor() {
+  if (!abortControllerRuntimeExpected) {
+    return null;
+  }
+
+  if (abortControllerNativeSource === null) {
+    return null;
+  }
+
+  let globalDescriptor;
+
+  try {
+    globalDescriptor =
+      getOwnPropertyDescriptor(
+        globalThis,
+        "AbortController"
+      );
+  } catch {
+    return null;
+  }
+
+  if (globalDescriptor === undefined) {
+    return null;
+  }
+
+  let constructor;
+
+  if (
+    !("get" in globalDescriptor) &&
+    !("set" in globalDescriptor)
+  ) {
+    constructor =
+      globalDescriptor.value;
+  } else {
+    const getter =
+      globalDescriptor.get;
+    const setter =
+      globalDescriptor.set;
+
+    if (
+      globalDescriptor.enumerable !== false ||
+      globalDescriptor.configurable !== true ||
+      typeof getter !== "function" ||
+      typeof setter !== "function" ||
+      utilTypePredicates.isProxy(getter) ||
+      utilTypePredicates.isProxy(setter) ||
+      !hasExpectedLazyAccessorMetadata(
+        getter,
+        "get",
+        "get AbortController",
+        0
+      ) ||
+      !hasExpectedLazyAccessorMetadata(
+        setter,
+        "set",
+        "set AbortController",
+        1
+      ) ||
+      !sourceBelongsToUndiciLazyCore(
+        getter
+      ) ||
+      !sourceBelongsToUndiciLazyCore(
+        setter
+      )
+    ) {
+      return null;
+    }
+
+    try {
+      constructor =
+        reflectApply(
+          getter,
+          globalThis,
+          []
+        );
+    } catch {
+      return null;
+    }
+
+    let resolvedDescriptor;
+
+    try {
+      resolvedDescriptor =
+        getOwnPropertyDescriptor(
+          globalThis,
+          "AbortController"
+        );
+    } catch {
+      return null;
+    }
+
+    if (
+      resolvedDescriptor === undefined ||
+      "get" in resolvedDescriptor ||
+      "set" in resolvedDescriptor ||
+      resolvedDescriptor.value !== constructor
+    ) {
+      return null;
+    }
+  }
+
+  if (
+    typeof constructor !== "function" ||
+    utilTypePredicates.isProxy(constructor) ||
+    !hasExpectedCallableMetadata(
+      constructor,
+      "AbortController",
+      0
+    ) ||
+    !sourceBelongsToAbortControllerNative(
+      constructor
+    )
+  ) {
+    return null;
+  }
+
+  return constructor;
+}
+
+function captureAbortControllerBrandGetter() {
+  const constructor =
+    resolveTrustedAbortControllerConstructor();
+
+  if (constructor === null) {
+    return null;
+  }
+
+  const prototype =
+    captureConstructorPrototype(
+      constructor
+    );
+
+  if (prototype === null) {
+    return null;
+  }
+
+  let constructorDescriptor;
+  let signalDescriptor;
+
+  try {
+    constructorDescriptor =
+      getOwnPropertyDescriptor(
+        prototype,
+        "constructor"
+      );
+    signalDescriptor =
+      getOwnPropertyDescriptor(
+        prototype,
+        "signal"
+      );
+  } catch {
+    return null;
+  }
+
+  if (
+    constructorDescriptor === undefined ||
+    "get" in constructorDescriptor ||
+    "set" in constructorDescriptor ||
+    constructorDescriptor.value !== constructor ||
+    signalDescriptor === undefined ||
+    signalDescriptor.enumerable !== true ||
+    signalDescriptor.configurable !== true ||
+    typeof signalDescriptor.get !== "function" ||
+    signalDescriptor.set !== undefined ||
+    utilTypePredicates.isProxy(
+      signalDescriptor.get
+    ) ||
+    !hasExpectedCallableMetadata(
+      signalDescriptor.get,
+      "get signal",
+      0
+    ) ||
+    !sourceBelongsToAbortControllerNative(
+      signalDescriptor.get
+    )
+  ) {
+    return null;
+  }
+
+  return signalDescriptor.get;
+}
+
+const abortControllerBrandGetter =
+  captureAbortControllerBrandGetter();
+
+const abortControllerBrandAuthorityAvailable =
+  !abortControllerRuntimeExpected ||
+  abortControllerBrandGetter !== null;
+
+const trustedHostBrandGetters =
   objectFreeze(
-    HOST_BRAND_GETTER_SPECS
-      .map(
-        ([constructorName, propertyName]) =>
-          captureGlobalHostBrandGetter(
-            constructorName,
-            propertyName
-          )
+    [
+      abortControllerBrandGetter,
+      capturePrototypeGetter(
+        captureModuleConstructor(
+          nodeUtil,
+          "TextEncoder"
+        ),
+        "encoding"
+      ),
+      capturePrototypeGetter(
+        captureModuleConstructor(
+          nodeUtil,
+          "TextDecoder"
+        ),
+        "encoding"
+      ),
+      capturePrototypeGetter(
+        captureModuleConstructor(
+          nodeUrl,
+          "URL"
+        ),
+        "href"
+      ),
+      capturePrototypeGetter(
+        captureModuleConstructor(
+          nodeUrl,
+          "URLPattern"
+        ),
+        "pathname"
+      ),
+      capturePrototypeGetter(
+        captureModuleConstructor(
+          nodeBuffer,
+          "File"
+        ),
+        "name"
+      ),
+      capturePrototypeGetter(
+        captureModuleConstructor(
+          streamWeb,
+          "ReadableStream"
+        ),
+        "locked"
+      ),
+      capturePrototypeGetter(
+        captureModuleConstructor(
+          streamWeb,
+          "WritableStream"
+        ),
+        "locked"
+      ),
+      capturePrototypeGetter(
+        captureModuleConstructor(
+          streamWeb,
+          "TransformStream"
+        ),
+        "readable"
+      ),
+      capturePrototypeGetter(
+        captureModuleConstructor(
+          streamWeb,
+          "TextEncoderStream"
+        ),
+        "readable"
+      ),
+      capturePrototypeGetter(
+        captureModuleConstructor(
+          streamWeb,
+          "TextDecoderStream"
+        ),
+        "readable"
+      ),
+      capturePrototypeGetter(
+        captureModuleConstructor(
+          streamWeb,
+          "CompressionStream"
+        ),
+        "readable"
+      ),
+      capturePrototypeGetter(
+        captureModuleConstructor(
+          streamWeb,
+          "DecompressionStream"
+        ),
+        "readable"
+      ),
+      capturePrototypeGetter(
+        captureModuleConstructor(
+          streamWeb,
+          "CountQueuingStrategy"
+        ),
+        "highWaterMark"
+      ),
+      capturePrototypeGetter(
+        captureModuleConstructor(
+          streamWeb,
+          "ByteLengthQueuingStrategy"
+        ),
+        "highWaterMark"
+      ),
+    ].filter(
+      (getter) =>
+        getter !== null
+    )
+  );
+
+const trustedHostBrandMethods =
+  objectFreeze(
+    [
+      capturePrototypeMethod(
+        captureModuleConstructor(
+          nodeUrl,
+          "URLSearchParams"
+        ),
+        "toString"
+      ),
+      capturePrototypeMethod(
+        captureModuleConstructor(
+          nodeBuffer,
+          "Blob"
+        ),
+        "slice"
       )
-      .filter(
-        (getter) =>
-          getter !== null
-      )
+    ].filter(
+      (method) =>
+        method !== null
+    )
   );
 
 const headersBrandProbe =
-  captureGlobalHostBrandMethod(
+  captureRequiredUndiciProbe(
     "Headers",
     "get",
-    1
+    "method",
+    1,
+    ["__gotcha_brand_probe__"]
   );
-
-const formDataBrandProbe =
-  captureGlobalHostBrandMethod(
-    "FormData",
-    "get",
-    1
-  );
-
-const headersConstructor =
-  headersBrandProbe.constructor;
-
-const formDataConstructor =
-  formDataBrandProbe.constructor;
-
-const headersBrandMethod =
-  headersBrandProbe.method;
-
-const formDataBrandMethod =
-  formDataBrandProbe.method;
 
 const additionalHostBrandMethodAuthorityAvailable =
+  !undiciRuntimeExpected ||
   (
-    headersConstructor === null ||
-    headersBrandMethod !== null
-  ) &&
-  (
-    formDataConstructor === null ||
-    formDataBrandMethod !== null
+    undiciHostBrandAuthorityAvailable &&
+    headersBrandProbe !== null
   );
 
 const additionalHostBrandMethodProbes =
   objectFreeze(
-    [
-      {
-        constructor: headersConstructor,
-        method: headersBrandMethod,
-        args: [
-          "__gotcha_brand_probe__"
-        ]
-      },
-      {
-        constructor: formDataConstructor,
-        method: formDataBrandMethod,
-        args: [
-          "__gotcha_brand_probe__"
-        ]
-      }
-    ].filter(
-      (probe) =>
-        probe.constructor !== null &&
-        probe.method !== null
-    )
+    headersBrandProbe === null
+      ? []
+      : [headersBrandProbe]
   );
 
-const weakRefBrandProbe =
-  captureGlobalHostBrandMethod(
-    "WeakRef",
-    "deref",
-    0
+const pristineWeakRefConstructor =
+  vm.runInNewContext(
+    "typeof WeakRef === 'function' ? WeakRef : null"
+  );
+
+const pristineFinalizationRegistryConstructor =
+  vm.runInNewContext(
+    "typeof FinalizationRegistry === 'function' ? FinalizationRegistry : null"
   );
 
 const weakRefDeref =
-  weakRefBrandProbe.method;
-
-const finalizationRegistryBrandProbe =
-  captureGlobalHostBrandMethod(
-    "FinalizationRegistry",
-    "unregister",
-    1
+  capturePrototypeMethod(
+    pristineWeakRefConstructor,
+    "deref"
   );
 
 const finalizationRegistryUnregister =
-  finalizationRegistryBrandProbe.method;
+  capturePrototypeMethod(
+    pristineFinalizationRegistryConstructor,
+    "unregister"
+  );
 
 const finalizationRegistryProbeToken =
   objectFreeze({});
@@ -1080,16 +1986,86 @@ const messagePortHasRef =
       )
     : null;
 
+function captureMessagePortCloneProbe() {
+  if (
+    typeof workerThreads.MessageChannel !==
+      "function" ||
+    typeof workerThreads.receiveMessageOnPort !==
+      "function"
+  ) {
+    return null;
+  }
+
+  const postMessage =
+    capturePrototypeMethod(
+      workerThreads.MessagePort,
+      "postMessage"
+    );
+
+  if (postMessage === null) {
+    return null;
+  }
+
+  let channel;
+
+  try {
+    channel =
+      new workerThreads.MessageChannel();
+
+    if (
+      typeof channel.port1.unref ===
+        "function"
+    ) {
+      channel.port1.unref();
+    }
+
+    if (
+      typeof channel.port2.unref ===
+        "function"
+    ) {
+      channel.port2.unref();
+    }
+  } catch {
+    return null;
+  }
+
+  return objectFreeze({
+    postMessage,
+    sendPort: channel.port1,
+    receivePort: channel.port2,
+    receiveMessageOnPort:
+      workerThreads.receiveMessageOnPort
+  });
+}
+
+const messagePortCloneProbe =
+  captureMessagePortCloneProbe();
+
 function hasUnsupportedHostBrand(
   value
 ) {
   for (
     const getter of
-      unsupportedHostBrandGetters
+      trustedHostBrandGetters
   ) {
     try {
       reflectApply(
         getter,
+        value,
+        []
+      );
+
+      return true;
+    } catch {}
+  }
+
+  for (
+    const method of
+      trustedHostBrandMethods
+  ) {
+    try {
+      reflectApply(
+        method,
         value,
         []
       );
@@ -1282,8 +2258,8 @@ function hasUnsupportedAdditionalBrand(
   value
 ) {
   if (
-    !globalHostBrandAuthorityAvailable ||
-    !additionalHostBrandMethodAuthorityAvailable
+    !additionalHostBrandMethodAuthorityAvailable ||
+    !abortControllerBrandAuthorityAvailable
   ) {
     throw hostBrandAuthorityError();
   }
@@ -1554,7 +2530,7 @@ function hasUncloneableStructuredCloneBrand(
   value
 ) {
   if (
-    structuredCloneFunction === null ||
+    messagePortCloneProbe === null ||
     !isStructuredCloneProbeSafe(value)
   ) {
     return false;
@@ -1562,9 +2538,17 @@ function hasUncloneableStructuredCloneBrand(
 
   try {
     reflectApply(
-      structuredCloneFunction,
-      globalThis,
+      messagePortCloneProbe.postMessage,
+      messagePortCloneProbe.sendPort,
       [value]
+    );
+
+    reflectApply(
+      messagePortCloneProbe.receiveMessageOnPort,
+      undefined,
+      [
+        messagePortCloneProbe.receivePort
+      ]
     );
 
     return false;
@@ -1572,7 +2556,10 @@ function hasUncloneableStructuredCloneBrand(
     return (
       error !== null &&
       typeof error === "object" &&
-      error.name === "DataCloneError"
+      (
+        error.name === "DataCloneError" ||
+        error.name === "TypeError"
+      )
     );
   }
 }
@@ -1620,6 +2607,7 @@ function isUnsupportedRuntimeObject(
         "function" &&
       utilTypePredicates.isExternal(value)
     ) ||
+    hasOpaqueNestedSymbolState(value) ||
     hasUnsupportedPerformanceObserverBrand(
       value
     ) ||

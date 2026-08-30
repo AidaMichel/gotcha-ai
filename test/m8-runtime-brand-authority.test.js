@@ -144,7 +144,7 @@ test("stateful host constructor lookup is captured once and fails closed", () =>
     globalThis.structuredClone = undefined;
     const { cloneAiData } = require(${JSON.stringify(aiDataPath)});
 
-    assert.equal(reads, 1);
+    assert.equal(reads, 0);
     assert.throws(() => cloneAiData(saved));
   `);
 });
@@ -252,5 +252,308 @@ test("ordinary throwing Headers brand method is rejected before execution", () =
     const { cloneAiData } = require(${JSON.stringify(aiDataPath)});
     assert.throws(() => cloneAiData(saved));
     assert.equal(calls, 0);
+  `);
+});
+
+test("concise spoofed Headers brand method is rejected without execution", () => {
+  runIsolated(`
+    "use strict";
+    const assert = require("node:assert/strict");
+
+    const Constructor = globalThis.Headers;
+    if (typeof Constructor !== "function") process.exit(0);
+
+    const saved = new Constructor();
+    saved.foo = "bar";
+    Object.setPrototypeOf(saved, Object.prototype);
+
+    let calls = 0;
+    Constructor.prototype.get = ({
+      get(name) {
+        calls += 1;
+        throw new Error("spoofed concise method executed");
+      }
+    }).get;
+
+    globalThis.structuredClone = undefined;
+    const { cloneAiData } = require(${JSON.stringify(aiDataPath)});
+
+    assert.throws(() => cloneAiData(saved));
+    assert.equal(calls, 0);
+  `);
+});
+
+test("replacement Headers constructor cannot borrow the genuine prototype authority", () => {
+  runIsolated(`
+    "use strict";
+    const assert = require("node:assert/strict");
+
+    const OriginalHeaders = globalThis.Headers;
+    if (typeof OriginalHeaders !== "function") process.exit(0);
+
+    const saved = new OriginalHeaders();
+    saved.foo = "bar";
+    Object.setPrototypeOf(saved, Object.prototype);
+
+    const Replacement = OriginalHeaders.bind(null);
+    Object.defineProperty(Replacement, "prototype", {
+      value: OriginalHeaders.prototype
+    });
+    globalThis.Headers = Replacement;
+    globalThis.structuredClone = undefined;
+
+    const { cloneAiData } = require(${JSON.stringify(aiDataPath)});
+    assert.throws(() => cloneAiData(saved));
+  `);
+});
+
+test("module-owned URL probe survives a missing ambient URL constructor", () => {
+  runIsolated(`
+    "use strict";
+    const assert = require("node:assert/strict");
+
+    const OriginalURL = globalThis.URL;
+    if (typeof OriginalURL !== "function") process.exit(0);
+
+    const saved = new OriginalURL("https://example.com/");
+    saved.foo = "bar";
+    Object.setPrototypeOf(saved, Object.prototype);
+
+    globalThis.URL = undefined;
+    globalThis.structuredClone = undefined;
+
+    const { cloneAiData } = require(${JSON.stringify(aiDataPath)});
+    assert.throws(() => cloneAiData(saved));
+  `);
+});
+
+test("proxy-backed replacement constructor prototype is never inspected", () => {
+  runIsolated(`
+    "use strict";
+    const assert = require("node:assert/strict");
+
+    const OriginalHeaders = globalThis.Headers;
+    if (typeof OriginalHeaders !== "function") process.exit(0);
+
+    const saved = new OriginalHeaders();
+    saved.foo = "bar";
+    Object.setPrototypeOf(saved, Object.prototype);
+
+    let trapCalls = 0;
+    function Replacement() {}
+    Replacement.prototype = new Proxy({}, {
+      getOwnPropertyDescriptor() {
+        trapCalls += 1;
+        throw new Error("prototype descriptor trap executed");
+      },
+      get() {
+        trapCalls += 1;
+        throw new Error("prototype get trap executed");
+      }
+    });
+
+    globalThis.Headers = Replacement;
+    globalThis.structuredClone = undefined;
+
+    const { cloneAiData } = require(${JSON.stringify(aiDataPath)});
+    assert.throws(() => cloneAiData(saved));
+    assert.equal(trapCalls, 0);
+  `);
+});
+
+test("poisoned String includes is not probe authority", () => {
+  runIsolated(`
+    "use strict";
+    const assert = require("node:assert/strict");
+
+    const originalIncludes = String.prototype.includes;
+    let calls = 0;
+    String.prototype.includes = function poisonedIncludes() {
+      calls += 1;
+      throw new Error("ambient String.includes executed");
+    };
+
+    let cloneAiData;
+    try {
+      ({ cloneAiData } = require(${JSON.stringify(aiDataPath)}));
+    } finally {
+      String.prototype.includes = originalIncludes;
+    }
+
+    assert.equal(calls, 0);
+    assert.deepEqual(
+      cloneAiData({ safe: true }),
+      { safe: true }
+    );
+  `);
+});
+
+test("module-owned URLSearchParams probe works without the ambient constructor", () => {
+  runIsolated(`
+    "use strict";
+    const assert = require("node:assert/strict");
+
+    const Original = globalThis.URLSearchParams;
+    if (typeof Original !== "function") process.exit(0);
+
+    const saved = new Original("a=1");
+    saved.foo = "bar";
+    Object.setPrototypeOf(saved, Object.prototype);
+
+    globalThis.URLSearchParams = undefined;
+    globalThis.structuredClone = undefined;
+
+    const { cloneAiData } = require(${JSON.stringify(aiDataPath)});
+    assert.throws(() => cloneAiData(saved));
+  `);
+});
+
+test("URLPattern brand detection does not depend on its ambient getter shape", () => {
+  runIsolated(`
+    "use strict";
+    const assert = require("node:assert/strict");
+
+    const Original = globalThis.URLPattern;
+    if (typeof Original !== "function") process.exit(0);
+
+    const saved = new Original({ pathname: "/x" });
+    saved.foo = "bar";
+    Object.setPrototypeOf(saved, Object.prototype);
+
+    globalThis.URLPattern = undefined;
+    globalThis.structuredClone = undefined;
+
+    const { cloneAiData } = require(${JSON.stringify(aiDataPath)});
+    assert.throws(() => cloneAiData(saved));
+  `);
+});
+
+
+test("untrusted lazy Headers accessor is rejected without executing it", () => {
+  runIsolated(`
+    "use strict";
+    const assert = require("node:assert/strict");
+
+    const OriginalHeaders = globalThis.Headers;
+    if (typeof OriginalHeaders !== "function") process.exit(0);
+
+    const saved = new OriginalHeaders();
+    saved.foo = "bar";
+    Object.setPrototypeOf(saved, Object.prototype);
+
+    let getterCalls = 0;
+    let setterCalls = 0;
+    Object.defineProperty(globalThis, "Headers", {
+      configurable: true,
+      enumerable: false,
+      get() {
+        getterCalls += 1;
+        throw new Error("untrusted lazy Headers getter executed");
+      },
+      set() {
+        setterCalls += 1;
+        throw new Error("untrusted lazy Headers setter executed");
+      }
+    });
+
+    globalThis.structuredClone = undefined;
+    const { cloneAiData } = require(${JSON.stringify(aiDataPath)});
+
+    assert.equal(getterCalls, 0);
+    assert.equal(setterCalls, 0);
+    assert.throws(() => cloneAiData(saved));
+    assert.equal(getterCalls, 0);
+    assert.equal(setterCalls, 0);
+  `);
+});
+
+
+test("module-owned Blob slice authenticates rewritten Blob without rejecting plain data", () => {
+  runIsolated(`
+    "use strict";
+    const assert = require("node:assert/strict");
+    const { Blob } = require("node:buffer");
+    const { cloneAiData } = require(${JSON.stringify(aiDataPath)});
+
+    assert.deepEqual(
+      cloneAiData({ safe: true }),
+      { safe: true }
+    );
+
+    if (typeof Blob !== "function") process.exit(0);
+
+    const value = new Blob(["x"]);
+    value.foo = "bar";
+    Object.setPrototypeOf(value, Object.prototype);
+
+    assert.throws(() => cloneAiData(value));
+  `);
+});
+
+
+test("prototype-rewritten AbortController uses captured private-brand authority", () => {
+  runIsolated(`
+    "use strict";
+    const assert = require("node:assert/strict");
+
+    const OriginalAbortController = globalThis.AbortController;
+    if (typeof OriginalAbortController !== "function") process.exit(0);
+
+    const saved = new OriginalAbortController();
+    saved.foo = "bar";
+    Object.setPrototypeOf(saved, Object.prototype);
+
+    globalThis.structuredClone = undefined;
+    const { cloneAiData } = require(${JSON.stringify(aiDataPath)});
+
+    globalThis.AbortController = undefined;
+
+    assert.throws(
+      () => cloneAiData(saved, "AbortController"),
+      /unsupported runtime object/
+    );
+  `);
+});
+
+test("untrusted lazy AbortController accessor fails closed without execution", () => {
+  runIsolated(`
+    "use strict";
+    const assert = require("node:assert/strict");
+
+    const OriginalAbortController = globalThis.AbortController;
+    if (typeof OriginalAbortController !== "function") process.exit(0);
+
+    const saved = new OriginalAbortController();
+    saved.foo = "bar";
+    Object.setPrototypeOf(saved, Object.prototype);
+
+    let getterCalls = 0;
+    let setterCalls = 0;
+
+    Object.defineProperty(
+      globalThis,
+      "AbortController",
+      {
+        configurable: true,
+        enumerable: false,
+        get() {
+          getterCalls += 1;
+          throw new Error("untrusted AbortController getter executed");
+        },
+        set() {
+          setterCalls += 1;
+          throw new Error("untrusted AbortController setter executed");
+        }
+      }
+    );
+
+    globalThis.structuredClone = undefined;
+    const { cloneAiData } = require(${JSON.stringify(aiDataPath)});
+
+    assert.equal(getterCalls, 0);
+    assert.equal(setterCalls, 0);
+    assert.throws(() => cloneAiData(saved));
+    assert.equal(getterCalls, 0);
+    assert.equal(setterCalls, 0);
   `);
 });
