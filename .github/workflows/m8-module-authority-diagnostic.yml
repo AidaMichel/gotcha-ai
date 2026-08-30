@@ -15,22 +15,66 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
-      - name: Map URLPattern builtin source
+          node-version: 20.20.2
+      - name: Map Node 20 builtin brand sources
         run: |
           node - <<'NODE'
           "use strict";
+          const util = require("node:util");
           const nodeUrl = require("node:url");
+          const nodeBuffer = require("node:buffer");
+          const streamWeb = require("node:stream/web");
           const natives = process.binding("natives");
-          const C = nodeUrl.URLPattern;
-          console.log("node", process.version, "constructor", typeof C);
-          if (typeof C !== "function") process.exit(0);
-          const getter = Object.getOwnPropertyDescriptor(C.prototype, "pathname")?.get;
-          for (const [label, fn] of [["constructor", C], ["pathname", getter]]) {
-            const source = Function.prototype.toString.call(fn);
-            const hits = Object.entries(natives)
-              .filter(([, moduleSource]) => typeof moduleSource === "string" && moduleSource.includes(source))
-              .map(([name]) => name);
-            console.log(label, JSON.stringify(source.slice(0, 300)), JSON.stringify(hits));
+
+          const specs = [
+            ["nodeUtil", util, "TextEncoder", "encoding", "getter", "internal/encoding"],
+            ["nodeUtil", util, "TextDecoder", "encoding", "getter", "internal/encoding"],
+            ["nodeUrl", nodeUrl, "URL", "href", "getter", "internal/url"],
+            ["nodeBuffer", nodeBuffer, "File", "name", "getter", "internal/file"],
+            ["streamWeb", streamWeb, "ReadableStream", "locked", "getter", "internal/webstreams/readablestream"],
+            ["streamWeb", streamWeb, "WritableStream", "locked", "getter", "internal/webstreams/writablestream"],
+            ["streamWeb", streamWeb, "TransformStream", "readable", "getter", "internal/webstreams/transformstream"],
+            ["streamWeb", streamWeb, "TextEncoderStream", "readable", "getter", "internal/webstreams/encoding"],
+            ["streamWeb", streamWeb, "TextDecoderStream", "readable", "getter", "internal/webstreams/encoding"],
+            ["streamWeb", streamWeb, "CompressionStream", "readable", "getter", "internal/webstreams/compression"],
+            ["streamWeb", streamWeb, "DecompressionStream", "readable", "getter", "internal/webstreams/compression"],
+            ["streamWeb", streamWeb, "CountQueuingStrategy", "highWaterMark", "getter", "internal/webstreams/queuingstrategies"],
+            ["streamWeb", streamWeb, "ByteLengthQueuingStrategy", "highWaterMark", "getter", "internal/webstreams/queuingstrategies"],
+            ["nodeUrl", nodeUrl, "URLSearchParams", "toString", "method", "internal/url"],
+            ["nodeBuffer", nodeBuffer, "Blob", "slice", "method", "internal/blob"]
+          ];
+
+          function src(fn) {
+            return typeof fn === "function" ? Function.prototype.toString.call(fn) : null;
+          }
+
+          console.log("node", process.version);
+          for (const [moduleLabel, moduleObject, ctorName, prop, kind, sourceModule] of specs) {
+            const moduleSource = natives[sourceModule];
+            const desc = Object.getOwnPropertyDescriptor(moduleObject, ctorName);
+            const ctor = desc && desc.value;
+            const proto = typeof ctor === "function" ? ctor.prototype : null;
+            const pd = proto && Object.getOwnPropertyDescriptor(proto, prop);
+            const callable = pd && (kind === "getter" ? pd.get : pd.value);
+            const ctorSource = src(ctor);
+            const callableSource = src(callable);
+            console.log(JSON.stringify({
+              moduleLabel,
+              ctorName,
+              prop,
+              kind,
+              sourceModule,
+              moduleSourceType: typeof moduleSource,
+              moduleDeclaresClass: typeof moduleSource === "string" && moduleSource.includes(`class ${ctorName}`),
+              moduleDeclaresFunction: typeof moduleSource === "string" && moduleSource.includes(`function ${ctorName}`),
+              exportType: typeof ctor,
+              ctorSource: ctorSource && ctorSource.slice(0,180),
+              ctorSourceIncluded: typeof moduleSource === "string" && typeof ctorSource === "string" && moduleSource.includes(ctorSource),
+              callableType: typeof callable,
+              callableSource: callableSource && callableSource.slice(0,180),
+              callableSourceIncluded: typeof moduleSource === "string" && typeof callableSource === "string" && moduleSource.includes(callableSource),
+              ctorProxy: typeof ctor === "function" ? util.types.isProxy(ctor) : null,
+              callableProxy: typeof callable === "function" ? util.types.isProxy(callable) : null
+            }));
           }
           NODE
