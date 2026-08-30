@@ -1,4 +1,4 @@
-name: M8 AbortController Diagnostic
+name: M8 AbortController Capture Diagnostic
 
 on:
   push:
@@ -10,29 +10,46 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Apply current remediation in workspace
+        run: |
+          python3 scripts/qa/m8-review4-final-remediate.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('scripts/qa/m8-review4-undici-lazy-fix.py')
+          s = p.read_text()
+          start = s.index("old_reads = ''')") if "old_reads = ''')" in s else s.index("old_reads = '''")
+          end = s.index("marker = ", start)
+          p.write_text(s[:start] + s[end:])
+          PY
+          python3 scripts/qa/m8-review4-undici-lazy-fix.py
+          python3 scripts/qa/m8-review4-blob-auth-fix.py
+          python3 scripts/qa/m8-review4-trim.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/ai-data-core.js')
+          s = p.read_text()
+          needle = '''const abortBrandGetters =\n  captureAbortBrandGetters();'''
+          replacement = needle + '''\n\nif (process.env.GOTCHA_DEBUG_ABORT === "1") {\n  console.log("DEBUG_ABORT_CAPTURE", {\n    controller: abortBrandGetters.controller !== null,\n    signal: abortBrandGetters.signal !== null,\n    transferableDescriptor: Object.getOwnPropertyDescriptor(nodeUtil, "transferableAbortController")\n  });\n}'''
+          if s.count(needle) != 1:
+              raise SystemExit('abort capture seam not unique')
+          p.write_text(s.replace(needle, replacement, 1))
+          PY
       - uses: actions/setup-node@v4
         with:
           node-version: 18
-      - name: Verify module-owned getter on rewritten receiver
+      - name: Trace capture and classification
+        env:
+          GOTCHA_DEBUG_ABORT: "1"
         run: |
           node - <<'NODE'
-          const util = require('node:util');
-          const c = util.transferableAbortController();
-          const getter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(c), 'signal').get;
-          const normal = new AbortController();
-          const normalSignal = normal.signal;
-          Object.setPrototypeOf(normal, Object.prototype);
+          const { cloneAiData } = require('./src/ai-data');
+          const c = new AbortController();
+          c.foo = 'bar';
+          Object.setPrototypeOf(c, Object.prototype);
           try {
-            const result = Reflect.apply(getter, normal, []);
-            console.log('controller getter accepted rewritten normal', result === normalSignal, result);
+            cloneAiData(c, 'AbortController');
+            console.log('CLASSIFICATION accepted');
           } catch (error) {
-            console.log('controller getter rejected rewritten normal', error.name, error.message);
-          }
-          const signalGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(c.signal), 'aborted').get;
-          Object.setPrototypeOf(normalSignal, Object.prototype);
-          try {
-            console.log('signal getter accepted rewritten normal signal', Reflect.apply(signalGetter, normalSignal, []));
-          } catch (error) {
-            console.log('signal getter rejected rewritten normal signal', error.name, error.message);
+            console.log('CLASSIFICATION', error.message);
           }
           NODE
