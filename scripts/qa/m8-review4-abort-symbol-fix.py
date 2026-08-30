@@ -121,6 +121,9 @@ test("prototype-rewritten AbortController uses descriptor-only runtime classific
     saved.foo = "bar";
     Object.setPrototypeOf(saved, Object.prototype);
 
+    globalThis.structuredClone = undefined;
+    const { cloneAiData } = require(${JSON.stringify(aiDataPath)});
+
     let utilGetterCalls = 0;
     const descriptor = Object.getOwnPropertyDescriptor(
       nodeUtil,
@@ -146,9 +149,6 @@ test("prototype-rewritten AbortController uses descriptor-only runtime classific
     }
 
     globalThis.AbortController = undefined;
-    globalThis.structuredClone = undefined;
-
-    const { cloneAiData } = require(${JSON.stringify(aiDataPath)});
 
     assert.throws(
       () => cloneAiData(saved, "AbortController"),
