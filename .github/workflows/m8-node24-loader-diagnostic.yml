@@ -28,65 +28,80 @@ jobs:
           python3 scripts/qa/m8-review4-blob-auth-fix.py
           python3 scripts/qa/m8-review4-abort-symbol-fix.py
           python3 scripts/qa/m8-review4-abort-private-fix.py
+          python3 scripts/qa/m8-node24-abort-bootstrap-order-fix.py
           python3 scripts/qa/m8-review4-trim.py
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Trace generated ai-data AbortController global access
+      - name: Diagnose URLPattern brand authority
         shell: bash
         run: |
           node - <<'NODE' > node24-loader-probe.log 2>&1
           "use strict";
+          const util = require("node:util");
+          const nodeUrl = require("node:url");
+          const globalCtor = globalThis.URLPattern;
+          const moduleCtor = nodeUrl.URLPattern;
 
-          const OriginalAbortController = globalThis.AbortController;
-          const saved = new OriginalAbortController();
-          saved.foo = "bar";
-          Object.setPrototypeOf(saved, Object.prototype);
-
-          let getterCalls = 0;
-          let setterCalls = 0;
-          const stacks = [];
-
-          Object.defineProperty(globalThis, "AbortController", {
-            configurable: true,
-            enumerable: false,
-            get() {
-              getterCalls += 1;
-              stacks.push(new Error("AbortController getter access").stack);
-              throw new Error("diagnostic poisoned AbortController getter");
-            },
-            set() {
-              setterCalls += 1;
-              stacks.push(new Error("AbortController setter access").stack);
-              throw new Error("diagnostic poisoned AbortController setter");
-            }
-          });
-
-          globalThis.structuredClone = undefined;
-          let requireError = null;
-          let cloneError = null;
-          let cloneAiData = null;
-
-          try {
-            ({ cloneAiData } = require("./src/ai-data"));
-          } catch (caught) {
-            requireError = caught;
+          function describeCallable(fn) {
+            if (typeof fn !== "function") return null;
+            return {
+              name: fn.name,
+              length: fn.length,
+              source: Function.prototype.toString.call(fn).slice(0, 500),
+              isProxy: util.types.isProxy(fn)
+            };
           }
 
           console.log("node", process.version);
-          console.log("after require", JSON.stringify({ getterCalls, setterCalls, requireError: requireError ? String(requireError.message || requireError) : null }));
+          console.log("constructors", JSON.stringify({
+            globalType: typeof globalCtor,
+            moduleType: typeof moduleCtor,
+            same: globalCtor === moduleCtor,
+            global: describeCallable(globalCtor),
+            module: describeCallable(moduleCtor)
+          }));
 
-          if (cloneAiData) {
+          if (typeof globalCtor !== "function") process.exit(0);
+
+          const p = new globalCtor({ pathname: "/users/:id" });
+          const originalProto = Object.getPrototypeOf(p);
+          const globalPathname = Object.getOwnPropertyDescriptor(originalProto, "pathname");
+          const moduleProto = typeof moduleCtor === "function" ? moduleCtor.prototype : null;
+          const modulePathname = moduleProto && Object.getOwnPropertyDescriptor(moduleProto, "pathname");
+
+          console.log("before", JSON.stringify({
+            ownKeys: Reflect.ownKeys(p).map(String),
+            ownDescriptors: Object.fromEntries(Reflect.ownKeys(Object.getOwnPropertyDescriptors(p)).map(k => [String(k), String(Object.getOwnPropertyDescriptors(p)[k].value)])),
+            protoSameAsGlobal: originalProto === globalCtor.prototype,
+            protoSameAsModule: moduleProto ? originalProto === moduleProto : null,
+            globalPathname: globalPathname ? { enumerable: globalPathname.enumerable, configurable: globalPathname.configurable, get: describeCallable(globalPathname.get) } : null,
+            modulePathname: modulePathname ? { enumerable: modulePathname.enumerable, configurable: modulePathname.configurable, get: describeCallable(modulePathname.get) } : null
+          }));
+
+          p.foo = { bar: 1 };
+          Object.setPrototypeOf(p, Object.prototype);
+
+          for (const [label, getter] of [
+            ["globalGetter", globalPathname && globalPathname.get],
+            ["moduleGetter", modulePathname && modulePathname.get]
+          ]) {
+            if (typeof getter !== "function") continue;
             try {
-              cloneAiData(saved);
-            } catch (caught) {
-              cloneError = caught;
+              console.log(label, "result", Reflect.apply(getter, p, []));
+            } catch (error) {
+              console.log(label, "error", String(error && error.stack || error));
             }
           }
 
-          console.log("after clone", JSON.stringify({ getterCalls, setterCalls, cloneError: cloneError ? String(cloneError.message || cloneError) : null }));
-          console.log("STACKS");
-          for (const stack of stacks) console.log(stack);
+          globalThis.structuredClone = undefined;
+          const { cloneAiData } = require("./src/ai-data");
+          try {
+            const result = cloneAiData(p, "pattern");
+            console.log("clone result", result, "proto", Object.getPrototypeOf(result));
+          } catch (error) {
+            console.log("clone error", String(error && error.stack || error));
+          }
           NODE
       - uses: actions/upload-artifact@v4
         with:
