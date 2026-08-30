@@ -1,4 +1,4 @@
-name: M8 Node20 AbortController Diagnostic
+name: M8 AbortController Embedded Authority Diagnostic
 
 on:
   push:
@@ -8,91 +8,40 @@ on:
 jobs:
   diagnose:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [16.20.2, 18, 20.20.2, 22, 24]
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Apply current remediation in workspace
-        run: |
-          python3 scripts/qa/m8-review4-final-remediate.py
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('scripts/qa/m8-review4-undici-lazy-fix.py')
-          s = p.read_text()
-          start = s.index("old_reads = ''')") if "old_reads = ''')" in s else s.index("old_reads = '''")
-          end = s.index("marker = ", start)
-          p.write_text(s[:start] + s[end:])
-          PY
-          python3 scripts/qa/m8-review4-undici-lazy-fix.py
-          python3 scripts/qa/m8-review4-blob-auth-fix.py
-          python3 scripts/qa/m8-review4-abort-symbol-fix.py
-          python3 scripts/qa/m8-review4-trim.py
       - uses: actions/setup-node@v4
         with:
-          node-version: 20.20.2
-      - name: Inspect AbortController shape and probe candidates
+          node-version: ${{ matrix.node }}
+      - name: Inspect global constructor and signal getter authority
         run: |
           node - <<'NODE'
-          const util = require('node:util');
-          const events = require('node:events');
-          const c = new AbortController();
-          const s = c.signal;
-          c.foo = 'bar';
-          Object.setPrototypeOf(c, Object.prototype);
-          Object.setPrototypeOf(s, Object.prototype);
-
-          function dump(label, value) {
-            const ds = Object.getOwnPropertyDescriptors(value);
-            console.log('\n'+label, 'proto', Object.getPrototypeOf(value), 'keys', Reflect.ownKeys(ds).map(k => typeof k === 'symbol' ? String(k) : k));
-            for (const k of Reflect.ownKeys(ds)) {
-              const d = ds[k];
-              const v = d && 'value' in d ? d.value : undefined;
-              console.log(' ', typeof k === 'symbol' ? String(k) : k, {
-                enumerable:d.enumerable, configurable:d.configurable, writable:d.writable,
-                get:typeof d.get, set:typeof d.set, valueType:typeof v,
-                childKeys: v && typeof v === 'object' ? Reflect.ownKeys(Object.getOwnPropertyDescriptors(v)).map(x=>typeof x==='symbol'?String(x):x) : null
-              });
+          const natives = process.binding('natives');
+          const fts = Function.prototype.toString;
+          const d = Object.getOwnPropertyDescriptor(globalThis,'AbortController');
+          console.log('node',process.version,'global descriptor',d && {
+            enumerable:d.enumerable, configurable:d.configurable, writable:d.writable,
+            get:typeof d.get, set:typeof d.set, value:typeof d.value
+          });
+          let C;
+          try { C = globalThis.AbortController; } catch(e) { console.log('global read threw',e.name,e.message); }
+          if (typeof C === 'function') {
+            const cs=fts.call(C);
+            console.log('constructor metadata',C.name,C.length,Object.getOwnPropertyDescriptor(C,'prototype'),'source',JSON.stringify(cs));
+            console.log('constructor source matches',Object.keys(natives).filter(k=>typeof natives[k]==='string'&&natives[k].includes(cs)));
+            const pd=Object.getOwnPropertyDescriptor(C.prototype,'signal');
+            console.log('signal desc',pd && {enumerable:pd.enumerable,configurable:pd.configurable,get:typeof pd.get,set:typeof pd.set});
+            if (pd && typeof pd.get==='function') {
+              const gs=fts.call(pd.get);
+              console.log('getter metadata',pd.get.name,pd.get.length,Object.getOwnPropertyDescriptor(pd.get,'prototype'),'source',JSON.stringify(gs));
+              console.log('getter source matches',Object.keys(natives).filter(k=>typeof natives[k]==='string'&&natives[k].includes(gs)));
+              const x=new C(); const sig=x.signal; Object.setPrototypeOf(x,Object.prototype);
+              try { const got=Reflect.apply(pd.get,x,[]); console.log('getter accepts rewritten',got===sig); } catch(e){ console.log('getter rejects rewritten',e.name,e.message); }
             }
           }
-          console.log('node', process.version);
-          dump('rewritten controller', c);
-          dump('rewritten signal', s);
-          console.log('util predicates containing abort', Object.keys(util.types).filter(k=>/abort/i.test(k)));
-          console.log('events.addAbortListener', typeof events.addAbortListener, events.addAbortListener && Function.prototype.toString.call(events.addAbortListener).slice(0,300));
-          console.log('nodeUtil transferable descriptors', {
-            controller:Object.getOwnPropertyDescriptor(util,'transferableAbortController'),
-            signal:Object.getOwnPropertyDescriptor(util,'transferableAbortSignal')
-          });
-
-          const originalController = globalThis.AbortController;
-          const originalSignal = globalThis.AbortSignal;
-          for (const [name, fn, receiver, args] of [
-            ['events.addAbortListener(signal)', events.addAbortListener, s, [s,()=>{}]],
-          ]) {
-            if (typeof fn !== 'function') continue;
-            try {
-              const r = Reflect.apply(fn, undefined, args);
-              console.log(name,'accepted', r && typeof r);
-              if (r && typeof r[Symbol.dispose]==='function') r[Symbol.dispose]();
-            } catch(e) { console.log(name,'rejected',e.name,e.message); }
-          }
-
-          // Load Gotcha before poisoning, matching the regression.
-          globalThis.structuredClone = undefined;
-          const { cloneAiData } = require('./src/ai-data');
-          const td = Object.getOwnPropertyDescriptor(util,'transferableAbortController');
-          let getterCalls = 0;
-          if (td && td.configurable) {
-            Object.defineProperty(util,'transferableAbortController',{
-              configurable:true,
-              enumerable:td.enumerable,
-              get(){ getterCalls++; console.log('POISON GETTER STACK\n'+new Error('poison getter').stack); throw new Error('poison'); }
-            });
-          }
-          globalThis.AbortController = undefined;
-          try { const out=cloneAiData(c,'AbortController'); console.log('clone accepted',out); }
-          catch(e){ console.log('clone rejected',e.name,e.message); }
-          console.log('getterCalls',getterCalls);
-          globalThis.AbortController = originalController;
-          globalThis.AbortSignal = originalSignal;
+          console.log('abort related native module names',Object.keys(natives).filter(k=>/abort/i.test(k)));
           NODE
