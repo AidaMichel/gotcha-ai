@@ -33,7 +33,7 @@ jobs:
           {
             node --check src/ai-data-core.js
             node - <<'NODE'
-          const assert = require('node:assert/strict');
+          const assert = require('assert').strict;
           const { cloneAiData } = require('./src/ai-data');
           assert.deepStrictEqual(cloneAiData({ok:true,nested:{value:1}}), {ok:true,nested:{value:1}});
           const p = new URLSearchParams('a=1');
@@ -59,7 +59,7 @@ jobs:
         run: |
           node --check src/ai-data-core.js
           node - <<'NODE'
-          const assert = require('node:assert/strict');
+          const assert = require('assert').strict;
           const { cloneAiData } = require('./src/ai-data');
           assert.deepStrictEqual(cloneAiData({ok:true,nested:{value:1}}), {ok:true,nested:{value:1}});
           const p = new URLSearchParams('a=1');
