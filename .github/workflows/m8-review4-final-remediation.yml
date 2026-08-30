@@ -1,107 +1,50 @@
-name: M8 Final Host Authority Remediation
+name: M8 Host Probe Diagnostic
 
 on:
   push:
     branches:
       - fix/m8-baseline-runtime-brands
 
-permissions:
-  contents: write
-
 jobs:
-  remediate:
+  diagnose:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [14.21.3, 16.20.2, 20.20.2, 22, 24]
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Apply bounded remediation
-        run: |
-          python3 scripts/qa/m8-review4-final-remediate.py
-          python3 scripts/qa/m8-review4-trim.py
-
-      - name: Diff hygiene before tests
-        run: git diff --check
-
       - uses: actions/setup-node@v4
         with:
-          node-version: 14.21.3
-      - name: Node 14 compatibility diagnostic
+          node-version: ${{ matrix.node }}
+      - name: Probe Blob authenticating methods
         run: |
-          set +e
-          node - <<'NODE' > node14.txt 2>&1
-          function getter(C, key) {
-            if (typeof C !== 'function' || !C.prototype) return null;
-            const d = Object.getOwnPropertyDescriptor(C.prototype, key);
-            return d && d.get || null;
+          node - <<'NODE'
+          const buffer = require('node:buffer');
+          const Blob = buffer.Blob;
+          console.log('node', process.version, 'Blob', typeof Blob);
+          if (typeof Blob !== 'function') process.exit(0);
+          const proto = Blob.prototype;
+          for (const key of ['size','type']) {
+            const d = Object.getOwnPropertyDescriptor(proto, key);
+            const getter = d && d.get;
+            if (typeof getter !== 'function') { console.log(key, 'getter ABSENT'); continue; }
+            try { console.log(key, 'ordinary ACCEPT', Reflect.apply(getter, {}, [])); }
+            catch (e) { console.log(key, 'ordinary REJECT', e.name, e.message); }
           }
-          function method(C, key) {
-            if (typeof C !== 'function' || !C.prototype) return null;
-            const d = Object.getOwnPropertyDescriptor(C.prototype, key);
-            return d && d.value || null;
-          }
-          function check(label, fn, args) {
-            if (typeof fn !== 'function') return console.log(label, 'ABSENT');
-            try { console.log(label, 'ACCEPT', Reflect.apply(fn, {}, args || [])); }
-            catch (e) { console.log(label, 'REJECT', e && e.name, e && e.message); }
-          }
-          const u = require('node:util');
-          const url = require('node:url');
-          const b = require('node:buffer');
-          let sw = null; try { sw = require('node:stream/web'); } catch {}
-          check('TextEncoder.encoding', getter(u.TextEncoder, 'encoding'));
-          check('TextDecoder.encoding', getter(u.TextDecoder, 'encoding'));
-          check('URL.href', getter(url.URL, 'href'));
-          check('URLSearchParams.toString', method(url.URLSearchParams, 'toString'));
-          check('Blob.size', getter(b.Blob, 'size'));
-          check('File.name', getter(b.File, 'name'));
-          if (sw) {
-            for (const [name,key] of [['ReadableStream','locked'],['WritableStream','locked'],['TransformStream','readable'],['TextEncoderStream','readable'],['TextDecoderStream','readable'],['CompressionStream','readable'],['DecompressionStream','readable'],['CountQueuingStrategy','highWaterMark'],['ByteLengthQueuingStrategy','highWaterMark']]) {
-              check(name + '.' + key, getter(sw[name], key));
+          for (const key of ['slice']) {
+            const d = Object.getOwnPropertyDescriptor(proto, key);
+            const method = d && d.value;
+            if (typeof method !== 'function') { console.log(key, 'method ABSENT'); continue; }
+            try { console.log(key, 'ordinary ACCEPT', Reflect.apply(method, {}, [0,1])); }
+            catch (e) { console.log(key, 'ordinary REJECT', e.name, e.message); }
+            const genuine = new Blob(['abc']);
+            Object.setPrototypeOf(genuine, Object.prototype);
+            try {
+              const out = Reflect.apply(method, genuine, [0,1]);
+              console.log(key, 'rewritten genuine ACCEPT', out && out.size, Object.prototype.toString.call(out));
+            } catch (e) {
+              console.log(key, 'rewritten genuine REJECT', e.name, e.message);
             }
           }
-          try {
-            const { cloneAiData } = require('./src/ai-data');
-            console.log('plain clone', cloneAiData({ok:true,nested:{value:1}}));
-          } catch (e) {
-            console.log('plain clone FAILED', e && e.stack || e);
-          }
           NODE
-          exit 0
-      - uses: actions/upload-artifact@v4
-        with:
-          name: m8-node14-diagnostic
-          path: node14.txt
-      - name: Stop after Node 14 diagnostic
-        run: exit 1
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 16.20.2
-      - name: Node 16 compatibility
-        run: echo skipped
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20.20.2
-      - name: Node 20 focused and full suite
-        run: echo skipped
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Node 22 focused and full suite
-        run: echo skipped
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-      - name: Node 24 focused and full suite
-        run: echo skipped
-
-      - name: Final diff hygiene
-        run: git diff --check
-
-      - name: Commit proven remediation and remove harness
-        run: exit 1
