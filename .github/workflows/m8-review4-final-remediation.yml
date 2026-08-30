@@ -1,4 +1,4 @@
-name: M8 V8 Serialization Diagnostic
+name: M8 Lazy Accessor Shape Diagnostic
 
 on:
   push:
@@ -17,23 +17,29 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-      - name: Compare V8 serialization
+      - name: Inspect accessor pair
         run: |
           node - <<'NODE'
-          const v8 = require('node:v8');
-          const crypto = require('node:crypto');
-          function dump(label, value) {
-            try {
-              const b = v8.serialize(value);
-              console.log(label, b.length, crypto.createHash('sha256').update(b).digest('hex'), b.toString('hex'));
-            } catch (e) { console.log(label, 'THROW', e.name, e.message); }
+          const natives = process.binding('natives');
+          const fts = Function.prototype.toString;
+          function modulesContaining(source) {
+            const out=[];
+            for (const k of Reflect.ownKeys(natives)) {
+              if (typeof k !== 'string') continue;
+              const d=Object.getOwnPropertyDescriptor(natives,k);
+              if (d && typeof d.value==='string' && d.value.includes(source)) out.push(k);
+            }
+            return out;
           }
           console.log('node', process.version);
-          dump('plain', {foo:'bar'});
-          if (typeof Headers === 'function') {
-            const h = new Headers([['x','y']]); h.foo='bar'; Object.setPrototypeOf(h,Object.prototype); dump('Headers',h);
-          }
-          if (typeof FormData === 'function') {
-            const f = new FormData(); f.append('x','y'); f.foo='bar'; Object.setPrototypeOf(f,Object.prototype); dump('FormData',f);
+          for (const name of ['Headers','FormData','Request','Response']) {
+            const d=Object.getOwnPropertyDescriptor(globalThis,name);
+            console.log('\n',name,'descriptor',d && {enumerable:d.enumerable,configurable:d.configurable,get:typeof d.get,set:typeof d.set,value:typeof d.value});
+            for (const key of ['get','set']) {
+              const fn=d && d[key];
+              if (typeof fn!=='function') continue;
+              const s=fts.call(fn);
+              console.log(key,'name',fn.name,'length',fn.length,'protoDesc',Object.getOwnPropertyDescriptor(fn,'prototype'),'modules',modulesContaining(s),'source',JSON.stringify(s));
+            }
           }
           NODE
