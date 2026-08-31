@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  isolate-node22-parallel-race:
+  capture-node22-flake:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,11 +26,44 @@ jobs:
           cache: npm
       - run: npm ci
 
-      - name: Serial all six x20
-        continue-on-error: true
+      - name: Capture first parallel failure
         run: |
           set -euo pipefail
-          for i in $(seq 1 20); do
+          files=(
+            test/m13-review-remediation.test.js
+            test/provider-adapter-m13.test.js
+            test/mutation-pack.test.js
+            test/contract-protection-proposal.test.js
+            test/contract-quality-loop.test.js
+            test/package-contract-protection-proposal.test.js
+          )
+          for i in $(seq 1 100); do
+            echo "parallel iteration $i"
+            set +e
+            output=$(node --test "${files[@]}" 2>&1)
+            status=$?
+            set -e
+            if [ "$status" -ne 0 ]; then
+              echo "::error title=Node22 parallel flake::iteration=$i status=$status"
+              printf '%s\n' "$output"
+              printf '%s\n' "$output" \
+                | grep -E '^(not ok|# Subtest:|  (failureType|error|code|name|operator|expected|actual):|# Warning:|# Error:)' \
+                | tail -n 40 \
+                | while IFS= read -r line; do
+                    safe=${line//'%'/'%25'}
+                    safe=${safe//$'\r'/'%0D'}
+                    safe=${safe//$'\n'/'%0A'}
+                    echo "::error title=Node22 TAP::$safe"
+                  done
+              exit "$status"
+            fi
+          done
+
+      - name: Serial control x30
+        if: always()
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 30); do
             node --test --test-concurrency=1 \
               test/m13-review-remediation.test.js \
               test/provider-adapter-m13.test.js \
@@ -39,69 +72,3 @@ jobs:
               test/contract-quality-loop.test.js \
               test/package-contract-protection-proposal.test.js
           done
-
-      - name: Omit remediation x12
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          for i in $(seq 1 12); do node --test \
-            test/provider-adapter-m13.test.js test/mutation-pack.test.js \
-            test/contract-protection-proposal.test.js test/contract-quality-loop.test.js \
-            test/package-contract-protection-proposal.test.js; done
-
-      - name: Omit provider x12
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          for i in $(seq 1 12); do node --test \
-            test/m13-review-remediation.test.js test/mutation-pack.test.js \
-            test/contract-protection-proposal.test.js test/contract-quality-loop.test.js \
-            test/package-contract-protection-proposal.test.js; done
-
-      - name: Omit mutation x12
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          for i in $(seq 1 12); do node --test \
-            test/m13-review-remediation.test.js test/provider-adapter-m13.test.js \
-            test/contract-protection-proposal.test.js test/contract-quality-loop.test.js \
-            test/package-contract-protection-proposal.test.js; done
-
-      - name: Omit proposal x12
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          for i in $(seq 1 12); do node --test \
-            test/m13-review-remediation.test.js test/provider-adapter-m13.test.js \
-            test/mutation-pack.test.js test/contract-quality-loop.test.js \
-            test/package-contract-protection-proposal.test.js; done
-
-      - name: Omit quality x12
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          for i in $(seq 1 12); do node --test \
-            test/m13-review-remediation.test.js test/provider-adapter-m13.test.js \
-            test/mutation-pack.test.js test/contract-protection-proposal.test.js \
-            test/package-contract-protection-proposal.test.js; done
-
-      - name: Omit package x12
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          for i in $(seq 1 12); do node --test \
-            test/m13-review-remediation.test.js test/provider-adapter-m13.test.js \
-            test/mutation-pack.test.js test/contract-protection-proposal.test.js \
-            test/contract-quality-loop.test.js; done
-
-      - name: All six parallel x20 control
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          for i in $(seq 1 20); do node --test \
-            test/m13-review-remediation.test.js test/provider-adapter-m13.test.js \
-            test/mutation-pack.test.js test/contract-protection-proposal.test.js \
-            test/contract-quality-loop.test.js test/package-contract-protection-proposal.test.js; done
-
-      - name: Diagnostic complete
-        run: echo "Inspect step conclusions."
