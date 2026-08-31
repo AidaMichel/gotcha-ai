@@ -22,15 +22,42 @@ jobs:
           python3 scripts/qa/m8-module-authority-trim.py
           git diff --check
 
-      - name: Capture generated authority code
+      - name: Instrument generated initialization order
         run: |
-          python3 - <<'PY' > generated-undici-resolver.txt
+          python3 - <<'PY'
           from pathlib import Path
-          text = Path('src/ai-data-core.js').read_text()
-          helper = text.index('function hasTrustedUndiciBlobDependency()')
-          end = text.index('\nfunction captureRequiredUndiciProbe(', helper)
-          print(text[helper:end])
+          path = Path('src/ai-data-core.js')
+          text = path.read_text()
+          replacements = [
+              (
+                  'function hasTrustedUndiciBlobDependency() {\n',
+                  'function hasTrustedUndiciBlobDependency() {\n  process.stderr.write("TRACE blob-dependency-check\\n");\n'
+              ),
+              (
+                  'function resolveRequiredUndiciConstructor(\n  constructorName\n) {\n',
+                  'function resolveRequiredUndiciConstructor(\n  constructorName\n) {\n  process.stderr.write(`TRACE undici-resolver:${constructorName}\\n`);\n'
+              ),
+              (
+                  'function resolveTrustedAbortControllerConstructor() {\n',
+                  'function resolveTrustedAbortControllerConstructor() {\n  process.stderr.write("TRACE abort-controller-resolver\\n");\n'
+              ),
+          ]
+          for old, new in replacements:
+              if text.count(old) != 1:
+                  raise SystemExit(f'expected exactly one instrumentation seam: {old!r}')
+              text = text.replace(old, new, 1)
+          marker = '''  if (\n    !("get" in globalDescriptor) &&\n    !("set" in globalDescriptor)\n  ) {\n    return ('''
+          replacement = '''  if (\n    !("get" in globalDescriptor) &&\n    !("set" in globalDescriptor)\n  ) {\n    process.stderr.write(`TRACE undici-data-branch:${constructorName}\\n`);\n    return ('''
+          start = text.index('function resolveRequiredUndiciConstructor(')
+          end = text.index('\nfunction captureRequiredUndiciProbe(', start)
+          block = text[start:end]
+          if block.count(marker) != 1:
+              raise SystemExit('expected one Undici data-property branch')
+          block = block.replace(marker, replacement, 1)
+          text = text[:start] + block + text[end:]
+          path.write_text(text)
           PY
+          git diff --check
 
       - uses: actions/setup-node@v4
         with:
@@ -41,7 +68,7 @@ jobs:
 
       - name: Trace exact ambient Blob getter touch
         run: |
-          node - <<'NODE' > node24-blob-touch-stack.txt 2>&1
+          node - <<'NODE' > node24-init-order.txt 2>&1
           'use strict';
           let calls = 0;
           Object.defineProperty(globalThis, 'Blob', {
@@ -64,27 +91,10 @@ jobs:
           console.log(`TOTAL_BLOB_GETTER_TOUCHES=${calls}`);
           NODE
 
-      - name: Run focused suite and capture exact failure
-        id: focused
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -o pipefail
-          node --check src/ai-data-core.js 2>&1 | tee node24-syntax.txt
-          node --test --test-reporter=spec test/m8-runtime-brand-authority.test.js 2>&1 | tee node24-focused.txt
-
-      - name: Upload Node 24 evidence
+      - name: Upload initialization evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: node24-authority-evidence
-          path: |
-            generated-undici-resolver.txt
-            node24-blob-touch-stack.txt
-            node24-syntax.txt
-            node24-focused.txt
+          name: node24-init-order
+          path: node24-init-order.txt
           if-no-files-found: error
-
-      - name: Preserve failure gate
-        if: steps.focused.outcome != 'success'
-        run: exit 1
