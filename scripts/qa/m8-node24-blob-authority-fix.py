@@ -16,16 +16,30 @@ if count != 1:
     )
 core = core.replace(function_marker, helper, 1)
 
+start = core.index(
+    '''function resolveRequiredUndiciConstructor(\n  constructorName\n) {'''
+)
+end = core.index(
+    '''\n}\n\nfunction captureRequiredUndiciProbe(''',
+    start
+)
+resolver = core[start:end]
+
 getter_marker = '''  let constructor;\n\n  try {\n    constructor =\n      reflectApply(\n        getter,\n        globalThis,\n        []\n      );'''
 
 guarded_getter = '''  if (!hasTrustedUndiciBlobDependency()) {\n    return null;\n  }\n\n  let constructor;\n\n  try {\n    constructor =\n      reflectApply(\n        getter,\n        globalThis,\n        []\n      );'''
 
-count = core.count(getter_marker)
+count = resolver.count(getter_marker)
 if count != 1:
     raise SystemExit(
-        f"expected one lazy Undici getter invocation seam, found {count}"
+        f"expected one lazy getter inside Undici resolver, found {count}"
     )
-core = core.replace(getter_marker, guarded_getter, 1)
+resolver = resolver.replace(
+    getter_marker,
+    guarded_getter,
+    1
+)
+core = core[:start] + resolver + core[end:]
 
 CORE.write_text(core)
-print("gated Node 24 lazy Undici initialization on trusted Blob dependency")
+print("scoped Node 24 Blob dependency guard to lazy Undici resolver")
