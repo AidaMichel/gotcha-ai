@@ -1,0 +1,55 @@
+name: M13 Node 22 diagnostic
+
+on:
+  push:
+    branches:
+      - milestone-13-runtime-slice-a
+
+permissions:
+  contents: read
+
+jobs:
+  isolate-node22-failure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply exact round4 remediation
+        run: |
+          python3 scripts/qa/m13-codex-p1-round4.py
+          python3 scripts/qa/m13-codex-p1-round4-followup.py
+          python3 scripts/qa/m13-codex-p1-round4-core-followup.py
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: m13-review-remediation
+        continue-on-error: true
+        run: node --test test/m13-review-remediation.test.js
+
+      - name: provider-adapter-m13
+        continue-on-error: true
+        run: node --test test/provider-adapter-m13.test.js
+
+      - name: mutation-pack
+        continue-on-error: true
+        run: node --test test/mutation-pack.test.js
+
+      - name: contract-protection-proposal
+        continue-on-error: true
+        run: node --test test/contract-protection-proposal.test.js
+
+      - name: contract-quality-loop
+        continue-on-error: true
+        run: node --test test/contract-quality-loop.test.js
+
+      - name: package-contract-protection-proposal
+        continue-on-error: true
+        run: node --test test/package-contract-protection-proposal.test.js
+
+      - name: Diagnostic complete
+        run: echo "Inspect per-step conclusions; no raw job log required."
