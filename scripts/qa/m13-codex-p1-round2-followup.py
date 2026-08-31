@@ -63,6 +63,15 @@ s = s.replace(
     'const modulePath = path.join(repoRoot, "src", "provider-adapter-m13.js");\n  const code = `\n    "use strict";\n    const NativePromise = Promise;\n    const original = Object.getOwnPropertyDescriptor(globalThis, "Promise");\n    let getterCalls = 0;\n    Object.defineProperty(globalThis, "Promise", {\n      get() { getterCalls += 1; return NativePromise; }, configurable: true\n    });\n    let api;\n    try { api = require(${JSON.stringify(modulePath)}); } catch (error) {\n      console.error(error); process.exit(7);\n    }',
     1
 )
+# The M12 finding concerns execution by the public wrapper after capture. Other
+# dependencies may construct Promises during load on some Node versions; reset
+# the counter after package initialization and assert the wrapper itself never
+# constructs through the poisoned captured Proxy.
+s = s.replace(
+    '    const api = require(${JSON.stringify(modulePath)});\n    Object.defineProperty(NativePromise.prototype, "constructor", descriptor);\n    const returned = api.prepareContractQualityLoop({});',
+    '    const api = require(${JSON.stringify(modulePath)});\n    Object.defineProperty(NativePromise.prototype, "constructor", descriptor);\n    proxyCalls = 0;\n    const returned = api.prepareContractQualityLoop({});',
+    1
+)
 p.write_text(s)
 
 # Add permanent transport rejection coverage for non-extensible trusted native Promise.
