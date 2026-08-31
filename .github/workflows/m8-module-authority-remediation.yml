@@ -99,12 +99,47 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Node 24 focused and full suite
+      - name: Node 24 authority diagnostics
+        run: |
+          node - <<'NODE'
+          'use strict';
+          const nodeUrl = require('node:url');
+          const nodeBuffer = require('node:buffer');
+          const workerThreads = require('node:worker_threads');
+          const own = (o, k) => Object.getOwnPropertyDescriptor(o, k);
+          const fnInfo = (fn) => typeof fn === 'function' ? {
+            name: fn.name,
+            source: Function.prototype.toString.call(fn).slice(0, 180),
+            hasInstance: own(fn, Symbol.hasInstance) || null
+          } : { type: typeof fn };
+          const report = {
+            node: process.version,
+            identities: {
+              URL: globalThis.URL === nodeUrl.URL,
+              URLSearchParams: globalThis.URLSearchParams === nodeUrl.URLSearchParams,
+              Blob: globalThis.Blob === nodeBuffer.Blob,
+              MessageChannel: globalThis.MessageChannel === workerThreads.MessageChannel
+            },
+            globals: {
+              URL: fnInfo(globalThis.URL),
+              URLSearchParams: fnInfo(globalThis.URLSearchParams),
+              Blob: fnInfo(globalThis.Blob),
+              Headers: fnInfo(globalThis.Headers),
+              FormData: fnInfo(globalThis.FormData),
+              AbortController: fnInfo(globalThis.AbortController),
+              MessageChannel: fnInfo(globalThis.MessageChannel)
+            },
+            processBinding: fnInfo(process.binding)
+          };
+          console.log('NODE24_AUTHORITY_DIAGNOSTIC=' + JSON.stringify(report, null, 2));
+          NODE
+      - name: Node 24 focused authority suite with names
         run: |
           npm ci
           node --check src/ai-data-core.js
-          node --test test/m8-runtime-brand-authority.test.js
-          npm test
+          node --test --test-reporter=spec test/m8-runtime-brand-authority.test.js
+      - name: Node 24 full suite
+        run: npm test
 
       - name: Final diff hygiene
         run: git diff --check
