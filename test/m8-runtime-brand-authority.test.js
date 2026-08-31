@@ -557,3 +557,105 @@ test("untrusted lazy AbortController accessor fails closed without execution", (
     assert.equal(setterCalls, 0);
   `);
 });
+
+
+test("poisoned node:url module export is rejected without executing its brand getter", () => {
+  runIsolated(`
+    "use strict";
+    const assert = require("node:assert/strict");
+    const nodeUrl = require("node:url");
+
+    const OriginalURL = nodeUrl.URL;
+    if (typeof OriginalURL !== "function") process.exit(0);
+
+    const saved = new OriginalURL("https://example.com/");
+    saved.foo = "bar";
+    Object.setPrototypeOf(saved, Object.prototype);
+
+    let getterCalls = 0;
+    function FakeURL() {}
+    Object.defineProperty(FakeURL.prototype, "href", {
+      configurable: true,
+      get() {
+        getterCalls += 1;
+        throw new Error("poisoned node:url URL getter executed");
+      }
+    });
+
+    nodeUrl.URL = FakeURL;
+    globalThis.structuredClone = undefined;
+
+    const { cloneAiData } = require(${JSON.stringify(aiDataPath)});
+
+    assert.throws(() => cloneAiData(saved));
+    assert.equal(getterCalls, 0);
+  `);
+});
+
+test("poisoned genuine node:url brand getter is rejected without execution", () => {
+  runIsolated(`
+    "use strict";
+    const assert = require("node:assert/strict");
+    const nodeUrl = require("node:url");
+
+    const OriginalURL = nodeUrl.URL;
+    if (typeof OriginalURL !== "function") process.exit(0);
+
+    const saved = new OriginalURL("https://example.com/");
+    saved.foo = "bar";
+    Object.setPrototypeOf(saved, Object.prototype);
+
+    const descriptor = Object.getOwnPropertyDescriptor(
+      OriginalURL.prototype,
+      "href"
+    );
+    if (!descriptor || descriptor.configurable !== true) process.exit(0);
+
+    let getterCalls = 0;
+    Object.defineProperty(OriginalURL.prototype, "href", {
+      configurable: true,
+      enumerable: descriptor.enumerable,
+      get() {
+        getterCalls += 1;
+        throw new Error("poisoned genuine URL href getter executed");
+      }
+    });
+
+    globalThis.structuredClone = undefined;
+    const { cloneAiData } = require(${JSON.stringify(aiDataPath)});
+
+    assert.throws(() => cloneAiData(saved));
+    assert.equal(getterCalls, 0);
+  `);
+});
+
+
+test("poisoned relocated global Blob accessor is rejected without execution", () => {
+  runIsolated(`
+    "use strict";
+    const assert = require("node:assert/strict");
+
+    const OriginalBlob = globalThis.Blob;
+    if (typeof OriginalBlob !== "function") process.exit(0);
+
+    const saved = new OriginalBlob(["x"]);
+    saved.foo = "bar";
+    Object.setPrototypeOf(saved, Object.prototype);
+
+    let getterCalls = 0;
+    Object.defineProperty(globalThis, "Blob", {
+      configurable: true,
+      enumerable: false,
+      get() {
+        getterCalls += 1;
+        throw new Error("poisoned global Blob getter executed");
+      }
+    });
+
+    globalThis.structuredClone = undefined;
+    const { cloneAiData } = require(${JSON.stringify(aiDataPath)});
+
+    assert.throws(() => cloneAiData(saved));
+    assert.equal(getterCalls, 0);
+  `);
+});

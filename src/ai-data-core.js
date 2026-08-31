@@ -973,9 +973,64 @@ function hasExpectedLazyAccessorMetadata(
   );
 }
 
+function hasTrustedUndiciBlobDependency() {
+  if (nodeMajorVersion < 24) {
+    return true;
+  }
+
+  let globalBlobDescriptor;
+  let moduleBlobDescriptor;
+
+  try {
+    globalBlobDescriptor =
+      getOwnPropertyDescriptor(
+        globalThis,
+        "Blob"
+      );
+    moduleBlobDescriptor =
+      getOwnPropertyDescriptor(
+        nodeBuffer,
+        "Blob"
+      );
+  } catch {
+    return false;
+  }
+
+  if (
+    globalBlobDescriptor === undefined ||
+    "get" in globalBlobDescriptor ||
+    "set" in globalBlobDescriptor ||
+    moduleBlobDescriptor === undefined ||
+    "get" in moduleBlobDescriptor ||
+    "set" in moduleBlobDescriptor ||
+    typeof globalBlobDescriptor.value !==
+      "function" ||
+    globalBlobDescriptor.value !==
+      moduleBlobDescriptor.value ||
+    utilTypePredicates.isProxy(
+      globalBlobDescriptor.value
+    )
+  ) {
+    return false;
+  }
+
+  const blobModuleSource =
+    captureEmbeddedNodeSource(
+      "internal/blob"
+    );
+
+  return sourceBelongsToEmbeddedModule(
+    globalBlobDescriptor.value,
+    blobModuleSource
+  );
+}
+
 function resolveRequiredUndiciConstructor(
   constructorName
 ) {
+  if (!hasTrustedUndiciBlobDependency()) {
+    return null;
+  }
   let globalDescriptor;
 
   try {
@@ -1280,40 +1335,444 @@ function hasUnsupportedPerformanceObserverBrand(
   }
 }
 
-function captureModuleConstructor(
-  moduleObject,
-  name
+let trustedModuleBrandAuthorityAvailable =
+  true;
+
+function sourceBelongsToEmbeddedModule(
+  callable,
+  moduleSource
 ) {
   if (
-    moduleObject === null ||
-    typeof moduleObject !== "object" ||
-    utilTypePredicates.isProxy(moduleObject)
+    typeof moduleSource !== "string" ||
+    typeof callable !== "function" ||
+    utilTypePredicates.isProxy(callable)
   ) {
-    return null;
+    return false;
   }
 
+  let source;
+
+  try {
+    source =
+      reflectApply(
+        functionToString,
+        callable,
+        []
+      );
+
+    return reflectApply(
+      stringIncludes,
+      moduleSource,
+      [source]
+    );
+  } catch {
+    return false;
+  }
+}
+
+function embeddedModuleDeclaresConstructor(
+  moduleSource,
+  name
+) {
+  if (typeof moduleSource !== "string") {
+    return false;
+  }
+
+  return (
+    reflectApply(
+      stringIncludes,
+      moduleSource,
+      [`class ${name}`]
+    ) ||
+    reflectApply(
+      stringIncludes,
+      moduleSource,
+      [`function ${name}`]
+    )
+  );
+}
+
+function matchesAmbientNativeConstructor(
+  constructor,
+  name
+) {
   let descriptor;
+  let source;
 
   try {
     descriptor =
       getOwnPropertyDescriptor(
-        moduleObject,
+        globalThis,
         name
+      );
+    source =
+      reflectApply(
+        functionToString,
+        constructor,
+        []
+      );
+  } catch {
+    return false;
+  }
+
+  return (
+    descriptor !== undefined &&
+    !("get" in descriptor) &&
+    !("set" in descriptor) &&
+    descriptor.value === constructor &&
+    typeof constructor === "function" &&
+    !utilTypePredicates.isProxy(constructor) &&
+    reflectApply(
+      stringIncludes,
+      source,
+      ["[native code]"]
+    )
+  );
+}
+
+function resolveTrustedModuleOrGlobalConstructor(
+  moduleObject,
+  constructorName,
+  moduleSource,
+  nativeRuntimeExpected
+) {
+  let moduleDescriptor;
+
+  if (
+    moduleObject !== null &&
+    typeof moduleObject === "object" &&
+    !utilTypePredicates.isProxy(moduleObject)
+  ) {
+    try {
+      moduleDescriptor =
+        getOwnPropertyDescriptor(
+          moduleObject,
+          constructorName
+        );
+    } catch {
+      moduleDescriptor = undefined;
+    }
+
+    if (
+      moduleDescriptor !== undefined &&
+      "value" in moduleDescriptor &&
+      typeof moduleDescriptor.value ===
+        "function" &&
+      !utilTypePredicates.isProxy(
+        moduleDescriptor.value
+      )
+    ) {
+      const moduleConstructor =
+        moduleDescriptor.value;
+
+      if (
+        sourceBelongsToEmbeddedModule(
+          moduleConstructor,
+          moduleSource
+        ) ||
+        (
+          nativeRuntimeExpected &&
+          matchesAmbientNativeConstructor(
+            moduleConstructor,
+            constructorName
+          )
+        )
+      ) {
+        return moduleConstructor;
+      }
+    }
+  }
+
+  let globalDescriptor;
+
+  try {
+    globalDescriptor =
+      getOwnPropertyDescriptor(
+        globalThis,
+        constructorName
       );
   } catch {
     return null;
   }
 
+  if (globalDescriptor === undefined) {
+    return null;
+  }
+
+  let globalConstructor;
+
+  if (
+    !("get" in globalDescriptor) &&
+    !("set" in globalDescriptor)
+  ) {
+    globalConstructor =
+      globalDescriptor.value;
+  } else {
+    const getter =
+      globalDescriptor.get;
+    const setter =
+      globalDescriptor.set;
+
+    if (
+      globalDescriptor.enumerable !== false ||
+      globalDescriptor.configurable !== true ||
+      typeof getter !== "function" ||
+      utilTypePredicates.isProxy(getter) ||
+      !hasExpectedLazyAccessorMetadata(
+        getter,
+        "get",
+        `get ${constructorName}`,
+        0
+      ) ||
+      !sourceBelongsToUndiciLazyCore(getter) ||
+      (
+        setter !== undefined &&
+        (
+          typeof setter !== "function" ||
+          utilTypePredicates.isProxy(setter) ||
+          !hasExpectedLazyAccessorMetadata(
+            setter,
+            "set",
+            `set ${constructorName}`,
+            1
+          ) ||
+          !sourceBelongsToUndiciLazyCore(setter)
+        )
+      )
+    ) {
+      return null;
+    }
+
+    try {
+      globalConstructor =
+        reflectApply(
+          getter,
+          globalThis,
+          []
+        );
+    } catch {
+      return null;
+    }
+
+    let resolvedDescriptor;
+
+    try {
+      resolvedDescriptor =
+        getOwnPropertyDescriptor(
+          globalThis,
+          constructorName
+        );
+    } catch {
+      return null;
+    }
+
+    if (
+      resolvedDescriptor === undefined ||
+      "get" in resolvedDescriptor ||
+      "set" in resolvedDescriptor ||
+      resolvedDescriptor.value !==
+        globalConstructor
+    ) {
+      return null;
+    }
+  }
+
+  if (
+    typeof globalConstructor !== "function" ||
+    utilTypePredicates.isProxy(globalConstructor)
+  ) {
+    return null;
+  }
+
   return (
-    descriptor !== undefined &&
-    "value" in descriptor &&
-    typeof descriptor.value === "function" &&
-    !utilTypePredicates.isProxy(
-      descriptor.value
+    sourceBelongsToEmbeddedModule(
+      globalConstructor,
+      moduleSource
+    ) ||
+    (
+      nativeRuntimeExpected &&
+      matchesAmbientNativeConstructor(
+        globalConstructor,
+        constructorName
+      )
     )
   )
-    ? descriptor.value
+    ? globalConstructor
     : null;
+}
+
+function captureTrustedModuleBrandCallable(
+  moduleObject,
+  constructorName,
+  propertyName,
+  kind,
+  sourceModuleName,
+  nativeRuntimeExpected = false
+) {
+  const moduleSource =
+    sourceModuleName === null
+      ? null
+      : captureEmbeddedNodeSource(
+          sourceModuleName
+        );
+
+  const runtimeExpected =
+    embeddedModuleDeclaresConstructor(
+      moduleSource,
+      constructorName
+    ) ||
+    nativeRuntimeExpected;
+
+  const constructor =
+    resolveTrustedModuleOrGlobalConstructor(
+      moduleObject,
+      constructorName,
+      moduleSource,
+      nativeRuntimeExpected
+    );
+
+  if (constructor === null) {
+    if (runtimeExpected) {
+      trustedModuleBrandAuthorityAvailable =
+        false;
+    }
+
+    return null;
+  }
+
+  const prototype =
+    captureConstructorPrototype(
+      constructor
+    );
+
+  if (prototype === null) {
+    trustedModuleBrandAuthorityAvailable =
+      false;
+    return null;
+  }
+
+  let prototypeConstructorDescriptor;
+  let brandDescriptor;
+
+  try {
+    prototypeConstructorDescriptor =
+      getOwnPropertyDescriptor(
+        prototype,
+        "constructor"
+      );
+    brandDescriptor =
+      getOwnPropertyDescriptor(
+        prototype,
+        propertyName
+      );
+  } catch {
+    trustedModuleBrandAuthorityAvailable =
+      false;
+    return null;
+  }
+
+  if (
+    prototypeConstructorDescriptor ===
+      undefined ||
+    !("value" in
+      prototypeConstructorDescriptor) ||
+    prototypeConstructorDescriptor.value !==
+      constructor ||
+    brandDescriptor === undefined
+  ) {
+    trustedModuleBrandAuthorityAvailable =
+      false;
+    return null;
+  }
+
+  const callable =
+    kind === "getter"
+      ? brandDescriptor.get
+      : brandDescriptor.value;
+
+  if (
+    typeof callable !== "function" ||
+    utilTypePredicates.isProxy(callable)
+  ) {
+    trustedModuleBrandAuthorityAvailable =
+      false;
+    return null;
+  }
+
+  const callableTrusted =
+    sourceBelongsToEmbeddedModule(
+      callable,
+      moduleSource
+    ) ||
+    (
+      nativeRuntimeExpected &&
+      matchesAmbientNativeConstructor(
+        constructor,
+        constructorName
+      ) &&
+      (() => {
+        let source;
+
+        try {
+          source =
+            reflectApply(
+              functionToString,
+              callable,
+              []
+            );
+        } catch {
+          return false;
+        }
+
+        return reflectApply(
+          stringIncludes,
+          source,
+          ["[native code]"]
+        );
+      })()
+    );
+
+  if (!callableTrusted) {
+    trustedModuleBrandAuthorityAvailable =
+      false;
+    return null;
+  }
+
+  return callable;
+}
+
+function captureTrustedModuleGetter(
+  moduleObject,
+  constructorName,
+  propertyName,
+  sourceModuleName,
+  nativeRuntimeExpected = false
+) {
+  return captureTrustedModuleBrandCallable(
+    moduleObject,
+    constructorName,
+    propertyName,
+    "getter",
+    sourceModuleName,
+    nativeRuntimeExpected
+  );
+}
+
+function captureTrustedModuleMethod(
+  moduleObject,
+  constructorName,
+  propertyName,
+  sourceModuleName,
+  nativeRuntimeExpected = false
+) {
+  return captureTrustedModuleBrandCallable(
+    moduleObject,
+    constructorName,
+    propertyName,
+    "method",
+    sourceModuleName,
+    nativeRuntimeExpected
+  );
 }
 
 function hasOpaqueNestedSymbolState(
@@ -1621,103 +2080,103 @@ const trustedHostBrandGetters =
   objectFreeze(
     [
       abortControllerBrandGetter,
-      capturePrototypeGetter(
-        captureModuleConstructor(
-          nodeUtil,
-          "TextEncoder"
-        ),
-        "encoding"
+      captureTrustedModuleGetter(
+        nodeUtil,
+        "TextEncoder",
+        "encoding",
+        "internal/encoding",
+        false
       ),
-      capturePrototypeGetter(
-        captureModuleConstructor(
-          nodeUtil,
-          "TextDecoder"
-        ),
-        "encoding"
+      captureTrustedModuleGetter(
+        nodeUtil,
+        "TextDecoder",
+        "encoding",
+        "internal/encoding",
+        false
       ),
-      capturePrototypeGetter(
-        captureModuleConstructor(
-          nodeUrl,
-          "URL"
-        ),
-        "href"
+      captureTrustedModuleGetter(
+        nodeUrl,
+        "URL",
+        "href",
+        "internal/url",
+        false
       ),
-      capturePrototypeGetter(
-        captureModuleConstructor(
-          nodeUrl,
-          "URLPattern"
-        ),
-        "pathname"
+      captureTrustedModuleGetter(
+        nodeUrl,
+        "URLPattern",
+        "pathname",
+        null,
+        nodeMajorVersion >= 24
       ),
-      capturePrototypeGetter(
-        captureModuleConstructor(
-          nodeBuffer,
-          "File"
-        ),
-        "name"
+      captureTrustedModuleGetter(
+        nodeBuffer,
+        "File",
+        "name",
+        "internal/file",
+        false
       ),
-      capturePrototypeGetter(
-        captureModuleConstructor(
-          streamWeb,
-          "ReadableStream"
-        ),
-        "locked"
+      captureTrustedModuleGetter(
+        streamWeb,
+        "ReadableStream",
+        "locked",
+        "internal/webstreams/readablestream",
+        false
       ),
-      capturePrototypeGetter(
-        captureModuleConstructor(
-          streamWeb,
-          "WritableStream"
-        ),
-        "locked"
+      captureTrustedModuleGetter(
+        streamWeb,
+        "WritableStream",
+        "locked",
+        "internal/webstreams/writablestream",
+        false
       ),
-      capturePrototypeGetter(
-        captureModuleConstructor(
-          streamWeb,
-          "TransformStream"
-        ),
-        "readable"
+      captureTrustedModuleGetter(
+        streamWeb,
+        "TransformStream",
+        "readable",
+        "internal/webstreams/transformstream",
+        false
       ),
-      capturePrototypeGetter(
-        captureModuleConstructor(
-          streamWeb,
-          "TextEncoderStream"
-        ),
-        "readable"
+      captureTrustedModuleGetter(
+        streamWeb,
+        "TextEncoderStream",
+        "readable",
+        "internal/webstreams/encoding",
+        false
       ),
-      capturePrototypeGetter(
-        captureModuleConstructor(
-          streamWeb,
-          "TextDecoderStream"
-        ),
-        "readable"
+      captureTrustedModuleGetter(
+        streamWeb,
+        "TextDecoderStream",
+        "readable",
+        "internal/webstreams/encoding",
+        false
       ),
-      capturePrototypeGetter(
-        captureModuleConstructor(
-          streamWeb,
-          "CompressionStream"
-        ),
-        "readable"
+      captureTrustedModuleGetter(
+        streamWeb,
+        "CompressionStream",
+        "readable",
+        "internal/webstreams/compression",
+        false
       ),
-      capturePrototypeGetter(
-        captureModuleConstructor(
-          streamWeb,
-          "DecompressionStream"
-        ),
-        "readable"
+      captureTrustedModuleGetter(
+        streamWeb,
+        "DecompressionStream",
+        "readable",
+        "internal/webstreams/compression",
+        false
       ),
-      capturePrototypeGetter(
-        captureModuleConstructor(
-          streamWeb,
-          "CountQueuingStrategy"
-        ),
-        "highWaterMark"
+      captureTrustedModuleGetter(
+        streamWeb,
+        "CountQueuingStrategy",
+        "highWaterMark",
+        "internal/webstreams/queuingstrategies",
+        false
       ),
-      capturePrototypeGetter(
-        captureModuleConstructor(
-          streamWeb,
-          "ByteLengthQueuingStrategy"
-        ),
-        "highWaterMark"
+      captureTrustedModuleGetter(
+        streamWeb,
+        "ByteLengthQueuingStrategy",
+        "highWaterMark",
+        "internal/webstreams/queuingstrategies",
+        false
       ),
     ].filter(
       (getter) =>
@@ -1728,19 +2187,17 @@ const trustedHostBrandGetters =
 const trustedHostBrandMethods =
   objectFreeze(
     [
-      capturePrototypeMethod(
-        captureModuleConstructor(
-          nodeUrl,
-          "URLSearchParams"
-        ),
-        "toString"
+      captureTrustedModuleMethod(
+        nodeUrl,
+        "URLSearchParams",
+        "toString",
+        "internal/url"
       ),
-      capturePrototypeMethod(
-        captureModuleConstructor(
-          nodeBuffer,
-          "Blob"
-        ),
-        "slice"
+      captureTrustedModuleMethod(
+        nodeBuffer,
+        "Blob",
+        "slice",
+        "internal/blob"
       )
     ].filter(
       (method) =>
@@ -2259,7 +2716,8 @@ function hasUnsupportedAdditionalBrand(
 ) {
   if (
     !additionalHostBrandMethodAuthorityAvailable ||
-    !abortControllerBrandAuthorityAvailable
+    !abortControllerBrandAuthorityAvailable ||
+    !trustedModuleBrandAuthorityAvailable
   ) {
     throw hostBrandAuthorityError();
   }
