@@ -1,4 +1,4 @@
-name: M8 Node 24 Authority Diagnostic
+name: M8 Module Authority Remediation
 
 on:
   push:
@@ -6,95 +6,118 @@ on:
       - fix/m8-baseline-runtime-brands
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  diagnose-node24:
+  remediate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Apply candidate remediation
+      - name: Apply bounded module-authority remediation
         run: |
           python3 scripts/qa/m8-module-authority-fix.py
           python3 scripts/qa/m8-module-authority-global-fallback.py
           python3 scripts/qa/m8-node24-blob-authority-fix.py
           python3 scripts/qa/m8-module-authority-trim.py
-          git diff --check
 
-      - name: Instrument generated initialization order
+      - name: Diff hygiene before tests
+        run: git diff --check
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 14.21.3
+      - name: Node 14 compatibility and poisoned module probe
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          path = Path('src/ai-data-core.js')
-          text = path.read_text()
-          replacements = [
-              (
-                  'function hasTrustedUndiciBlobDependency() {\n',
-                  'function hasTrustedUndiciBlobDependency() {\n  process.stderr.write("TRACE blob-dependency-check\\n");\n'
-              ),
-              (
-                  'function resolveRequiredUndiciConstructor(\n  constructorName\n) {\n',
-                  'function resolveRequiredUndiciConstructor(\n  constructorName\n) {\n  process.stderr.write(`TRACE undici-resolver:${constructorName}\\n`);\n'
-              ),
-              (
-                  'function resolveTrustedAbortControllerConstructor() {\n',
-                  'function resolveTrustedAbortControllerConstructor() {\n  process.stderr.write("TRACE abort-controller-resolver\\n");\n'
-              ),
-          ]
-          for old, new in replacements:
-              if text.count(old) != 1:
-                  raise SystemExit(f'expected exactly one instrumentation seam: {old!r}')
-              text = text.replace(old, new, 1)
-          marker = '''  if (\n    !("get" in globalDescriptor) &&\n    !("set" in globalDescriptor)\n  ) {\n    return ('''
-          replacement = '''  if (\n    !("get" in globalDescriptor) &&\n    !("set" in globalDescriptor)\n  ) {\n    process.stderr.write(`TRACE undici-data-branch:${constructorName}\\n`);\n    return ('''
-          start = text.index('function resolveRequiredUndiciConstructor(')
-          end = text.index('\nfunction captureRequiredUndiciProbe(', start)
-          block = text[start:end]
-          if block.count(marker) != 1:
-              raise SystemExit('expected one Undici data-property branch')
-          block = block.replace(marker, replacement, 1)
-          text = text[:start] + block + text[end:]
-          path.write_text(text)
-          PY
-          git diff --check
+          node --check src/ai-data-core.js
+          node - <<'NODE'
+          const assert = require('assert').strict;
+          const nodeUrl = require('url');
+          const { Blob } = require('buffer');
+          const { cloneAiData } = require('./src/ai-data');
+          assert.deepStrictEqual(cloneAiData({ok:true,nested:{value:1}}), {ok:true,nested:{value:1}});
+          const p = new URLSearchParams('a=1'); p.foo='bar'; Object.setPrototypeOf(p,Object.prototype); assert.throws(()=>cloneAiData(p));
+          if (typeof Blob === 'function') { const b=new Blob(['x']); b.foo='bar'; Object.setPrototypeOf(b,Object.prototype); assert.throws(()=>cloneAiData(b)); }
+          NODE
+          node - <<'NODE'
+          const assert = require('assert').strict;
+          const nodeUrl = require('url');
+          const Original = nodeUrl.URL;
+          const saved = new Original('https://example.com/'); saved.foo='bar'; Object.setPrototypeOf(saved,Object.prototype);
+          let calls=0; function FakeURL(){}; Object.defineProperty(FakeURL.prototype,'href',{configurable:true,get(){calls+=1;throw new Error('poisoned')}});
+          nodeUrl.URL=FakeURL; global.structuredClone=undefined;
+          const {cloneAiData}=require('./src/ai-data'); assert.throws(()=>cloneAiData(saved)); assert.equal(calls,0);
+          NODE
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 16.20.2
+      - name: Node 16 compatibility and poisoned module probe
+        run: |
+          node --check src/ai-data-core.js
+          node - <<'NODE'
+          const assert = require('assert').strict;
+          const nodeUrl = require('node:url');
+          const Original = nodeUrl.URL;
+          const saved = new Original('https://example.com/'); saved.foo='bar'; Object.setPrototypeOf(saved,Object.prototype);
+          let calls=0; function FakeURL(){}; Object.defineProperty(FakeURL.prototype,'href',{configurable:true,get(){calls+=1;throw new Error('poisoned')}});
+          nodeUrl.URL=FakeURL; globalThis.structuredClone=undefined;
+          const {cloneAiData}=require('./src/ai-data'); assert.throws(()=>cloneAiData(saved)); assert.equal(calls,0);
+          NODE
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+      - name: Node 18 focused and full suite
+        run: |
+          npm ci
+          node --check src/ai-data-core.js
+          node --test test/m8-runtime-brand-authority.test.js
+          npm test
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.20.2
+      - name: Node 20 focused and full suite
+        run: |
+          npm ci
+          node --check src/ai-data-core.js
+          node --test test/m8-runtime-brand-authority.test.js
+          npm test
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Node 22 focused and full suite
+        run: |
+          npm ci
+          node --check src/ai-data-core.js
+          node --test test/m8-runtime-brand-authority.test.js
+          npm test
 
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Trace exact ambient Blob getter touch
+      - name: Node 24 focused and full suite
         run: |
-          node - <<'NODE' > node24-init-order.txt 2>&1
-          'use strict';
-          let calls = 0;
-          Object.defineProperty(globalThis, 'Blob', {
-            configurable: true,
-            enumerable: false,
-            get() {
-              calls += 1;
-              console.log(`BLOB_GETTER_TOUCH_${calls}`);
-              console.log(new Error('Blob getter touched here').stack);
-              throw new Error('poisoned global Blob getter executed');
-            }
-          });
-          globalThis.structuredClone = undefined;
-          try {
-            require('./src/ai-data');
-          } catch (error) {
-            console.log('REQUIRE_ERROR');
-            console.log(error && error.stack ? error.stack : error);
-          }
-          console.log(`TOTAL_BLOB_GETTER_TOUCHES=${calls}`);
-          NODE
+          npm ci
+          node --check src/ai-data-core.js
+          node --test test/m8-runtime-brand-authority.test.js
+          npm test
 
-      - name: Upload initialization evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: node24-init-order
-          path: node24-init-order.txt
-          if-no-files-found: error
+      - name: Final diff hygiene
+        run: git diff --check
+
+      - name: Commit proven remediation and remove harness
+        env:
+          BRANCH: fix/m8-baseline-runtime-brands
+        run: |
+          rm -f scripts/qa/m8-module-authority-fix.py scripts/qa/m8-module-authority-global-fallback.py scripts/qa/m8-node24-blob-authority-fix.py scripts/qa/m8-module-authority-trim.py .github/workflows/m8-module-authority-remediation.yml
+          git add -A
+          git diff --cached --check
+          git config user.name "AidaMichel"
+          git config user.email "126730924+AidaMichel@users.noreply.github.com"
+          git commit -m "fix: authenticate builtin module brand authority"
+          git push origin HEAD:"$BRANCH"
