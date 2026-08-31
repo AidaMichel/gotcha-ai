@@ -22,6 +22,16 @@ jobs:
           python3 scripts/qa/m8-module-authority-trim.py
           git diff --check
 
+      - name: Capture generated authority code
+        run: |
+          python3 - <<'PY' > generated-undici-resolver.txt
+          from pathlib import Path
+          text = Path('src/ai-data-core.js').read_text()
+          helper = text.index('function hasTrustedUndiciBlobDependency()')
+          end = text.index('\nfunction captureRequiredUndiciProbe(', helper)
+          print(text[helper:end])
+          PY
+
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -69,6 +79,7 @@ jobs:
         with:
           name: node24-authority-evidence
           path: |
+            generated-undici-resolver.txt
             node24-blob-touch-stack.txt
             node24-syntax.txt
             node24-focused.txt
