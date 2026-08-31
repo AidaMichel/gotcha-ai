@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  inspect-promise-brand:
+  inspect-util-types-alias:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -20,15 +20,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-      - name: Print Promise brand authority
+      - name: Compare util types exports
         run: |
           node - <<'NODE'
           const util = require('node:util');
-          const d = Object.getOwnPropertyDescriptor(util.types, 'isPromise');
+          const direct = require('node:util/types');
+          const original = util.types.isPromise;
           console.log('node=' + process.version);
-          console.log('source=' + Function.prototype.toString.call(util.types.isPromise));
-          console.log('prototypeLocal=' + (Object.getPrototypeOf(util.types.isPromise) === Function.prototype));
-          console.log('descriptor=' + JSON.stringify({writable:d?.writable, enumerable:d?.enumerable, configurable:d?.configurable, accessor:!!(d?.get||d?.set)}));
-          console.log('true=' + util.types.isPromise(true));
-          console.log('promise=' + util.types.isPromise(Promise.resolve()));
+          console.log('sameObject=' + (util.types === direct));
+          console.log('sameFunction=' + (util.types.isPromise === direct.isPromise));
+          util.types.isPromise = function poisoned() { throw new Error('poison'); };
+          console.log('mutationPropagates=' + (direct.isPromise === util.types.isPromise));
+          util.types.isPromise = original;
           NODE
