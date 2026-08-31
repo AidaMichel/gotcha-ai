@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  isolate-node22-concurrency:
+  stress-node22-focused-suite:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,41 +26,30 @@ jobs:
           cache: npm
       - run: npm ci
 
-      - name: half A - remediation provider mutation
-        continue-on-error: true
-        run: node --test test/m13-review-remediation.test.js test/provider-adapter-m13.test.js test/mutation-pack.test.js
+      - name: Default concurrency x20
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 20); do
+            echo "parallel iteration $i"
+            node --test \
+              test/m13-review-remediation.test.js \
+              test/provider-adapter-m13.test.js \
+              test/mutation-pack.test.js \
+              test/contract-protection-proposal.test.js \
+              test/contract-quality-loop.test.js \
+              test/package-contract-protection-proposal.test.js
+          done
 
-      - name: half B - proposal quality package
-        continue-on-error: true
-        run: node --test test/contract-protection-proposal.test.js test/contract-quality-loop.test.js test/package-contract-protection-proposal.test.js
-
-      - name: omit remediation
-        continue-on-error: true
-        run: node --test test/provider-adapter-m13.test.js test/mutation-pack.test.js test/contract-protection-proposal.test.js test/contract-quality-loop.test.js test/package-contract-protection-proposal.test.js
-
-      - name: omit provider
-        continue-on-error: true
-        run: node --test test/m13-review-remediation.test.js test/mutation-pack.test.js test/contract-protection-proposal.test.js test/contract-quality-loop.test.js test/package-contract-protection-proposal.test.js
-
-      - name: omit mutation
-        continue-on-error: true
-        run: node --test test/m13-review-remediation.test.js test/provider-adapter-m13.test.js test/contract-protection-proposal.test.js test/contract-quality-loop.test.js test/package-contract-protection-proposal.test.js
-
-      - name: omit proposal
-        continue-on-error: true
-        run: node --test test/m13-review-remediation.test.js test/provider-adapter-m13.test.js test/mutation-pack.test.js test/contract-quality-loop.test.js test/package-contract-protection-proposal.test.js
-
-      - name: omit quality
-        continue-on-error: true
-        run: node --test test/m13-review-remediation.test.js test/provider-adapter-m13.test.js test/mutation-pack.test.js test/contract-protection-proposal.test.js test/package-contract-protection-proposal.test.js
-
-      - name: omit package
-        continue-on-error: true
-        run: node --test test/m13-review-remediation.test.js test/provider-adapter-m13.test.js test/mutation-pack.test.js test/contract-protection-proposal.test.js test/contract-quality-loop.test.js
-
-      - name: all six control
-        continue-on-error: true
-        run: node --test test/m13-review-remediation.test.js test/provider-adapter-m13.test.js test/mutation-pack.test.js test/contract-protection-proposal.test.js test/contract-quality-loop.test.js test/package-contract-protection-proposal.test.js
-
-      - name: Diagnostic complete
-        run: echo "Use per-step conclusions to isolate concurrency interaction."
+      - name: Serial concurrency x20
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 20); do
+            echo "serial iteration $i"
+            node --test --test-concurrency=1 \
+              test/m13-review-remediation.test.js \
+              test/provider-adapter-m13.test.js \
+              test/mutation-pack.test.js \
+              test/contract-protection-proposal.test.js \
+              test/contract-quality-loop.test.js \
+              test/package-contract-protection-proposal.test.js
+          done
