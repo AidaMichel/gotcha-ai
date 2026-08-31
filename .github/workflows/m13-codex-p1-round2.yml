@@ -17,7 +17,9 @@ jobs:
           fetch-depth: 0
 
       - name: Apply remediation
-        run: python3 scripts/qa/m13-codex-p1-round2.py
+        run: |
+          python3 scripts/qa/m13-codex-p1-round2.py
+          python3 scripts/qa/m13-codex-p1-round2-followup.py
 
       - name: Diff hygiene
         run: |
@@ -87,8 +89,8 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          rm .github/workflows/m13-codex-p1-round2.yml scripts/qa/m13-codex-p1-round2.py
-          git add src/provider-adapter-m13.js src/contract-protection-proposal.js src/contract-quality-loop.js src/mutation-pack.js test/m13-review-remediation.test.js .github/workflows/m13-codex-p1-round2.yml scripts/qa/m13-codex-p1-round2.py
+          rm .github/workflows/m13-codex-p1-round2.yml scripts/qa/m13-codex-p1-round2.py scripts/qa/m13-codex-p1-round2-followup.py
+          git add src/provider-adapter-m13.js src/contract-protection-proposal.js src/contract-quality-loop.js src/mutation-pack.js test/m13-review-remediation.test.js test/contract-protection-proposal.test.js test/provider-adapter-m13.test.js .github/workflows/m13-codex-p1-round2.yml scripts/qa/m13-codex-p1-round2.py scripts/qa/m13-codex-p1-round2-followup.py
           git diff --cached --check
           git commit -m "fix: harden M13 Promise authority and rejection handling"
           git push origin HEAD:milestone-13-runtime-slice-a
