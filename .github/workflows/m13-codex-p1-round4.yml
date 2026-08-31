@@ -1,4 +1,4 @@
-name: M13 Codex P1 round 4
+name: M13 Codex P1 round 4 final
 
 on:
   push:
@@ -21,6 +21,7 @@ jobs:
           python3 scripts/qa/m13-codex-p1-round4.py
           python3 scripts/qa/m13-codex-p1-round4-followup.py
           python3 scripts/qa/m13-codex-p1-round4-core-followup.py
+          python3 scripts/qa/m13-node22-authority-fix.py
 
       - name: Diff hygiene
         run: |
@@ -72,10 +73,14 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Node 22 focused and full
+      - name: Node 22 focused full and stress
         run: |
           node --test test/m13-review-remediation.test.js test/provider-adapter-m13.test.js test/mutation-pack.test.js test/contract-protection-proposal.test.js test/contract-quality-loop.test.js test/package-contract-protection-proposal.test.js
           npm test
+          for i in 1 2 3 4 5; do
+            echo "Node 22 focused stress $i"
+            node --test test/m13-review-remediation.test.js test/provider-adapter-m13.test.js test/mutation-pack.test.js test/contract-protection-proposal.test.js test/contract-quality-loop.test.js test/package-contract-protection-proposal.test.js
+          done
 
       - uses: actions/setup-node@v4
         with:
@@ -87,12 +92,18 @@ jobs:
           node --test test/m13-review-remediation.test.js test/provider-adapter-m13.test.js test/mutation-pack.test.js test/contract-protection-proposal.test.js test/contract-quality-loop.test.js test/package-contract-protection-proposal.test.js
           npm test
 
-      - name: Commit proven remediation and remove harness
+      - name: Commit proven remediation and remove all harnesses
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          rm .github/workflows/m13-codex-p1-round4.yml scripts/qa/m13-codex-p1-round4.py scripts/qa/m13-codex-p1-round4-followup.py scripts/qa/m13-codex-p1-round4-core-followup.py
-          git add src/contract-attacks-core.js src/contract-protection-proposal.js src/provider-adapter-m13.js src/contract-quality-loop.js src/mutation-pack.js test/m13-review-remediation.test.js test/provider-adapter-m13.test.js test/mutation-pack.test.js .github/workflows/m13-codex-p1-round4.yml scripts/qa/m13-codex-p1-round4.py scripts/qa/m13-codex-p1-round4-followup.py scripts/qa/m13-codex-p1-round4-core-followup.py
+          rm .github/workflows/m13-codex-p1-round4.yml
+          rm .github/workflows/m13-node22-diagnostic.yml
+          rm scripts/qa/m13-codex-p1-round4.py
+          rm scripts/qa/m13-codex-p1-round4-followup.py
+          rm scripts/qa/m13-codex-p1-round4-core-followup.py
+          rm scripts/qa/m13-node22-authority-fix.py
+          git add -A
           git diff --cached --check
-          git commit -m "fix: close M13 local authority and rejection gaps"
+          git status --short
+          git commit -m "fix: close M13 authority gaps across supported Node runtimes"
           git push origin HEAD:milestone-13-runtime-slice-a
