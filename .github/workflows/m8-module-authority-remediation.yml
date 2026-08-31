@@ -1,4 +1,4 @@
-name: M8 Module Authority Remediation
+name: M8 Node 24 Authority Diagnostic
 
 on:
   push:
@@ -6,102 +6,31 @@ on:
       - fix/m8-baseline-runtime-brands
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  remediate:
+  diagnose-node24:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Apply bounded module-authority remediation
+      - name: Apply candidate remediation
         run: |
           python3 scripts/qa/m8-module-authority-fix.py
           python3 scripts/qa/m8-module-authority-global-fallback.py
           python3 scripts/qa/m8-module-authority-trim.py
-
-      - name: Diff hygiene before tests
-        run: git diff --check
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 14.21.3
-      - name: Node 14 compatibility and poisoned module probe
-        run: |
-          node --check src/ai-data-core.js
-          node - <<'NODE'
-          const assert = require('assert').strict;
-          const nodeUrl = require('url');
-          const { Blob } = require('buffer');
-          const { cloneAiData } = require('./src/ai-data');
-          assert.deepStrictEqual(cloneAiData({ok:true,nested:{value:1}}), {ok:true,nested:{value:1}});
-          const p = new URLSearchParams('a=1'); p.foo='bar'; Object.setPrototypeOf(p,Object.prototype); assert.throws(()=>cloneAiData(p));
-          if (typeof Blob === 'function') { const b=new Blob(['x']); b.foo='bar'; Object.setPrototypeOf(b,Object.prototype); assert.throws(()=>cloneAiData(b)); }
-          NODE
-          node - <<'NODE'
-          const assert = require('assert').strict;
-          const nodeUrl = require('url');
-          const Original = nodeUrl.URL;
-          const saved = new Original('https://example.com/'); saved.foo='bar'; Object.setPrototypeOf(saved,Object.prototype);
-          let calls=0; function FakeURL(){}; Object.defineProperty(FakeURL.prototype,'href',{configurable:true,get(){calls+=1;throw new Error('poisoned')}});
-          nodeUrl.URL=FakeURL; global.structuredClone=undefined;
-          const {cloneAiData}=require('./src/ai-data'); assert.throws(()=>cloneAiData(saved)); assert.equal(calls,0);
-          NODE
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 16.20.2
-      - name: Node 16 compatibility and poisoned module probe
-        run: |
-          node --check src/ai-data-core.js
-          node - <<'NODE'
-          const assert = require('assert').strict;
-          const nodeUrl = require('node:url');
-          const Original = nodeUrl.URL;
-          const saved = new Original('https://example.com/'); saved.foo='bar'; Object.setPrototypeOf(saved,Object.prototype);
-          let calls=0; function FakeURL(){}; Object.defineProperty(FakeURL.prototype,'href',{configurable:true,get(){calls+=1;throw new Error('poisoned')}});
-          nodeUrl.URL=FakeURL; globalThis.structuredClone=undefined;
-          const {cloneAiData}=require('./src/ai-data'); assert.throws(()=>cloneAiData(saved)); assert.equal(calls,0);
-          NODE
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 18
-      - name: Node 18 focused and full suite
-        run: |
-          npm ci
-          node --check src/ai-data-core.js
-          node --test test/m8-runtime-brand-authority.test.js
-          npm test
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20.20.2
-      - name: Node 20 focused and full suite
-        run: |
-          npm ci
-          node --check src/ai-data-core.js
-          node --test test/m8-runtime-brand-authority.test.js
-          npm test
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Node 22 focused and full suite
-        run: |
-          npm ci
-          node --check src/ai-data-core.js
-          node --test test/m8-runtime-brand-authority.test.js
-          npm test
+          git diff --check
 
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Node 24 authority diagnostics
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Capture Node 24 runtime authority facts
         run: |
-          node - <<'NODE'
+          node - <<'NODE' > node24-runtime-diagnostic.txt
           'use strict';
           const nodeUrl = require('node:url');
           const nodeBuffer = require('node:buffer');
@@ -109,10 +38,10 @@ jobs:
           const own = (o, k) => Object.getOwnPropertyDescriptor(o, k);
           const fnInfo = (fn) => typeof fn === 'function' ? {
             name: fn.name,
-            source: Function.prototype.toString.call(fn).slice(0, 180),
+            source: Function.prototype.toString.call(fn),
             hasInstance: own(fn, Symbol.hasInstance) || null
           } : { type: typeof fn };
-          const report = {
+          console.log(JSON.stringify({
             node: process.version,
             identities: {
               URL: globalThis.URL === nodeUrl.URL,
@@ -130,28 +59,29 @@ jobs:
               MessageChannel: fnInfo(globalThis.MessageChannel)
             },
             processBinding: fnInfo(process.binding)
-          };
-          console.log('NODE24_AUTHORITY_DIAGNOSTIC=' + JSON.stringify(report, null, 2));
+          }, null, 2));
           NODE
-      - name: Node 24 focused authority suite with names
-        run: |
-          npm ci
-          node --check src/ai-data-core.js
-          node --test --test-reporter=spec test/m8-runtime-brand-authority.test.js
-      - name: Node 24 full suite
-        run: npm test
 
-      - name: Final diff hygiene
-        run: git diff --check
-
-      - name: Commit proven remediation and remove harness
-        env:
-          BRANCH: fix/m8-baseline-runtime-brands
+      - name: Run focused suite and capture exact failure
+        id: focused
+        continue-on-error: true
+        shell: bash
         run: |
-          rm -f scripts/qa/m8-module-authority-fix.py scripts/qa/m8-module-authority-global-fallback.py scripts/qa/m8-module-authority-trim.py .github/workflows/m8-module-authority-remediation.yml
-          git add -A
-          git diff --cached --check
-          git config user.name "AidaMichel"
-          git config user.email "126730924+AidaMichel@users.noreply.github.com"
-          git commit -m "fix: authenticate builtin module brand authority"
-          git push origin HEAD:"$BRANCH"
+          set -o pipefail
+          node --check src/ai-data-core.js 2>&1 | tee node24-syntax.txt
+          node --test --test-reporter=spec test/m8-runtime-brand-authority.test.js 2>&1 | tee node24-focused.txt
+
+      - name: Upload Node 24 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: node24-authority-evidence
+          path: |
+            node24-runtime-diagnostic.txt
+            node24-syntax.txt
+            node24-focused.txt
+          if-no-files-found: error
+
+      - name: Preserve failure gate
+        if: steps.focused.outcome != 'success'
+        run: exit 1
