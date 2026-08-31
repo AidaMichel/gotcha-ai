@@ -19,7 +19,6 @@ const {
   ObjectPrototypeParent: objectPrototypeParent,
   PromiseConstructor,
   PromisePrototype: promisePrototype,
-  TypeErrorConstructor,
   getOwnPropertyDescriptors,
   getOwnPropertyDescriptor,
   getPrototypeOf,
@@ -65,7 +64,6 @@ const requiredFunctions = [
   jsonStringify,
   jsonParse,
   PromiseConstructor,
-  TypeErrorConstructor,
   getOwnPropertyDescriptors,
   getOwnPropertyDescriptor,
   getPrototypeOf,
@@ -195,7 +193,12 @@ if (!promiseAuthorityVerified || typeof promiseSpecies !== "symbol") {
 }
 
 function boundaryError() {
-  return new TypeErrorConstructor("Invalid M13 protection-proposal boundary.");
+  try {
+    null.m13Boundary;
+  } catch (error) {
+    return error;
+  }
+  return null;
 }
 
 let safePromiseSpeciesContainer = null;

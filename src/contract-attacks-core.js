@@ -438,17 +438,21 @@ const promisePrototypeConstructorDescriptor =
   );
 
 const promiseSpeciesDescriptor =
-  getOwnPropertyDescriptor(
-    promiseConstructor,
-    promiseSpecies
-  );
+  promiseConstructor !== null
+    ? getOwnPropertyDescriptor(
+        promiseConstructor,
+        promiseSpecies
+      )
+    : undefined;
 
 const promiseConstructorSource =
-  reflectApply(
-    functionToString,
-    promiseConstructor,
-    []
-  );
+  promiseConstructor !== null
+    ? reflectApply(
+        functionToString,
+        promiseConstructor,
+        []
+      )
+    : null;
 
 const promiseSpeciesGetterSource =
   promiseSpeciesDescriptor !== undefined &&

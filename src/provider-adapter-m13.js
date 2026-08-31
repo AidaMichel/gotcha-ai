@@ -159,6 +159,19 @@ try {
   promiseAuthorityAvailable = false;
 }
 
+let createLegacyStructuredProviderAdapter = null;
+if (promiseAuthorityAvailable) {
+  const legacyAdapter = require("./provider-adapter");
+  if (
+    legacyAdapter !== null &&
+    typeof legacyAdapter === "object" &&
+    typeof legacyAdapter.createStructuredProviderAdapter === "function"
+  ) {
+    createLegacyStructuredProviderAdapter =
+      legacyAdapter.createStructuredProviderAdapter;
+  }
+}
+
 let safePromiseConstructor = null;
 if (promiseAuthorityAvailable) {
   try {
@@ -639,9 +652,9 @@ function createStructuredProviderAdapter(options) {
     true
   );
   if (descriptors.mode.value !== "contract-protection") {
-    const {
-      createStructuredProviderAdapter: createLegacyStructuredProviderAdapter
-    } = require("./provider-adapter");
+    if (typeof createLegacyStructuredProviderAdapter !== "function") {
+      throw boundaryError("legacy provider adapter authority is unavailable.");
+    }
     return createLegacyStructuredProviderAdapter(options);
   }
   return createContractProtectionAdapter(options, descriptors);

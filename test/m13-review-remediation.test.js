@@ -282,3 +282,139 @@ test("contract-protection adapter rejects pre-load Promise constructor poisoning
   });
   assert.equal(run.status, 0, run.stderr);
 });
+
+
+test("poisoned Promise prototype constructor keeps package loadable and M13 fails closed", () => {
+  const modulePath = path.join(repoRoot, "src", "index.js");
+  const code = `
+    "use strict";
+    const NativePromise = Promise;
+    const nativeDescriptor = Object.getOwnPropertyDescriptor(
+      NativePromise.prototype,
+      "constructor"
+    );
+    Object.defineProperty(NativePromise.prototype, "constructor", {
+      value: null,
+      writable: true,
+      enumerable: false,
+      configurable: true
+    });
+    let api;
+    try {
+      api = require(${JSON.stringify(modulePath)});
+    } catch (error) {
+      console.error(error);
+      process.exit(7);
+    }
+    Object.defineProperty(
+      NativePromise.prototype,
+      "constructor",
+      nativeDescriptor
+    );
+    let generatorCalls = 0;
+    const returned = api.generateContractProtectionProposal({
+      experiment: null,
+      sourceAttackId: "wrong-time",
+      generator() {
+        generatorCalls += 1;
+        return {};
+      }
+    });
+    if (!(returned instanceof NativePromise)) process.exitCode = 2;
+    returned.then(
+      () => { process.exitCode = 3; },
+      (error) => {
+        if (!(error instanceof TypeError)) process.exitCode = 4;
+        if (generatorCalls !== 0) process.exitCode = 5;
+      }
+    );
+  `;
+  const run = spawnSync(process.execPath, ["-e", code], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  assert.equal(run.status, 0, run.stderr);
+});
+
+test("legacy adapter Promise authority is captured at package initialization", () => {
+  const modulePath = path.join(repoRoot, "src", "index.js");
+  const code = `
+    "use strict";
+    const NativePromise = Promise;
+    const api = require(${JSON.stringify(modulePath)});
+    let poisonedConstructorCalls = 0;
+    function PoisonPromise(executor) {
+      poisonedConstructorCalls += 1;
+      return new NativePromise(executor);
+    }
+    PoisonPromise.prototype = NativePromise.prototype;
+    global.Promise = PoisonPromise;
+    const generator = api.createStructuredProviderAdapter({
+      transport() {
+        return {
+          version: 1,
+          kind: "gotcha-provider-response",
+          output: {
+            version: 1,
+            task: "x",
+            rules: []
+          }
+        };
+      },
+      model: "test-model",
+      mode: "quality-contract"
+    });
+    const returned = generator({ task: "x", examples: [], instructions: "x" });
+    global.Promise = NativePromise;
+    if (!(returned instanceof NativePromise)) process.exitCode = 2;
+    returned.then(
+      () => {
+        if (poisonedConstructorCalls !== 0) process.exitCode = 3;
+      },
+      () => {
+        if (poisonedConstructorCalls !== 0) process.exitCode = 4;
+      }
+    );
+  `;
+  const run = spawnSync(process.execPath, ["-e", code], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  assert.equal(run.status, 0, run.stderr);
+});
+
+test("poisoned global TypeError is never used for M13 boundary failures", () => {
+  const modulePath = path.join(repoRoot, "src", "index.js");
+  const code = `
+    "use strict";
+    const NativePromise = Promise;
+    const NativeTypeError = TypeError;
+    let poisonedTypeErrorCalls = 0;
+    global.TypeError = function PoisonTypeError() {
+      poisonedTypeErrorCalls += 1;
+      return new Error("poisoned TypeError executed");
+    };
+    let api;
+    try {
+      api = require(${JSON.stringify(modulePath)});
+    } catch (error) {
+      console.error(error);
+      process.exit(7);
+    }
+    global.TypeError = NativeTypeError;
+    const returned = api.generateContractProtectionProposal({});
+    if (!(returned instanceof NativePromise)) process.exitCode = 2;
+    returned.then(
+      () => { process.exitCode = 3; },
+      (error) => {
+        if (!(error instanceof NativeTypeError)) process.exitCode = 4;
+        if (poisonedTypeErrorCalls !== 0) process.exitCode = 5;
+      }
+    );
+  `;
+  const run = spawnSync(process.execPath, ["-e", code], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  assert.equal(run.status, 0, run.stderr);
+});
