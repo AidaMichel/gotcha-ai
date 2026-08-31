@@ -1151,6 +1151,12 @@ function compileMutationPack(
         )
     );
 
+  if (typeof promiseThen !== "function") {
+    throw new Error(
+      "Mutation Pack Promise observation authority is unavailable."
+    );
+  }
+
   return validatedMutations.map(
     (mutation) => {
       const mutationInput =

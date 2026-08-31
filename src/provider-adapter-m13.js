@@ -167,8 +167,42 @@ try {
   promiseAuthorityAvailable = false;
 }
 
+let legacyTypeErrorAuthorityAvailable = false;
+try {
+  let localTypeErrorPrototype = null;
+  try {
+    null.m13LegacyTypeErrorProbe;
+  } catch (error) {
+    localTypeErrorPrototype = getPrototypeOf(error);
+  }
+  const ambientTypeErrorDescriptor =
+    getOwnPropertyDescriptor(globalThis, "TypeError");
+  const ambientTypeErrorCandidate =
+    ambientTypeErrorDescriptor !== undefined &&
+    !("get" in ambientTypeErrorDescriptor) &&
+    !("set" in ambientTypeErrorDescriptor)
+      ? ambientTypeErrorDescriptor.value
+      : null;
+  const ambientTypeErrorPrototypeDescriptor =
+    typeof ambientTypeErrorCandidate === "function" &&
+    !isProxy(ambientTypeErrorCandidate)
+      ? getOwnPropertyDescriptor(ambientTypeErrorCandidate, "prototype")
+      : undefined;
+  legacyTypeErrorAuthorityAvailable = (
+    localTypeErrorPrototype !== null &&
+    typeof ambientTypeErrorCandidate === "function" &&
+    !isProxy(ambientTypeErrorCandidate) &&
+    ambientTypeErrorPrototypeDescriptor !== undefined &&
+    !("get" in ambientTypeErrorPrototypeDescriptor) &&
+    !("set" in ambientTypeErrorPrototypeDescriptor) &&
+    ambientTypeErrorPrototypeDescriptor.value === localTypeErrorPrototype
+  );
+} catch {
+  legacyTypeErrorAuthorityAvailable = false;
+}
+
 let createLegacyStructuredProviderAdapter = null;
-if (promiseAuthorityAvailable) {
+if (promiseAuthorityAvailable && legacyTypeErrorAuthorityAvailable) {
   const legacyAdapter = require("./provider-adapter");
   if (
     legacyAdapter !== null &&
@@ -540,6 +574,43 @@ function prototypeConstructorIsTrusted(promise) {
   );
 }
 
+function consumeRejectedRecognizedPromise(promise) {
+  const constructorDescriptor = getOwnPropertyDescriptor(promise, "constructor");
+  if (
+    constructorDescriptor !== undefined &&
+    constructorDescriptor.configurable !== true
+  ) {
+    if (!constructorDescriptorIsTrusted(constructorDescriptor)) return false;
+    reflectApply(trustedPromiseThen, promise, [undefined, () => {}]);
+    return true;
+  }
+  if (constructorDescriptor === undefined && isExtensible(promise) !== true) {
+    return false;
+  }
+  defineProperty(promise, "constructor", {
+    value: safePromiseConstructor,
+    writable: true,
+    enumerable: false,
+    configurable: true
+  });
+  let consumed = false;
+  try {
+    reflectApply(trustedPromiseThen, promise, [undefined, () => {}]);
+    consumed = true;
+  } finally {
+    if (constructorDescriptor === undefined) {
+      if (deleteProperty(promise, "constructor") !== true) consumed = false;
+    } else {
+      try {
+        defineProperty(promise, "constructor", constructorDescriptor);
+      } catch {
+        consumed = false;
+      }
+    }
+  }
+  return consumed;
+}
+
 function observeAcceptedPromise(promise, onFulfilled, onRejected) {
   const constructorDescriptor = getOwnPropertyDescriptor(promise, "constructor");
   if (
@@ -678,6 +749,7 @@ function createContractProtectionAdapter(options, descriptors) {
       ) {
         try {
           if (getPrototypeOf(transportResult) !== trustedPromisePrototype) {
+            consumeRejectedRecognizedPromise(transportResult);
             throw boundaryError("transport Promise has an unsupported current prototype.");
           }
           observeAcceptedPromise(transportResult, settleResponse, reject);

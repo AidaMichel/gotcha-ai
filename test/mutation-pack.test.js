@@ -1524,3 +1524,35 @@ test(
     );
   }
 );
+
+
+test("missing Promise observation authority fails before mutation callbacks execute", () => {
+  const modulePath = require.resolve("../src/mutation-pack");
+  const code = `
+    "use strict";
+    const NativePromise = Promise;
+    const descriptor = Object.getOwnPropertyDescriptor(NativePromise.prototype, "then");
+    Object.defineProperty(NativePromise.prototype, "then", {
+      value: null, writable: true, enumerable: false, configurable: true
+    });
+    const { compileMutationPack } = require(${JSON.stringify(require.resolve("../src/mutation-pack"))});
+    Object.defineProperty(NativePromise.prototype, "then", descriptor);
+    let calls = 0;
+    try {
+      compileMutationPack({
+        output: { ok: true },
+        pack: [{
+          id: "x", type: "x", description: "x",
+          mutate(value) { calls += 1; return value; },
+          scores: { severity: 1, realism: 1, subtlety: 1, novelty: 1, fixability: 1 },
+          protection: { description: "x", check() { calls += 1; return true; } }
+        }]
+      });
+      process.exit(12);
+    } catch {}
+    if (calls !== 0) process.exit(13);
+  `;
+  const { spawnSync } = require("node:child_process");
+  const result = spawnSync(process.execPath, ["-e", code], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});

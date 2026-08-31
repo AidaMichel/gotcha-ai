@@ -492,3 +492,89 @@ test("M12 rejects pre-load Promise constructor Proxy authority without executing
   const run = spawnSync(process.execPath, ["-e", code], { cwd: repoRoot, encoding: "utf8" });
   assert.equal(run.status, 0, run.stderr);
 });
+
+
+test("round3 rejects accessor-backed core Promise authority without invoking the getter", () => {
+  const modulePath = path.join(repoRoot, "src", "index.js");
+  const code = `
+    "use strict";
+    const original = Object.getOwnPropertyDescriptor(globalThis, "Promise");
+    let getterCalls = 0;
+    Object.defineProperty(globalThis, "Promise", {
+      get() { getterCalls += 1; return original.value; },
+      configurable: true
+    });
+    try { require(${JSON.stringify(modulePath)}); } catch (error) {
+      console.error(error); process.exit(7);
+    }
+    Object.defineProperty(globalThis, "Promise", original);
+    if (getterCalls !== 0) process.exit(8);
+  `;
+  const result = spawnSync(process.execPath, ["-e", code], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
+test("round3 M12 rejects foreign-realm Promise constructor authority", () => {
+  const modulePath = path.join(repoRoot, "src", "index.js");
+  const code = `
+    "use strict";
+    const vm = require("node:vm");
+    const NativePromise = Promise;
+    const descriptor = Object.getOwnPropertyDescriptor(NativePromise.prototype, "constructor");
+    const ForeignPromise = vm.runInNewContext("Promise");
+    Object.defineProperty(NativePromise.prototype, "constructor", {
+      value: ForeignPromise, writable: true, enumerable: false, configurable: true
+    });
+    const api = require(${JSON.stringify(modulePath)});
+    Object.defineProperty(NativePromise.prototype, "constructor", descriptor);
+    const returned = api.prepareContractQualityLoop(null);
+    if (Object.getPrototypeOf(returned) !== NativePromise.prototype) process.exit(9);
+    returned.catch((error) => {
+      if (!(error instanceof TypeError)) process.exit(10);
+    });
+  `;
+  const result = spawnSync(process.execPath, ["-e", code], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
+test("round3 proposal consumes rejected changed-prototype native Promise", async () => {
+  const { generateContractProtectionProposal } = require("../src");
+  const reason = { code: "changed-prototype-generator-rejection" };
+  const promise = Promise.reject(reason);
+  Object.setPrototypeOf(promise, {});
+  let unhandled = null;
+  const listener = (value) => { unhandled = value; };
+  process.once("unhandledRejection", listener);
+  await assert.rejects(
+    generateContractProtectionProposal({
+      experiment: await makeExperiment(),
+      sourceAttackId: "wrong-time",
+      generator() { return promise; }
+    }),
+    TypeError
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  process.removeListener("unhandledRejection", listener);
+  assert.equal(unhandled, null);
+});
+
+test("round3 legacy adapter does not retain poisoned pre-load TypeError authority", () => {
+  const modulePath = path.join(repoRoot, "src", "index.js");
+  const code = `
+    "use strict";
+    const NativeTypeError = TypeError;
+    const original = Object.getOwnPropertyDescriptor(globalThis, "TypeError");
+    let poisonCalls = 0;
+    function PoisonedTypeError() { poisonCalls += 1; return new Error("poison"); }
+    PoisonedTypeError.prototype = NativeTypeError.prototype;
+    Object.defineProperty(globalThis, "TypeError", {
+      value: PoisonedTypeError, writable: true, enumerable: false, configurable: true
+    });
+    const api = require(${JSON.stringify(modulePath)});
+    Object.defineProperty(globalThis, "TypeError", original);
+    try { api.createStructuredProviderAdapter({ mode: "quality-contract" }); } catch {}
+    if (poisonCalls !== 0) process.exit(11);
+  `;
+  const result = spawnSync(process.execPath, ["-e", code], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});

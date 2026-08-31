@@ -51,9 +51,27 @@ try {
     !("set" in PromiseThenDescriptor)
       ? PromiseThenDescriptor.value
       : null;
+  const ambientPromiseDescriptor =
+    getOwnPropertyDescriptor(globalThis, "Promise");
+  const ambientPromiseCandidate =
+    ambientPromiseDescriptor !== undefined &&
+    !("get" in ambientPromiseDescriptor) &&
+    !("set" in ambientPromiseDescriptor)
+      ? ambientPromiseDescriptor.value
+      : null;
+  const ambientPrototypeDescriptor =
+    typeof ambientPromiseCandidate === "function" &&
+    isProxy(ambientPromiseCandidate) !== true
+      ? getOwnPropertyDescriptor(ambientPromiseCandidate, "prototype")
+      : undefined;
   if (
     typeof constructorCandidate === "function" &&
     isProxy(constructorCandidate) !== true &&
+    constructorCandidate === ambientPromiseCandidate &&
+    ambientPrototypeDescriptor !== undefined &&
+    !("get" in ambientPrototypeDescriptor) &&
+    !("set" in ambientPrototypeDescriptor) &&
+    ambientPrototypeDescriptor.value === PromisePrototype &&
     reflectApply(functionToString, constructorCandidate, []) === pristinePromiseConstructorSource &&
     typeof thenCandidate === "function" &&
     isProxy(thenCandidate) !== true &&

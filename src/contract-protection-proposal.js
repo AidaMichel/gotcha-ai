@@ -1049,12 +1049,56 @@ function trustedPromiseConstructorDescriptor(descriptor) {
   );
 }
 
+function consumeRejectedRecognizedPromise(promise) {
+  const previousConstructor = getOwnPropertyDescriptor(promise, "constructor");
+  if (
+    previousConstructor !== undefined &&
+    previousConstructor.configurable !== true
+  ) {
+    if (!trustedPromiseConstructorDescriptor(previousConstructor)) return false;
+    reflectApply(promiseThen, promise, [undefined, () => {}]);
+    return true;
+  }
+  if (
+    previousConstructor === undefined &&
+    isExtensible(promise) !== true
+  ) {
+    return false;
+  }
+  defineProperty(promise, "constructor", {
+    value: safePromiseSpeciesContainer,
+    writable: true,
+    enumerable: false,
+    configurable: true
+  });
+  let consumed = false;
+  try {
+    reflectApply(promiseThen, promise, [undefined, () => {}]);
+    consumed = true;
+  } finally {
+    if (previousConstructor === undefined) {
+      if (deleteProperty(promise, "constructor") !== true) consumed = false;
+    } else {
+      try {
+        defineProperty(promise, "constructor", previousConstructor);
+      } catch {
+        consumed = false;
+      }
+    }
+  }
+  return consumed;
+}
+
 function observeAcceptedPromise(promise, onFulfilled, onRejected) {
   if (
     isProxy(promise) === true ||
-    !isPromiseBrand(promise) ||
-    getPrototypeOf(promise) !== promisePrototype
+    !isPromiseBrand(promise)
   ) throw boundaryError();
+
+  if (getPrototypeOf(promise) !== promisePrototype) {
+    consumeRejectedRecognizedPromise(promise);
+    throw boundaryError();
+  }
 
   const previousConstructor = getOwnPropertyDescriptor(promise, "constructor");
   if (

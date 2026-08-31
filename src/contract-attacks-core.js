@@ -52,7 +52,14 @@ let capturedAmbientPromiseConstructor = null;
 let capturedAmbientPromisePrototype = null;
 let capturedAmbientPromiseThen = null;
 try {
-  const ambientPromiseCandidate = globalThis.Promise;
+  const ambientPromiseDescriptor =
+    promiseCaptureGetOwnPropertyDescriptor(globalThis, "Promise");
+  const ambientPromiseCandidate =
+    ambientPromiseDescriptor !== undefined &&
+    !("get" in ambientPromiseDescriptor) &&
+    !("set" in ambientPromiseDescriptor)
+      ? ambientPromiseDescriptor.value
+      : null;
   if (
     typeof ambientPromiseCandidate === "function" &&
     promiseCaptureIsProxy(ambientPromiseCandidate) !== true

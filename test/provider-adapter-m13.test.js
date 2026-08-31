@@ -182,3 +182,34 @@ test("contract-protection adapter consumes rejected non-extensible trusted Promi
     (error) => error === reason
   );
 });
+
+
+test("contract-protection adapter consumes rejected changed-prototype trusted Promises", async () => {
+  const reason = { code: "changed-prototype-transport-rejection" };
+  const generator = createStructuredProviderAdapter({
+    model: "fake-model",
+    mode: "contract-protection",
+    transport() {
+      const promise = Promise.reject(reason);
+      Object.setPrototypeOf(promise, {});
+      return promise;
+    }
+  });
+  let unhandled = null;
+  const listener = (value) => { unhandled = value; };
+  process.once("unhandledRejection", listener);
+  await assert.rejects(
+    generator({
+      task: "Return the approved time.",
+      case: { input: {}, expectedOutput: {} },
+      source: { attackId: "wrong-time", ruleId: "time-rule" },
+      rule: { id: "time-rule", statement: "x", kind: "required", severity: "major" },
+      attack: { id: "wrong-time", ruleId: "time-rule", type: "x", description: "x", rationale: "x", output: {} },
+      instructions: INSTRUCTIONS
+    }),
+    TypeError
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  process.removeListener("unhandledRejection", listener);
+  assert.equal(unhandled, null);
+});
