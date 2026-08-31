@@ -1,0 +1,343 @@
+name: M13 final P1 remediation
+
+on:
+  push:
+    branches:
+      - milestone-13-runtime-slice-a
+
+permissions:
+  contents: write
+
+jobs:
+  remediate-and-prove:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply bounded P1 remediation
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          core = Path('src/contract-attacks-core.js')
+          text = core.read_text()
+          old = '''const promiseSpeciesDescriptor =
+  getOwnPropertyDescriptor(
+    promiseConstructor,
+    promiseSpecies
+  );
+
+const promiseConstructorSource =
+  reflectApply(
+    functionToString,
+    promiseConstructor,
+    []
+  );
+'''
+          new = '''const promiseSpeciesDescriptor =
+  promiseConstructor !== null
+    ? getOwnPropertyDescriptor(
+        promiseConstructor,
+        promiseSpecies
+      )
+    : undefined;
+
+const promiseConstructorSource =
+  promiseConstructor !== null
+    ? reflectApply(
+        functionToString,
+        promiseConstructor,
+        []
+      )
+    : null;
+'''
+          if old not in text:
+              raise SystemExit('contract-attacks-core Promise authority target not found')
+          text = text.replace(old, new, 1)
+          core.write_text(text)
+
+          adapter = Path('src/provider-adapter-m13.js')
+          text = adapter.read_text()
+          anchor = '''const {
+  isUnsupportedRuntimeObject
+} = require("./ai-data-core");
+'''
+          eager = '''const {
+  isUnsupportedRuntimeObject
+} = require("./ai-data-core");
+const {
+  createStructuredProviderAdapter: createLegacyStructuredProviderAdapter
+} = require("./provider-adapter");
+'''
+          if anchor not in text:
+              raise SystemExit('provider-adapter-m13 eager authority anchor not found')
+          text = text.replace(anchor, eager, 1)
+          old = '''  if (descriptors.mode.value !== "contract-protection") {
+    const {
+      createStructuredProviderAdapter: createLegacyStructuredProviderAdapter
+    } = require("./provider-adapter");
+    return createLegacyStructuredProviderAdapter(options);
+  }
+'''
+          new = '''  if (descriptors.mode.value !== "contract-protection") {
+    return createLegacyStructuredProviderAdapter(options);
+  }
+'''
+          if old not in text:
+              raise SystemExit('provider-adapter-m13 lazy require target not found')
+          text = text.replace(old, new, 1)
+          adapter.write_text(text)
+
+          proposal = Path('src/contract-protection-proposal.js')
+          text = proposal.read_text()
+          occurrences = text.count('  TypeErrorConstructor,\n')
+          if occurrences != 2:
+              raise SystemExit(f'unexpected TypeErrorConstructor authority occurrences: {occurrences}')
+          text = text.replace('  TypeErrorConstructor,\n', '')
+          old = '''function boundaryError() {
+  return new TypeErrorConstructor("Invalid M13 protection-proposal boundary.");
+}
+'''
+          new = '''function boundaryError() {
+  try {
+    // Force the engine to create a genuine current-realm TypeError without
+    // invoking the mutable global TypeError constructor binding.
+    null.m13Boundary;
+  } catch (error) {
+    return error;
+  }
+  throw new Error("unreachable M13 boundary error path");
+}
+'''
+          if old not in text:
+              raise SystemExit('contract-protection-proposal boundaryError target not found')
+          text = text.replace(old, new, 1)
+          proposal.write_text(text)
+
+          tests = Path('test/m13-review-remediation.test.js')
+          text = tests.read_text()
+          marker = 'test("poisoned Promise prototype constructor keeps package loadable and M13 fails closed"'
+          if marker not in text:
+              text += r'''
+
+test("poisoned Promise prototype constructor keeps package loadable and M13 fails closed", () => {
+  const modulePath = path.join(repoRoot, "src", "index.js");
+  const code = `
+    "use strict";
+    const NativePromise = Promise;
+    const nativeDescriptor = Object.getOwnPropertyDescriptor(
+      NativePromise.prototype,
+      "constructor"
+    );
+    Object.defineProperty(NativePromise.prototype, "constructor", {
+      value: null,
+      writable: true,
+      enumerable: false,
+      configurable: true
+    });
+    let api;
+    try {
+      api = require(${JSON.stringify(modulePath)});
+    } catch (error) {
+      console.error(error);
+      process.exit(7);
+    }
+    Object.defineProperty(
+      NativePromise.prototype,
+      "constructor",
+      nativeDescriptor
+    );
+    let generatorCalls = 0;
+    const returned = api.generateContractProtectionProposal({
+      experiment: null,
+      sourceAttackId: "wrong-time",
+      generator() {
+        generatorCalls += 1;
+        return {};
+      }
+    });
+    if (!(returned instanceof NativePromise)) process.exitCode = 2;
+    returned.then(
+      () => { process.exitCode = 3; },
+      (error) => {
+        if (!(error instanceof TypeError)) process.exitCode = 4;
+        if (generatorCalls !== 0) process.exitCode = 5;
+      }
+    );
+  `;
+  const run = spawnSync(process.execPath, ["-e", code], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  assert.equal(run.status, 0, run.stderr);
+});
+
+test("legacy adapter Promise authority is captured at package initialization", () => {
+  const modulePath = path.join(repoRoot, "src", "index.js");
+  const code = `
+    "use strict";
+    const NativePromise = Promise;
+    const api = require(${JSON.stringify(modulePath)});
+    let poisonedConstructorCalls = 0;
+    function PoisonPromise(executor) {
+      poisonedConstructorCalls += 1;
+      return new NativePromise(executor);
+    }
+    PoisonPromise.prototype = NativePromise.prototype;
+    global.Promise = PoisonPromise;
+    let transportCalls = 0;
+    const generator = api.createStructuredProviderAdapter({
+      transport() {
+        transportCalls += 1;
+        return {
+          version: 1,
+          kind: "gotcha-provider-response",
+          output: {
+            version: 1,
+            task: "x",
+            rules: []
+          }
+        };
+      },
+      model: "test-model",
+      mode: "quality-contract"
+    });
+    const returned = generator({ task: "x", examples: [], instructions: "x" });
+    global.Promise = NativePromise;
+    if (!(returned instanceof NativePromise)) process.exitCode = 2;
+    returned.then(
+      () => {
+        if (poisonedConstructorCalls !== 0) process.exitCode = 3;
+      },
+      () => {
+        if (poisonedConstructorCalls !== 0) process.exitCode = 4;
+      }
+    );
+  `;
+  const run = spawnSync(process.execPath, ["-e", code], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  assert.equal(run.status, 0, run.stderr);
+});
+
+test("poisoned global TypeError is never used for M13 boundary failures", () => {
+  const modulePath = path.join(repoRoot, "src", "index.js");
+  const code = `
+    "use strict";
+    const NativePromise = Promise;
+    const NativeTypeError = TypeError;
+    let poisonedTypeErrorCalls = 0;
+    global.TypeError = function PoisonTypeError() {
+      poisonedTypeErrorCalls += 1;
+      return new Error("poisoned TypeError executed");
+    };
+    let api;
+    try {
+      api = require(${JSON.stringify(modulePath)});
+    } catch (error) {
+      console.error(error);
+      process.exit(7);
+    }
+    global.TypeError = NativeTypeError;
+    const returned = api.generateContractProtectionProposal({});
+    if (!(returned instanceof NativePromise)) process.exitCode = 2;
+    returned.then(
+      () => { process.exitCode = 3; },
+      (error) => {
+        if (!(error instanceof NativeTypeError)) process.exitCode = 4;
+        if (poisonedTypeErrorCalls !== 0) process.exitCode = 5;
+      }
+    );
+  `;
+  const run = spawnSync(process.execPath, ["-e", code], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  assert.equal(run.status, 0, run.stderr);
+});
+'''
+          tests.write_text(text)
+          PY
+
+      - name: Diff hygiene after remediation
+        run: |
+          git diff --check
+          git diff --stat
+          test "$(git diff --name-only | sort | tr '\n' ' ')" = "src/contract-attacks-core.js src/contract-protection-proposal.js src/provider-adapter-m13.js test/m13-review-remediation.test.js "
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 14.21.3
+          cache: npm
+      - run: npm ci
+      - name: Node 14 compatibility smoke
+        run: |
+          node --check src/contract-attacks-core.js
+          node --check src/contract-protection-proposal.js
+          node --check src/provider-adapter-m13.js
+          node -e "const api=require('./src'); if(typeof api.generateContractProtectionProposal!=='function') process.exit(1)"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 16.20.2
+          cache: npm
+      - run: npm ci
+      - name: Node 16 compatibility smoke
+        run: |
+          node --check src/contract-attacks-core.js
+          node --check src/contract-protection-proposal.js
+          node --check src/provider-adapter-m13.js
+          node -e "const api=require('./src'); if(typeof api.createStructuredProviderAdapter!=='function') process.exit(1)"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+      - run: npm ci
+      - name: Node 18 focused + full
+        run: |
+          node --test test/m13-review-remediation.test.js test/contract-protection-proposal.test.js test/provider-adapter-m13.test.js test/package-contract-protection-proposal.test.js
+          npm test
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Node 20 focused + full
+        run: |
+          node --test test/m13-review-remediation.test.js test/contract-protection-proposal.test.js test/provider-adapter-m13.test.js test/package-contract-protection-proposal.test.js
+          npm test
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Node 22 focused + full
+        run: |
+          node --test test/m13-review-remediation.test.js test/contract-protection-proposal.test.js test/provider-adapter-m13.test.js test/package-contract-protection-proposal.test.js
+          npm test
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Node 24 focused + full
+        run: |
+          node --test test/m13-review-remediation.test.js test/contract-protection-proposal.test.js test/provider-adapter-m13.test.js test/package-contract-protection-proposal.test.js
+          npm test
+
+      - name: Commit proven remediation and remove harness
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/m13-final-p1-remediation.yml
+          git add src/contract-attacks-core.js src/contract-protection-proposal.js src/provider-adapter-m13.js test/m13-review-remediation.test.js
+          git diff --cached --check
+          git commit -m "fix: close final M13 authority review gaps"
+          git push
