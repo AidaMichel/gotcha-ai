@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  stress-node22-focused-suite:
+  isolate-node22-parallel-race:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,25 +26,11 @@ jobs:
           cache: npm
       - run: npm ci
 
-      - name: Default concurrency x20
+      - name: Serial all six x20
+        continue-on-error: true
         run: |
           set -euo pipefail
           for i in $(seq 1 20); do
-            echo "parallel iteration $i"
-            node --test \
-              test/m13-review-remediation.test.js \
-              test/provider-adapter-m13.test.js \
-              test/mutation-pack.test.js \
-              test/contract-protection-proposal.test.js \
-              test/contract-quality-loop.test.js \
-              test/package-contract-protection-proposal.test.js
-          done
-
-      - name: Serial concurrency x20
-        run: |
-          set -euo pipefail
-          for i in $(seq 1 20); do
-            echo "serial iteration $i"
             node --test --test-concurrency=1 \
               test/m13-review-remediation.test.js \
               test/provider-adapter-m13.test.js \
@@ -53,3 +39,69 @@ jobs:
               test/contract-quality-loop.test.js \
               test/package-contract-protection-proposal.test.js
           done
+
+      - name: Omit remediation x12
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 12); do node --test \
+            test/provider-adapter-m13.test.js test/mutation-pack.test.js \
+            test/contract-protection-proposal.test.js test/contract-quality-loop.test.js \
+            test/package-contract-protection-proposal.test.js; done
+
+      - name: Omit provider x12
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 12); do node --test \
+            test/m13-review-remediation.test.js test/mutation-pack.test.js \
+            test/contract-protection-proposal.test.js test/contract-quality-loop.test.js \
+            test/package-contract-protection-proposal.test.js; done
+
+      - name: Omit mutation x12
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 12); do node --test \
+            test/m13-review-remediation.test.js test/provider-adapter-m13.test.js \
+            test/contract-protection-proposal.test.js test/contract-quality-loop.test.js \
+            test/package-contract-protection-proposal.test.js; done
+
+      - name: Omit proposal x12
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 12); do node --test \
+            test/m13-review-remediation.test.js test/provider-adapter-m13.test.js \
+            test/mutation-pack.test.js test/contract-quality-loop.test.js \
+            test/package-contract-protection-proposal.test.js; done
+
+      - name: Omit quality x12
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 12); do node --test \
+            test/m13-review-remediation.test.js test/provider-adapter-m13.test.js \
+            test/mutation-pack.test.js test/contract-protection-proposal.test.js \
+            test/package-contract-protection-proposal.test.js; done
+
+      - name: Omit package x12
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 12); do node --test \
+            test/m13-review-remediation.test.js test/provider-adapter-m13.test.js \
+            test/mutation-pack.test.js test/contract-protection-proposal.test.js \
+            test/contract-quality-loop.test.js; done
+
+      - name: All six parallel x20 control
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 20); do node --test \
+            test/m13-review-remediation.test.js test/provider-adapter-m13.test.js \
+            test/mutation-pack.test.js test/contract-protection-proposal.test.js \
+            test/contract-quality-loop.test.js test/package-contract-protection-proposal.test.js; done
+
+      - name: Diagnostic complete
+        run: echo "Inspect step conclusions."
