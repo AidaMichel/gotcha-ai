@@ -29,32 +29,29 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Locate Node 24 Blob source authority
+      - name: Trace exact ambient Blob getter touch
         run: |
-          node - <<'NODE' > node24-blob-source-map.txt
+          node - <<'NODE' > node24-blob-touch-stack.txt 2>&1
           'use strict';
-          const { Blob } = require('node:buffer');
-          const natives = process.binding('natives');
-          const toSource = Function.prototype.toString;
-          const ctorSource = toSource.call(Blob);
-          const sliceSource = toSource.call(Blob.prototype.slice);
-          const constructorMatches = [];
-          const sliceMatches = [];
-          for (const [name, source] of Object.entries(natives)) {
-            if (typeof source !== 'string') continue;
-            if (source.includes(ctorSource)) constructorMatches.push(name);
-            if (source.includes(sliceSource)) sliceMatches.push(name);
+          let calls = 0;
+          Object.defineProperty(globalThis, 'Blob', {
+            configurable: true,
+            enumerable: false,
+            get() {
+              calls += 1;
+              console.log(`BLOB_GETTER_TOUCH_${calls}`);
+              console.log(new Error('Blob getter touched here').stack);
+              throw new Error('poisoned global Blob getter executed');
+            }
+          });
+          globalThis.structuredClone = undefined;
+          try {
+            require('./src/ai-data');
+          } catch (error) {
+            console.log('REQUIRE_ERROR');
+            console.log(error && error.stack ? error.stack : error);
           }
-          console.log(JSON.stringify({
-            node: process.version,
-            constructorMatches,
-            sliceMatches,
-            internalBlobExists: typeof natives['internal/blob'] === 'string',
-            internalBlobHasConstructor: typeof natives['internal/blob'] === 'string' && natives['internal/blob'].includes(ctorSource),
-            internalBlobHasSlice: typeof natives['internal/blob'] === 'string' && natives['internal/blob'].includes(sliceSource),
-            constructorPrefix: ctorSource.slice(0, 260),
-            sliceSource
-          }, null, 2));
+          console.log(`TOTAL_BLOB_GETTER_TOUCHES=${calls}`);
           NODE
 
       - name: Run focused suite and capture exact failure
@@ -72,7 +69,7 @@ jobs:
         with:
           name: node24-authority-evidence
           path: |
-            node24-blob-source-map.txt
+            node24-blob-touch-stack.txt
             node24-syntax.txt
             node24-focused.txt
           if-no-files-found: error
