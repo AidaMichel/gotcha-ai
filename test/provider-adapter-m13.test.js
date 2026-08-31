@@ -154,3 +154,31 @@ test("M13 adapter extension does not remove the two existing M11 modes", () => {
     transport, model: "m", mode: "unknown"
   }), TypeError);
 });
+
+test("contract-protection adapter consumes rejected non-extensible trusted Promises", async () => {
+  const reason = { code: "transport-rejected" };
+  const generator = createStructuredProviderAdapter({
+    model: "fake-model",
+    mode: "contract-protection",
+    transport() {
+      const promise = Promise.reject(reason);
+      Object.preventExtensions(promise);
+      return promise;
+    }
+  });
+
+  await assert.rejects(
+    generator({
+      task: "Return the approved time.",
+      case: { input: {}, expectedOutput: {} },
+      source: { attackId: "wrong-time", ruleId: "time-rule" },
+      rule: { id: "time-rule", statement: "x", kind: "required", severity: "major" },
+      attack: {
+        id: "wrong-time", ruleId: "time-rule", type: "x",
+        description: "x", rationale: "x", output: {}
+      },
+      instructions: INSTRUCTIONS
+    }),
+    (error) => error === reason
+  );
+});

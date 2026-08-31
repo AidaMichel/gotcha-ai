@@ -418,3 +418,77 @@ test("poisoned global TypeError is never used for M13 boundary failures", () => 
   });
   assert.equal(run.status, 0, run.stderr);
 });
+
+
+test("accessor-backed global Promise is rejected without getter execution", () => {
+  const modulePath = path.join(repoRoot, "src", "provider-adapter-m13.js");
+  const code = `
+    "use strict";
+    const NativePromise = Promise;
+    const original = Object.getOwnPropertyDescriptor(globalThis, "Promise");
+    let getterCalls = 0;
+    Object.defineProperty(globalThis, "Promise", {
+      get() { getterCalls += 1; return NativePromise; }, configurable: true
+    });
+    let api;
+    try { api = require(${JSON.stringify(modulePath)}); } catch (error) {
+      console.error(error); process.exit(7);
+    }
+    Object.defineProperty(globalThis, "Promise", original);
+    if (getterCalls !== 0) process.exitCode = 2;
+    try { api.createStructuredProviderAdapter({}); } catch (error) {
+      if (!(error instanceof TypeError)) process.exitCode = 3;
+    }
+    if (getterCalls !== 0) process.exitCode = 4;
+  `;
+  const run = spawnSync(process.execPath, ["-e", code], { cwd: repoRoot, encoding: "utf8" });
+  assert.equal(run.status, 0, run.stderr);
+});
+
+test("poisoned global TypeError is never used by M13 provider adapter boundaries", () => {
+  const modulePath = path.join(repoRoot, "src", "index.js");
+  const code = `
+    "use strict";
+    const NativeTypeError = TypeError;
+    let poisonCalls = 0;
+    global.TypeError = function PoisonTypeError() { poisonCalls += 1; return new Error("poison"); };
+    const api = require(${JSON.stringify(modulePath)});
+    global.TypeError = NativeTypeError;
+    try { api.createStructuredProviderAdapter({}); } catch (error) {
+      if (!(error instanceof NativeTypeError)) process.exitCode = 2;
+    }
+    if (poisonCalls !== 0) process.exitCode = 3;
+  `;
+  const run = spawnSync(process.execPath, ["-e", code], { cwd: repoRoot, encoding: "utf8" });
+  assert.equal(run.status, 0, run.stderr);
+});
+
+test("M12 rejects pre-load Promise constructor Proxy authority without executing it", () => {
+  const modulePath = path.join(repoRoot, "src", "index.js");
+  const code = `
+    "use strict";
+    const NativePromise = Promise;
+    const descriptor = Object.getOwnPropertyDescriptor(NativePromise.prototype, "constructor");
+    let proxyCalls = 0;
+    const ProxyPromise = new Proxy(NativePromise, {
+      construct(target, args, newTarget) { proxyCalls += 1; return Reflect.construct(target, args, newTarget); }
+    });
+    Object.defineProperty(NativePromise.prototype, "constructor", {
+      value: ProxyPromise, writable: true, enumerable: false, configurable: true
+    });
+    const api = require(${JSON.stringify(modulePath)});
+    Object.defineProperty(NativePromise.prototype, "constructor", descriptor);
+    proxyCalls = 0;
+    const returned = api.prepareContractQualityLoop({});
+    if (!(returned instanceof NativePromise)) process.exitCode = 2;
+    returned.then(
+      () => { process.exitCode = 3; },
+      (error) => {
+        if (!(error instanceof TypeError)) process.exitCode = 4;
+        if (proxyCalls !== 0) process.exitCode = 5;
+      }
+    );
+  `;
+  const run = spawnSync(process.execPath, ["-e", code], { cwd: repoRoot, encoding: "utf8" });
+  assert.equal(run.status, 0, run.stderr);
+});

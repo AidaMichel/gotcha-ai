@@ -1040,6 +1040,15 @@ function buildPublicResult(proposal) {
   return result;
 }
 
+function trustedPromiseConstructorDescriptor(descriptor) {
+  return (
+    descriptor !== undefined &&
+    !("get" in descriptor) &&
+    !("set" in descriptor) &&
+    descriptor.value === trustedPromiseConstructor
+  );
+}
+
 function observeAcceptedPromise(promise, onFulfilled, onRejected) {
   if (
     isProxy(promise) === true ||
@@ -1048,10 +1057,23 @@ function observeAcceptedPromise(promise, onFulfilled, onRejected) {
   ) throw boundaryError();
 
   const previousConstructor = getOwnPropertyDescriptor(promise, "constructor");
-  if (previousConstructor === undefined) {
-    if (isExtensible(promise) !== true) throw boundaryError();
-  } else if (previousConstructor.configurable !== true) {
-    throw boundaryError();
+  if (
+    previousConstructor !== undefined &&
+    previousConstructor.configurable !== true
+  ) {
+    if (!trustedPromiseConstructorDescriptor(previousConstructor)) throw boundaryError();
+    reflectApply(promiseThen, promise, [onFulfilled, onRejected]);
+    return;
+  }
+  if (
+    previousConstructor === undefined &&
+    isExtensible(promise) !== true
+  ) {
+    if (!trustedPromiseConstructorDescriptor(
+      getOwnPropertyDescriptor(promisePrototype, "constructor")
+    )) throw boundaryError();
+    reflectApply(promiseThen, promise, [onFulfilled, onRejected]);
+    return;
   }
 
   defineProperty(promise, "constructor", {
@@ -1060,16 +1082,13 @@ function observeAcceptedPromise(promise, onFulfilled, onRejected) {
     enumerable: false,
     configurable: true
   });
-
   let observationEstablished = false;
   try {
     reflectApply(promiseThen, promise, [onFulfilled, onRejected]);
     observationEstablished = true;
   } finally {
     if (previousConstructor === undefined) {
-      if (deleteProperty(promise, "constructor") !== true) {
-        observationEstablished = false;
-      }
+      if (deleteProperty(promise, "constructor") !== true) observationEstablished = false;
     } else {
       try {
         defineProperty(promise, "constructor", previousConstructor);

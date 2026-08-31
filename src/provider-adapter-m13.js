@@ -5,7 +5,6 @@ const { runInNewContext } = require("node:vm");
 const {
   isUnsupportedRuntimeObject
 } = require("./ai-data-core");
-const TypeErrorConstructor = TypeError;
 const ArrayConstructor = Array;
 const WeakSetConstructor = WeakSet;
 const promiseSpecies = Symbol.species;
@@ -46,7 +45,16 @@ const CONTRACT_PROTECTION_INSTRUCTIONS_V1 =
 
 let capturedAmbientPromiseConstructor = null;
 try {
-  capturedAmbientPromiseConstructor = globalThis.Promise;
+  const ambientPromiseDescriptor = getOwnPropertyDescriptor(globalThis, "Promise");
+  if (
+    ambientPromiseDescriptor !== undefined &&
+    !("get" in ambientPromiseDescriptor) &&
+    !("set" in ambientPromiseDescriptor) &&
+    typeof ambientPromiseDescriptor.value === "function" &&
+    !isProxy(ambientPromiseDescriptor.value)
+  ) {
+    capturedAmbientPromiseConstructor = ambientPromiseDescriptor.value;
+  }
 } catch {
   capturedAmbientPromiseConstructor = null;
 }
@@ -213,8 +221,22 @@ const CONTRACT_PROTECTION_SCHEMA = Object.freeze({
   })
 });
 
-function boundaryError(message) {
-  return new TypeErrorConstructor(message);
+const adapterTypeErrorPrototype = (() => {
+  try {
+    null.m13AdapterBoundary;
+  } catch (error) {
+    return getPrototypeOf(error);
+  }
+  return null;
+})();
+
+function boundaryError() {
+  try {
+    null.m13AdapterBoundary;
+  } catch (error) {
+    return error;
+  }
+  return null;
 }
 
 async function rejectAdapterBoundaryPromise(error) {
@@ -224,8 +246,9 @@ async function rejectAdapterBoundaryPromise(error) {
 function isLocalTypeError(error) {
   return (
     error !== null &&
-    (typeof error === "object" || typeof error === "function") &&
-    reflectApply(functionHasInstance, TypeErrorConstructor, [error])
+    typeof error === "object" &&
+    adapterTypeErrorPrototype !== null &&
+    getPrototypeOf(error) === adapterTypeErrorPrototype
   );
 }
 
@@ -501,13 +524,39 @@ function validateProviderResponse(response) {
   return detachProviderData(descriptors.output.value, "provider response.output", true);
 }
 
+function constructorDescriptorIsTrusted(descriptor) {
+  return (
+    descriptor !== undefined &&
+    !("get" in descriptor) &&
+    !("set" in descriptor) &&
+    descriptor.value === trustedPromiseConstructor
+  );
+}
+
+function prototypeConstructorIsTrusted(promise) {
+  if (getPrototypeOf(promise) !== trustedPromisePrototype) return false;
+  return constructorDescriptorIsTrusted(
+    getOwnPropertyDescriptor(trustedPromisePrototype, "constructor")
+  );
+}
+
 function observeAcceptedPromise(promise, onFulfilled, onRejected) {
   const constructorDescriptor = getOwnPropertyDescriptor(promise, "constructor");
-  if (constructorDescriptor !== undefined && constructorDescriptor.configurable !== true) {
-    throw boundaryError("transport Promise has an unshieldable constructor property.");
+  if (
+    constructorDescriptor !== undefined &&
+    constructorDescriptor.configurable !== true
+  ) {
+    if (!constructorDescriptorIsTrusted(constructorDescriptor)) throw boundaryError();
+    reflectApply(trustedPromiseThen, promise, [onFulfilled, onRejected]);
+    return;
   }
-  if (constructorDescriptor === undefined && !isExtensible(promise)) {
-    throw boundaryError("transport Promise cannot be safely observed.");
+  if (
+    constructorDescriptor === undefined &&
+    isExtensible(promise) !== true
+  ) {
+    if (!prototypeConstructorIsTrusted(promise)) throw boundaryError();
+    reflectApply(trustedPromiseThen, promise, [onFulfilled, onRejected]);
+    return;
   }
   defineProperty(promise, "constructor", {
     value: safePromiseConstructor,
@@ -515,15 +564,22 @@ function observeAcceptedPromise(promise, onFulfilled, onRejected) {
     enumerable: false,
     configurable: true
   });
+  let restored = false;
   try {
     reflectApply(trustedPromiseThen, promise, [onFulfilled, onRejected]);
   } finally {
     if (constructorDescriptor === undefined) {
-      deleteProperty(promise, "constructor");
+      restored = deleteProperty(promise, "constructor") === true;
     } else {
-      defineProperty(promise, "constructor", constructorDescriptor);
+      try {
+        defineProperty(promise, "constructor", constructorDescriptor);
+        restored = true;
+      } catch {
+        restored = false;
+      }
     }
   }
+  if (!restored) throw boundaryError();
 }
 
 function isClassConstructor(value) {

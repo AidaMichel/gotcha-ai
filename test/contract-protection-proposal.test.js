@@ -303,10 +303,25 @@ test("M13 observes accepted native Promises once and rejects unsafe async wrappe
   );
   assert.equal(thenGetterCalls, 0);
 
-  const unshieldable = Promise.resolve(candidate());
-  Object.defineProperty(unshieldable, "constructor", {
+  const trustedNonConfigurable = Promise.resolve(candidate());
+  Object.defineProperty(trustedNonConfigurable, "constructor", {
     value: Promise,
     writable: true,
+    enumerable: false,
+    configurable: false
+  });
+  const trustedResult = await generateContractProtectionProposal({
+    experiment,
+    sourceAttackId: "wrong-time",
+    generator() { return trustedNonConfigurable; }
+  });
+  assert.equal(trustedResult.state, "proposal-ready");
+
+  const rejectedReason = { code: "trusted-nonconfig-rejection" };
+  const rejectedTrusted = Promise.reject(rejectedReason);
+  Object.defineProperty(rejectedTrusted, "constructor", {
+    value: Promise,
+    writable: false,
     enumerable: false,
     configurable: false
   });
@@ -314,9 +329,9 @@ test("M13 observes accepted native Promises once and rejects unsafe async wrappe
     generateContractProtectionProposal({
       experiment,
       sourceAttackId: "wrong-time",
-      generator() { return unshieldable; }
+      generator() { return rejectedTrusted; }
     }),
-    TypeError
+    (error) => error === rejectedReason
   );
 });
 

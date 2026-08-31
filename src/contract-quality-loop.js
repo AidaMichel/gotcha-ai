@@ -2,6 +2,7 @@
 
 const utilTypes = require("node:util").types;
 const { Buffer } = require("node:buffer");
+const { runInNewContext } = require("node:vm");
 
 const remediation = require("./contract-remediation");
 
@@ -17,6 +18,7 @@ const defineProperty = Object.defineProperty;
 const ownKeys = Reflect.ownKeys;
 const reflectApply = Reflect.apply;
 const deleteProperty = Reflect.deleteProperty;
+const functionToString = Function.prototype.toString;
 const arrayIsArray = Array.isArray;
 
 const ObjectPrototype = Object.prototype;
@@ -28,22 +30,43 @@ const PromiseConstructorDescriptor =
   getOwnPropertyDescriptor(PromisePrototype, "constructor");
 const PromiseThenDescriptor =
   getOwnPropertyDescriptor(PromisePrototype, "then");
-const PromiseConstructor =
-  PromiseConstructorDescriptor !== undefined &&
-  !("get" in PromiseConstructorDescriptor) &&
-  !("set" in PromiseConstructorDescriptor) &&
-  typeof PromiseConstructorDescriptor.value === "function"
-    ? PromiseConstructorDescriptor.value
-    : null;
-const PromiseThen =
-  PromiseThenDescriptor !== undefined &&
-  !("get" in PromiseThenDescriptor) &&
-  !("set" in PromiseThenDescriptor) &&
-  typeof PromiseThenDescriptor.value === "function"
-    ? PromiseThenDescriptor.value
-    : null;
+let PromiseConstructor = null;
+let PromiseThen = null;
+try {
+  const pristinePromiseConstructorSource = runInNewContext(
+    "Function.prototype.toString.call(Promise)"
+  );
+  const pristinePromiseThenSource = runInNewContext(
+    "Function.prototype.toString.call(Promise.prototype.then)"
+  );
+  const constructorCandidate =
+    PromiseConstructorDescriptor !== undefined &&
+    !("get" in PromiseConstructorDescriptor) &&
+    !("set" in PromiseConstructorDescriptor)
+      ? PromiseConstructorDescriptor.value
+      : null;
+  const thenCandidate =
+    PromiseThenDescriptor !== undefined &&
+    !("get" in PromiseThenDescriptor) &&
+    !("set" in PromiseThenDescriptor)
+      ? PromiseThenDescriptor.value
+      : null;
+  if (
+    typeof constructorCandidate === "function" &&
+    isProxy(constructorCandidate) !== true &&
+    reflectApply(functionToString, constructorCandidate, []) === pristinePromiseConstructorSource &&
+    typeof thenCandidate === "function" &&
+    isProxy(thenCandidate) !== true &&
+    reflectApply(functionToString, thenCandidate, []) === pristinePromiseThenSource
+  ) {
+    PromiseConstructor = constructorCandidate;
+    PromiseThen = thenCandidate;
+  }
+} catch {
+  PromiseConstructor = null;
+  PromiseThen = null;
+}
 const PromiseSpecies = Symbol.species;
-const TypeErrorConstructor = TypeError;
 
 const draftContractProtection = remediation.draftContractProtection;
 const confirmContractProtection = remediation.confirmContractProtection;
@@ -88,7 +111,6 @@ const requiredFunctions = [
   arrayIsArray,
   PromiseConstructor,
   PromiseThen,
-  TypeErrorConstructor,
   draftContractProtection,
   confirmContractProtection,
   verifyContractProtection
@@ -141,7 +163,16 @@ if (typeof defineProperty === "function") {
 }
 
 function boundaryError() {
-  return new TypeErrorConstructor("Invalid M12 contract-quality-loop boundary.");
+  try {
+    null.m12QualityLoopBoundary;
+  } catch (error) {
+    return error;
+  }
+  return null;
+}
+
+async function rejectQualityLoopBoundary(error) {
+  throw error;
 }
 
 function call(method, receiver, args) {
@@ -408,6 +439,9 @@ function observeDelegatedPromise(promise, onFulfilled, onRejected) {
 }
 
 function createPublicPromise(start) {
+  if (typeof PromiseConstructor !== "function") {
+    return rejectQualityLoopBoundary(boundaryError());
+  }
   return new PromiseConstructor((resolve, reject) => {
     try {
       start(resolve, reject);

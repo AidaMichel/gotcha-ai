@@ -1,4 +1,5 @@
 const { types: utilTypes } = require("node:util");
+const { runInNewContext } = require("node:vm");
 
 const functionToString = Function.prototype.toString;
 const getOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
@@ -17,23 +18,30 @@ const mutationPromiseConstructorDescriptor =
   getOwnPropertyDescriptor(mutationPromisePrototype, "constructor");
 const mutationPromiseThenDescriptor =
   getOwnPropertyDescriptor(mutationPromisePrototype, "then");
-const mutationPromiseConstructor =
-  mutationPromiseConstructorDescriptor !== undefined &&
-  !("get" in mutationPromiseConstructorDescriptor) &&
-  !("set" in mutationPromiseConstructorDescriptor) &&
-  typeof mutationPromiseConstructorDescriptor.value === "function"
-    ? mutationPromiseConstructorDescriptor.value
-    : null;
-const promiseThen =
-  mutationPromiseThenDescriptor !== undefined &&
-  !("get" in mutationPromiseThenDescriptor) &&
-  !("set" in mutationPromiseThenDescriptor) &&
-  typeof mutationPromiseThenDescriptor.value === "function"
-    ? mutationPromiseThenDescriptor.value
-    : null;
+let promiseThen = null;
+try {
+  const thenCandidate =
+    mutationPromiseThenDescriptor !== undefined &&
+    !("get" in mutationPromiseThenDescriptor) &&
+    !("set" in mutationPromiseThenDescriptor)
+      ? mutationPromiseThenDescriptor.value
+      : null;
+  const pristinePromiseThenSource = runInNewContext(
+    "Function.prototype.toString.call(Promise.prototype.then)"
+  );
+  if (
+    typeof thenCandidate === "function" &&
+    utilTypes.isProxy(thenCandidate) !== true &&
+    Reflect.apply(functionToString, thenCandidate, []) === pristinePromiseThenSource
+  ) {
+    promiseThen = thenCandidate;
+  }
+} catch {
+  promiseThen = null;
+}
 
 const safePromiseSpecies = Object.freeze({
-  [Symbol.species]: mutationPromiseConstructor
+  [Symbol.species]: null
 });
 
 const callbackReceiver = Object.freeze(Object.create(null));
@@ -253,9 +261,11 @@ function rejectNativePromiseResult(
     return value;
   }
 
-  consumeNativePromiseRejection(
-    value
-  );
+  if (typeof promiseThen === "function") {
+    consumeNativePromiseRejection(
+      value
+    );
+  }
 
   throw new Error(
     message
