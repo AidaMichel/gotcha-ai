@@ -578,3 +578,119 @@ test("round3 legacy adapter does not retain poisoned pre-load TypeError authorit
   const result = spawnSync(process.execPath, ["-e", code], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr || result.stdout);
 });
+
+
+test("round4 rejects foreign-realm Promise.then authority across M13 and M12", async () => {
+  const experiment = await makeExperiment();
+  const modulePath = path.join(repoRoot, "src", "index.js");
+  const code = `
+    "use strict";
+    const vm = require("node:vm");
+    const NativePromise = Promise;
+    const localThen = NativePromise.prototype.then;
+    const foreignThen = vm.runInNewContext("Promise.prototype.then");
+    Object.defineProperty(NativePromise.prototype, "then", {
+      value: foreignThen, writable: true, enumerable: false, configurable: true
+    });
+    const api = require(${JSON.stringify(modulePath)});
+    Object.defineProperty(NativePromise.prototype, "then", {
+      value: localThen, writable: true, enumerable: false, configurable: true
+    });
+    let generatorCalls = 0;
+    const p1 = api.generateContractProtectionProposal({
+      experiment: JSON.parse(process.env.EXPERIMENT),
+      sourceAttackId: "wrong-time",
+      generator() { generatorCalls += 1; return {}; }
+    });
+    const p2 = api.prepareContractQualityLoop(null);
+    Promise.allSettled([p1, p2]).then((results) => {
+      if (generatorCalls !== 0) process.exit(21);
+      if (results.some((r) => r.status !== "rejected" || !(r.reason instanceof TypeError))) process.exit(22);
+    });
+  `;
+  const result = spawnSync(process.execPath, ["-e", code], {
+    encoding: "utf8",
+    env: { ...process.env, EXPERIMENT: JSON.stringify(experiment) }
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
+test("round4 rejects Proxy isPromise probe before proposal generator execution", async () => {
+  const experiment = await makeExperiment();
+  const modulePath = path.join(repoRoot, "src", "index.js");
+  const code = `
+    "use strict";
+    const util = require("node:util");
+    const original = util.types.isPromise;
+    let trapCalls = 0;
+    util.types.isPromise = new Proxy(original, { apply(target, thisArg, args) { trapCalls += 1; return Reflect.apply(target, thisArg, args); } });
+    const api = require(${JSON.stringify(modulePath)});
+    util.types.isPromise = original;
+    let generatorCalls = 0;
+    api.generateContractProtectionProposal({
+      experiment: JSON.parse(process.env.EXPERIMENT),
+      sourceAttackId: "wrong-time",
+      generator() { generatorCalls += 1; return {}; }
+    }).then(() => process.exit(23), (error) => {
+      if (!(error instanceof TypeError)) process.exit(24);
+      if (generatorCalls !== 0 || trapCalls !== 0) process.exit(25);
+    });
+  `;
+  const result = spawnSync(process.execPath, ["-e", code], {
+    encoding: "utf8",
+    env: { ...process.env, EXPERIMENT: JSON.stringify(experiment) }
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
+test("round4 consumes non-extensible changed-prototype rejected generator Promise", async () => {
+  const experiment = await makeExperiment();
+  const reason = { code: "round4-generator" };
+  let unhandled = null;
+  const listener = (value) => { unhandled = value; };
+  process.once("unhandledRejection", listener);
+  await assert.rejects(
+    generateContractProtectionProposal({
+      experiment,
+      sourceAttackId: "wrong-time",
+      generator() {
+        const promise = Promise.reject(reason);
+        Object.setPrototypeOf(promise, {});
+        Object.preventExtensions(promise);
+        return promise;
+      }
+    }),
+    TypeError
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  process.removeListener("unhandledRejection", listener);
+  assert.equal(unhandled, null);
+});
+
+test("round4 rejects same-prototype fake TypeError and pre-cached poisoned legacy adapter", () => {
+  const modulePath = path.join(repoRoot, "src", "index.js");
+  const legacyPath = path.join(repoRoot, "src", "provider-adapter.js");
+  const code = `
+    "use strict";
+    const NativePromise = Promise;
+    const NativeTypeError = TypeError;
+    let promiseCalls = 0;
+    let typeErrorCalls = 0;
+    function PoisonPromise(executor) { promiseCalls += 1; return new NativePromise(executor); }
+    PoisonPromise.prototype = NativePromise.prototype;
+    function PoisonTypeError(message) { typeErrorCalls += 1; return new Error(message); }
+    PoisonTypeError.prototype = NativeTypeError.prototype;
+    global.Promise = PoisonPromise;
+    global.TypeError = PoisonTypeError;
+    require(${JSON.stringify(legacyPath)});
+    global.Promise = NativePromise;
+    global.TypeError = NativeTypeError;
+    const api = require(${JSON.stringify(modulePath)});
+    const adapter = api.createStructuredProviderAdapter({ mode: "quality-contract", transport() { return {}; }, model: "x" });
+    adapter({}).then(() => process.exit(26), () => {
+      if (promiseCalls !== 0 || typeErrorCalls !== 0) process.exit(27);
+    });
+  `;
+  const result = spawnSync(process.execPath, ["-e", code], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});

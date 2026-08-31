@@ -93,6 +93,24 @@ for (let index = 0; index < requiredFunctions.length; index += 1) {
   }
 }
 
+try {
+  const pristineReflectApply = runInNewContext("Reflect.apply");
+  const pristineFunctionToString = runInNewContext("Function.prototype.toString");
+  const promiseBrandProbeSource = pristineReflectApply(
+    pristineFunctionToString,
+    promiseBrandProbe,
+    []
+  );
+  if (
+    promiseBrandProbeSource !== "function isPromise() { [native code] }" &&
+    promiseBrandProbeSource !== "function () { [native code] }"
+  ) {
+    boundaryAuthorityAvailable = false;
+  }
+} catch {
+  boundaryAuthorityAvailable = false;
+}
+
 if (
   typeof arrayIsArray !== "function" ||
   arrayIsArray(forbiddenProbes) !== true
@@ -181,6 +199,7 @@ try {
     promiseThenDescriptor.writable === true &&
     promiseThenDescriptor.enumerable === false &&
     promiseThenDescriptor.configurable === true &&
+    pristineReflectApply(pristineGetPrototypeOf, undefined, [promiseThen]) === Function.prototype &&
     capturedPromiseThenSource === pristinePromiseThenSource
   );
 } catch {
@@ -1049,6 +1068,33 @@ function trustedPromiseConstructorDescriptor(descriptor) {
   );
 }
 
+function inheritedConstructorUsesSafeDefaultSpecies(promise) {
+  let prototype = getPrototypeOf(promise);
+  while (prototype !== null) {
+    if (isProxy(prototype) === true) return false;
+    const constructorDescriptor = getOwnPropertyDescriptor(prototype, "constructor");
+    if (constructorDescriptor !== undefined) {
+      if ("get" in constructorDescriptor || "set" in constructorDescriptor) return false;
+      const constructor = constructorDescriptor.value;
+      if (constructor === undefined) return true;
+      const objectConstructorDescriptor = getOwnPropertyDescriptor(objectPrototype, "constructor");
+      const objectConstructor =
+        objectConstructorDescriptor !== undefined &&
+        !("get" in objectConstructorDescriptor) &&
+        !("set" in objectConstructorDescriptor)
+          ? objectConstructorDescriptor.value
+          : null;
+      if (constructor !== objectConstructor || typeof constructor !== "function" || isProxy(constructor) === true) {
+        return false;
+      }
+      const speciesDescriptor = getOwnPropertyDescriptor(constructor, promiseSpecies);
+      return speciesDescriptor === undefined;
+    }
+    prototype = getPrototypeOf(prototype);
+  }
+  return true;
+}
+
 function consumeRejectedRecognizedPromise(promise) {
   const previousConstructor = getOwnPropertyDescriptor(promise, "constructor");
   if (
@@ -1063,7 +1109,9 @@ function consumeRejectedRecognizedPromise(promise) {
     previousConstructor === undefined &&
     isExtensible(promise) !== true
   ) {
-    return false;
+    if (!inheritedConstructorUsesSafeDefaultSpecies(promise)) return false;
+    reflectApply(promiseThen, promise, [undefined, () => {}]);
+    return true;
   }
   defineProperty(promise, "constructor", {
     value: safePromiseSpeciesContainer,

@@ -213,3 +213,35 @@ test("contract-protection adapter consumes rejected changed-prototype trusted Pr
   process.removeListener("unhandledRejection", listener);
   assert.equal(unhandled, null);
 });
+
+
+test("contract-protection adapter consumes non-extensible changed-prototype rejected Promise", async () => {
+  const reason = { code: "round4-transport" };
+  const generator = createStructuredProviderAdapter({
+    model: "fake-model",
+    mode: "contract-protection",
+    transport() {
+      const promise = Promise.reject(reason);
+      Object.setPrototypeOf(promise, {});
+      Object.preventExtensions(promise);
+      return promise;
+    }
+  });
+  let unhandled = null;
+  const listener = (value) => { unhandled = value; };
+  process.once("unhandledRejection", listener);
+  await assert.rejects(
+    generator({
+      task: "Return the approved time.",
+      case: { input: {}, expectedOutput: {} },
+      source: { attackId: "wrong-time", ruleId: "time-rule" },
+      rule: { id: "time-rule", statement: "x", kind: "required", severity: "major" },
+      attack: { id: "wrong-time", ruleId: "time-rule", type: "x", description: "x", rationale: "x", output: {} },
+      instructions: INSTRUCTIONS
+    }),
+    TypeError
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  process.removeListener("unhandledRejection", listener);
+  assert.equal(unhandled, null);
+});

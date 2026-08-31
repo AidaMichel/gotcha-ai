@@ -75,6 +75,7 @@ try {
     reflectApply(functionToString, constructorCandidate, []) === pristinePromiseConstructorSource &&
     typeof thenCandidate === "function" &&
     isProxy(thenCandidate) !== true &&
+    getPrototypeOf(thenCandidate) === Function.prototype &&
     reflectApply(functionToString, thenCandidate, []) === pristinePromiseThenSource
   ) {
     PromiseConstructor = constructorCandidate;

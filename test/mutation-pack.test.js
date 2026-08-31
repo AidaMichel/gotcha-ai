@@ -1556,3 +1556,38 @@ test("missing Promise observation authority fails before mutation callbacks exec
   const result = spawnSync(process.execPath, ["-e", code], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr || result.stdout);
 });
+
+
+test("foreign Promise.then and poisoned Promise constructor fail before Mutation Pack callbacks", () => {
+  const { spawnSync } = require("node:child_process");
+  const path = require("node:path");
+  const modulePath = path.join(__dirname, "..", "src", "mutation-pack.js");
+  const code = `
+    "use strict";
+    const vm = require("node:vm");
+    const NativePromise = Promise;
+    const localThen = NativePromise.prototype.then;
+    const constructorDescriptor = Object.getOwnPropertyDescriptor(NativePromise.prototype, "constructor");
+    const foreignThen = vm.runInNewContext("Promise.prototype.then");
+    let constructorTraps = 0;
+    const proxyConstructor = new Proxy(NativePromise, { construct(target, args, newTarget) { constructorTraps += 1; return Reflect.construct(target, args, newTarget); } });
+    Object.defineProperty(NativePromise.prototype, "then", { value: foreignThen, writable: true, enumerable: false, configurable: true });
+    Object.defineProperty(NativePromise.prototype, "constructor", { value: proxyConstructor, writable: true, enumerable: false, configurable: true });
+    const { compileMutationPack } = require(${JSON.stringify(modulePath)});
+    Object.defineProperty(NativePromise.prototype, "then", { value: localThen, writable: true, enumerable: false, configurable: true });
+    Object.defineProperty(NativePromise.prototype, "constructor", constructorDescriptor);
+    let callbackCalls = 0;
+    try {
+      compileMutationPack({ output: { value: "good" }, pack: [{
+        id: "x", type: "x", description: "x",
+        mutate(output) { callbackCalls += 1; return output; },
+        scores: { severity: 1, realism: 1, subtlety: 1, novelty: 1, fixability: 1 },
+        protection: { description: "x", check() { callbackCalls += 1; return true; } }
+      }] });
+      process.exit(31);
+    } catch {}
+    if (callbackCalls !== 0 || constructorTraps !== 0) process.exit(32);
+  `;
+  const result = spawnSync(process.execPath, ["-e", code], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});

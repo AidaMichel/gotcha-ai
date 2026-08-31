@@ -108,6 +108,33 @@ try {
 const experimentFreeze =
   runInNewContext("Object.freeze");
 
+function unavailablePromiseBrandProbe() {
+  // Fail closed: every inspected value is treated as a forbidden Promise brand
+  // when genuine local util.types.isPromise authority cannot be established.
+  return true;
+}
+
+let experimentPromiseBrandProbe = unavailablePromiseBrandProbe;
+try {
+  const candidate = utilTypes.isPromise;
+  const pristineReflectApply = runInNewContext("Reflect.apply");
+  const pristineFunctionToString = runInNewContext("Function.prototype.toString");
+  if (
+    typeof candidate === "function" &&
+    promiseCaptureIsProxy(candidate) !== true &&
+    (
+      pristineReflectApply(pristineFunctionToString, candidate, []) ===
+        "function isPromise() { [native code] }" ||
+      pristineReflectApply(pristineFunctionToString, candidate, []) ===
+        "function () { [native code] }"
+    )
+  ) {
+    experimentPromiseBrandProbe = candidate;
+  }
+} catch {
+  experimentPromiseBrandProbe = unavailablePromiseBrandProbe;
+}
+
 const experimentForbiddenProbes =
   experimentFreeze([
     utilTypes.isDate,
@@ -116,7 +143,7 @@ const experimentForbiddenProbes =
     utilTypes.isSet,
     utilTypes.isWeakMap,
     utilTypes.isWeakSet,
-    utilTypes.isPromise,
+    experimentPromiseBrandProbe,
     utilTypes.isNativeError,
     utilTypes.isAnyArrayBuffer,
     utilTypes.isDataView,
@@ -200,7 +227,7 @@ const experimentIntrinsics =
   });
 
 const utilIsPromise =
-  utilTypes["isPromise"];
+  experimentPromiseBrandProbe;
 
 const utilIsProxy =
   utilTypes["isProxy"];

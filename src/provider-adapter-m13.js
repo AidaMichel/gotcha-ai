@@ -36,6 +36,28 @@ const weakSetHas = WeakSet.prototype.has;
 const weakSetAdd = WeakSet.prototype.add;
 const weakSetDelete = WeakSet.prototype.delete;
 
+let providerBrandAuthorityAvailable = false;
+try {
+  const pristineReflectApply = runInNewContext("Reflect.apply");
+  const pristineFunctionToString = runInNewContext("Function.prototype.toString");
+  const promiseProbeSource =
+    pristineReflectApply(pristineFunctionToString, isPromise, []);
+  const proxyProbeSource =
+    pristineReflectApply(pristineFunctionToString, isProxy, []);
+  providerBrandAuthorityAvailable = (
+    (
+      promiseProbeSource === "function isPromise() { [native code] }" ||
+      promiseProbeSource === "function () { [native code] }"
+    ) &&
+    (
+      proxyProbeSource === "function isProxy() { [native code] }" ||
+      proxyProbeSource === "function () { [native code] }"
+    )
+  );
+} catch {
+  providerBrandAuthorityAvailable = false;
+}
+
 const CONTRACT_PROTECTION_INSTRUCTIONS_V1 =
   "Propose one specific, testable declarative quality protection for the selected surviving attack.\n" +
   "Return only the required structured proposal data. Bind the proposal to the supplied task, source attack, and rule.\n" +
@@ -129,6 +151,7 @@ try {
     thenDescriptor.enumerable === false &&
     thenDescriptor.configurable === true &&
     !isProxy(thenDescriptor.value) &&
+    pristineReflectApply(pristineGetPrototypeOf, undefined, [thenDescriptor.value]) === Function.prototype &&
     intrinsicThenSource === pristinePromiseThenSource
   );
 
@@ -159,7 +182,9 @@ try {
   }
 
   promiseAuthorityAvailable =
-    intrinsicAuthorityValid && ambientPrototypeMatches;
+    providerBrandAuthorityAvailable &&
+    intrinsicAuthorityValid &&
+    ambientPrototypeMatches;
 } catch {
   trustedPromiseConstructor = null;
   trustedPromisePrototype = null;
@@ -183,6 +208,17 @@ try {
     !("set" in ambientTypeErrorDescriptor)
       ? ambientTypeErrorDescriptor.value
       : null;
+  const localTypeErrorConstructorDescriptor =
+    localTypeErrorPrototype !== null
+      ? getOwnPropertyDescriptor(localTypeErrorPrototype, "constructor")
+      : undefined;
+  const localTypeErrorConstructor =
+    localTypeErrorConstructorDescriptor !== undefined &&
+    !("get" in localTypeErrorConstructorDescriptor) &&
+    !("set" in localTypeErrorConstructorDescriptor) &&
+    typeof localTypeErrorConstructorDescriptor.value === "function"
+      ? localTypeErrorConstructorDescriptor.value
+      : null;
   const ambientTypeErrorPrototypeDescriptor =
     typeof ambientTypeErrorCandidate === "function" &&
     !isProxy(ambientTypeErrorCandidate)
@@ -190,7 +226,8 @@ try {
       : undefined;
   legacyTypeErrorAuthorityAvailable = (
     localTypeErrorPrototype !== null &&
-    typeof ambientTypeErrorCandidate === "function" &&
+    localTypeErrorConstructor !== null &&
+    ambientTypeErrorCandidate === localTypeErrorConstructor &&
     !isProxy(ambientTypeErrorCandidate) &&
     ambientTypeErrorPrototypeDescriptor !== undefined &&
     !("get" in ambientTypeErrorPrototypeDescriptor) &&
@@ -203,7 +240,9 @@ try {
 
 let createLegacyStructuredProviderAdapter = null;
 if (promiseAuthorityAvailable && legacyTypeErrorAuthorityAvailable) {
-  const legacyAdapter = require("./provider-adapter");
+  const legacyAdapterPath = require.resolve("./provider-adapter");
+  delete require.cache[legacyAdapterPath];
+  const legacyAdapter = require(legacyAdapterPath);
   if (
     legacyAdapter !== null &&
     typeof legacyAdapter === "object" &&
@@ -574,6 +613,33 @@ function prototypeConstructorIsTrusted(promise) {
   );
 }
 
+function inheritedConstructorUsesSafeDefaultSpecies(promise) {
+  let prototype = getPrototypeOf(promise);
+  while (prototype !== null) {
+    if (isProxy(prototype)) return false;
+    const constructorDescriptor = getOwnPropertyDescriptor(prototype, "constructor");
+    if (constructorDescriptor !== undefined) {
+      if ("get" in constructorDescriptor || "set" in constructorDescriptor) return false;
+      const constructor = constructorDescriptor.value;
+      if (constructor === undefined) return true;
+      const objectConstructorDescriptor = getOwnPropertyDescriptor(objectPrototype, "constructor");
+      const objectConstructor =
+        objectConstructorDescriptor !== undefined &&
+        !("get" in objectConstructorDescriptor) &&
+        !("set" in objectConstructorDescriptor)
+          ? objectConstructorDescriptor.value
+          : null;
+      if (constructor !== objectConstructor || typeof constructor !== "function" || isProxy(constructor)) {
+        return false;
+      }
+      const speciesDescriptor = getOwnPropertyDescriptor(constructor, promiseSpecies);
+      return speciesDescriptor === undefined;
+    }
+    prototype = getPrototypeOf(prototype);
+  }
+  return true;
+}
+
 function consumeRejectedRecognizedPromise(promise) {
   const constructorDescriptor = getOwnPropertyDescriptor(promise, "constructor");
   if (
@@ -585,7 +651,9 @@ function consumeRejectedRecognizedPromise(promise) {
     return true;
   }
   if (constructorDescriptor === undefined && isExtensible(promise) !== true) {
-    return false;
+    if (!inheritedConstructorUsesSafeDefaultSpecies(promise)) return false;
+    reflectApply(trustedPromiseThen, promise, [undefined, () => {}]);
+    return true;
   }
   defineProperty(promise, "constructor", {
     value: safePromiseConstructor,

@@ -20,18 +20,40 @@ const mutationPromiseThenDescriptor =
   getOwnPropertyDescriptor(mutationPromisePrototype, "then");
 let promiseThen = null;
 try {
+  const constructorCandidate =
+    mutationPromiseConstructorDescriptor !== undefined &&
+    !("get" in mutationPromiseConstructorDescriptor) &&
+    !("set" in mutationPromiseConstructorDescriptor)
+      ? mutationPromiseConstructorDescriptor.value
+      : null;
   const thenCandidate =
     mutationPromiseThenDescriptor !== undefined &&
     !("get" in mutationPromiseThenDescriptor) &&
     !("set" in mutationPromiseThenDescriptor)
       ? mutationPromiseThenDescriptor.value
       : null;
+  const ambientPromiseDescriptor = getOwnPropertyDescriptor(globalThis, "Promise");
+  const ambientPromiseCandidate =
+    ambientPromiseDescriptor !== undefined &&
+    !("get" in ambientPromiseDescriptor) &&
+    !("set" in ambientPromiseDescriptor)
+      ? ambientPromiseDescriptor.value
+      : null;
+  const pristinePromiseConstructorSource = runInNewContext(
+    "Function.prototype.toString.call(Promise)"
+  );
   const pristinePromiseThenSource = runInNewContext(
     "Function.prototype.toString.call(Promise.prototype.then)"
   );
   if (
+    typeof constructorCandidate === "function" &&
+    utilTypes.isProxy(constructorCandidate) !== true &&
+    constructorCandidate === ambientPromiseCandidate &&
+    getPrototypeOf(constructorCandidate) === Function.prototype &&
+    Reflect.apply(functionToString, constructorCandidate, []) === pristinePromiseConstructorSource &&
     typeof thenCandidate === "function" &&
     utilTypes.isProxy(thenCandidate) !== true &&
+    getPrototypeOf(thenCandidate) === Function.prototype &&
     Reflect.apply(functionToString, thenCandidate, []) === pristinePromiseThenSource
   ) {
     promiseThen = thenCandidate;
