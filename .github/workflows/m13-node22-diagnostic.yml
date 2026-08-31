@@ -1,4 +1,4 @@
-name: M13 Node 22 diagnostic
+name: M13 Promise authority diagnostic
 
 on:
   push:
@@ -9,66 +9,26 @@ permissions:
   contents: read
 
 jobs:
-  capture-node22-flake:
+  inspect-promise-brand:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [18, 20, 22, 24]
     steps:
       - uses: actions/checkout@v4
-
-      - name: Apply exact round4 remediation
-        run: |
-          python3 scripts/qa/m13-codex-p1-round4.py
-          python3 scripts/qa/m13-codex-p1-round4-followup.py
-          python3 scripts/qa/m13-codex-p1-round4-core-followup.py
-
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-
-      - name: Capture first parallel failure
+          node-version: ${{ matrix.node }}
+      - name: Print Promise brand authority
         run: |
-          set -euo pipefail
-          files=(
-            test/m13-review-remediation.test.js
-            test/provider-adapter-m13.test.js
-            test/mutation-pack.test.js
-            test/contract-protection-proposal.test.js
-            test/contract-quality-loop.test.js
-            test/package-contract-protection-proposal.test.js
-          )
-          for i in $(seq 1 100); do
-            echo "parallel iteration $i"
-            set +e
-            output=$(node --test "${files[@]}" 2>&1)
-            status=$?
-            set -e
-            if [ "$status" -ne 0 ]; then
-              echo "::error title=Node22 parallel flake::iteration=$i status=$status"
-              printf '%s\n' "$output"
-              printf '%s\n' "$output" \
-                | grep -E '^(not ok|# Subtest:|  (failureType|error|code|name|operator|expected|actual):|# Warning:|# Error:)' \
-                | tail -n 40 \
-                | while IFS= read -r line; do
-                    safe=${line//'%'/'%25'}
-                    safe=${safe//$'\r'/'%0D'}
-                    safe=${safe//$'\n'/'%0A'}
-                    echo "::error title=Node22 TAP::$safe"
-                  done
-              exit "$status"
-            fi
-          done
-
-      - name: Serial control x30
-        if: always()
-        run: |
-          set -euo pipefail
-          for i in $(seq 1 30); do
-            node --test --test-concurrency=1 \
-              test/m13-review-remediation.test.js \
-              test/provider-adapter-m13.test.js \
-              test/mutation-pack.test.js \
-              test/contract-protection-proposal.test.js \
-              test/contract-quality-loop.test.js \
-              test/package-contract-protection-proposal.test.js
-          done
+          node - <<'NODE'
+          const util = require('node:util');
+          const d = Object.getOwnPropertyDescriptor(util.types, 'isPromise');
+          console.log('node=' + process.version);
+          console.log('source=' + Function.prototype.toString.call(util.types.isPromise));
+          console.log('prototypeLocal=' + (Object.getPrototypeOf(util.types.isPromise) === Function.prototype));
+          console.log('descriptor=' + JSON.stringify({writable:d?.writable, enumerable:d?.enumerable, configurable:d?.configurable, accessor:!!(d?.get||d?.set)}));
+          console.log('true=' + util.types.isPromise(true));
+          console.log('promise=' + util.types.isPromise(Promise.resolve()));
+          NODE
