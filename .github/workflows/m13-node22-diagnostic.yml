@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  isolate-node22-failure:
+  isolate-node22-concurrency:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,32 +24,43 @@ jobs:
         with:
           node-version: 22
           cache: npm
-
       - run: npm ci
 
-      - name: m13-review-remediation
+      - name: half A - remediation provider mutation
         continue-on-error: true
-        run: node --test test/m13-review-remediation.test.js
+        run: node --test test/m13-review-remediation.test.js test/provider-adapter-m13.test.js test/mutation-pack.test.js
 
-      - name: provider-adapter-m13
+      - name: half B - proposal quality package
         continue-on-error: true
-        run: node --test test/provider-adapter-m13.test.js
+        run: node --test test/contract-protection-proposal.test.js test/contract-quality-loop.test.js test/package-contract-protection-proposal.test.js
 
-      - name: mutation-pack
+      - name: omit remediation
         continue-on-error: true
-        run: node --test test/mutation-pack.test.js
+        run: node --test test/provider-adapter-m13.test.js test/mutation-pack.test.js test/contract-protection-proposal.test.js test/contract-quality-loop.test.js test/package-contract-protection-proposal.test.js
 
-      - name: contract-protection-proposal
+      - name: omit provider
         continue-on-error: true
-        run: node --test test/contract-protection-proposal.test.js
+        run: node --test test/m13-review-remediation.test.js test/mutation-pack.test.js test/contract-protection-proposal.test.js test/contract-quality-loop.test.js test/package-contract-protection-proposal.test.js
 
-      - name: contract-quality-loop
+      - name: omit mutation
         continue-on-error: true
-        run: node --test test/contract-quality-loop.test.js
+        run: node --test test/m13-review-remediation.test.js test/provider-adapter-m13.test.js test/contract-protection-proposal.test.js test/contract-quality-loop.test.js test/package-contract-protection-proposal.test.js
 
-      - name: package-contract-protection-proposal
+      - name: omit proposal
         continue-on-error: true
-        run: node --test test/package-contract-protection-proposal.test.js
+        run: node --test test/m13-review-remediation.test.js test/provider-adapter-m13.test.js test/mutation-pack.test.js test/contract-quality-loop.test.js test/package-contract-protection-proposal.test.js
+
+      - name: omit quality
+        continue-on-error: true
+        run: node --test test/m13-review-remediation.test.js test/provider-adapter-m13.test.js test/mutation-pack.test.js test/contract-protection-proposal.test.js test/package-contract-protection-proposal.test.js
+
+      - name: omit package
+        continue-on-error: true
+        run: node --test test/m13-review-remediation.test.js test/provider-adapter-m13.test.js test/mutation-pack.test.js test/contract-protection-proposal.test.js test/contract-quality-loop.test.js
+
+      - name: all six control
+        continue-on-error: true
+        run: node --test test/m13-review-remediation.test.js test/provider-adapter-m13.test.js test/mutation-pack.test.js test/contract-protection-proposal.test.js test/contract-quality-loop.test.js test/package-contract-protection-proposal.test.js
 
       - name: Diagnostic complete
-        run: echo "Inspect per-step conclusions; no raw job log required."
+        run: echo "Use per-step conclusions to isolate concurrency interaction."
