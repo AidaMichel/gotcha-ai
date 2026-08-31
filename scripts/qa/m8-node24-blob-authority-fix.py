@@ -5,16 +5,15 @@ CORE = ROOT / "src" / "ai-data-core.js"
 
 core = CORE.read_text()
 
-old = '''      if (\n        sourceBelongsToEmbeddedModule(\n          moduleConstructor,\n          moduleSource\n        ) ||\n        (\n          nativeRuntimeExpected &&\n          matchesAmbientNativeConstructor(\n            moduleConstructor,\n            constructorName\n          )\n        )\n      ) {\n        return moduleConstructor;\n      }'''
+function_marker = '''function resolveRequiredUndiciConstructor(\n  constructorName\n) {'''
 
-new = '''      if (\n        sourceBelongsToEmbeddedModule(\n          moduleConstructor,\n          moduleSource\n        ) ||\n        (\n          constructorName === "Blob" &&\n          nodeMajorVersion >= 24 &&\n          (() => {\n            const prototype =\n              captureConstructorPrototype(\n                moduleConstructor\n              );\n\n            if (prototype === null) {\n              return false;\n            }\n\n            let prototypeConstructorDescriptor;\n            let sliceDescriptor;\n\n            try {\n              prototypeConstructorDescriptor =\n                getOwnPropertyDescriptor(\n                  prototype,\n                  "constructor"\n                );\n              sliceDescriptor =\n                getOwnPropertyDescriptor(\n                  prototype,\n                  "slice"\n                );\n            } catch {\n              return false;\n            }\n\n            return (\n              prototypeConstructorDescriptor !==\n                undefined &&\n              "value" in\n                prototypeConstructorDescriptor &&\n              prototypeConstructorDescriptor.value ===\n                moduleConstructor &&\n              sliceDescriptor !== undefined &&\n              "value" in sliceDescriptor &&\n              typeof sliceDescriptor.value ===\n                "function" &&\n              !utilTypePredicates.isProxy(\n                sliceDescriptor.value\n              ) &&\n              sourceBelongsToEmbeddedModule(\n                sliceDescriptor.value,\n                moduleSource\n              )\n            );\n          })()\n        ) ||\n        (\n          nativeRuntimeExpected &&\n          matchesAmbientNativeConstructor(\n            moduleConstructor,\n            constructorName\n          )\n        )\n      ) {\n        return moduleConstructor;\n      }'''
+helper = '''function hasTrustedUndiciBlobDependency() {\n  if (nodeMajorVersion < 24) {\n    return true;\n  }\n\n  let globalBlobDescriptor;\n  let moduleBlobDescriptor;\n\n  try {\n    globalBlobDescriptor =\n      getOwnPropertyDescriptor(\n        globalThis,\n        "Blob"\n      );\n    moduleBlobDescriptor =\n      getOwnPropertyDescriptor(\n        nodeBuffer,\n        "Blob"\n      );\n  } catch {\n    return false;\n  }\n\n  if (\n    globalBlobDescriptor === undefined ||\n    "get" in globalBlobDescriptor ||\n    "set" in globalBlobDescriptor ||\n    moduleBlobDescriptor === undefined ||\n    "get" in moduleBlobDescriptor ||\n    "set" in moduleBlobDescriptor ||\n    typeof globalBlobDescriptor.value !==\n      "function" ||\n    globalBlobDescriptor.value !==\n      moduleBlobDescriptor.value ||\n    utilTypePredicates.isProxy(\n      globalBlobDescriptor.value\n    )\n  ) {\n    return false;\n  }\n\n  const blobModuleSource =\n    captureEmbeddedNodeSource(\n      "internal/blob"\n    );\n\n  return sourceBelongsToEmbeddedModule(\n    globalBlobDescriptor.value,\n    blobModuleSource\n  );\n}\n\nfunction resolveRequiredUndiciConstructor(\n  constructorName\n) {'''
 
-count = core.count(old)
+count = core.count(function_marker)
 if count != 1:
     raise SystemExit(
-        f"expected one module constructor trust seam, found {count}"
+        f"expected one required Undici constructor seam, found {count}"
     )
+core = core.replace(function_marker, helper, 1)
 
-core = core.replace(old, new, 1)
-CORE.write_text(core)
-print("added Node 24 Blob module-brand authority fallback")
+g getter_marker = '''  let constructor;\n\n  try {\n    constructor =\n      reflectApply(\n        getter,\n        globalThis,\n        []\n      );'''
