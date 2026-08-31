@@ -1,0 +1,93 @@
+name: M13 post-M8 merge gate
+
+on:
+  push:
+    branches:
+      - milestone-13-runtime-slice-a
+
+jobs:
+  legacy-compat:
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [14.21.3, 16.20.2]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: node --check src/contract-attacks-core.js
+      - run: node --check src/contract-protection-proposal.js
+      - run: node --check src/provider-adapter-m13.js
+      - run: node --check src/index.js
+      - name: public API smoke
+        run: |
+          node - <<'NODE'
+          const api = require('./src');
+          if (typeof api.generateContractProtectionProposal !== 'function') process.exit(1);
+          if (typeof api.createStructuredProviderAdapter !== 'function') process.exit(2);
+          console.log('legacy public API smoke PASS');
+          NODE
+
+  modern-matrix:
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [18, 20, 22, 24]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: node --check src/contract-attacks-core.js
+      - run: node --check src/contract-protection-proposal.js
+      - run: node --check src/provider-adapter-m13.js
+      - name: focused M13 authority and integration proof
+        run: >-
+          node --test
+          test/contract-protection-proposal.test.js
+          test/m13-review-remediation.test.js
+          test/package-contract-protection-proposal.test.js
+          test/provider-adapter-m13.test.js
+      - name: full repository suite
+        run: npm test
+
+  hygiene:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: git diff --check origin/main...HEAD
+      - name: verify intended PR file set plus temporary gate
+        run: |
+          python3 - <<'PY'
+          import subprocess
+          expected = {
+              'README.md',
+              'src/contract-attacks-core.js',
+              'src/contract-protection-proposal.js',
+              'src/contract-quality-loop.js',
+              'src/index.js',
+              'src/mutation-pack.js',
+              'src/provider-adapter-m13.js',
+              'test/contract-protection-proposal.test.js',
+              'test/m13-review-remediation.test.js',
+              'test/package-contract-protection-proposal.test.js',
+              'test/provider-adapter-m13.test.js',
+              '.github/workflows/m13-post-m8-merge-gate.yml',
+          }
+          actual = set(subprocess.check_output(
+              ['git', 'diff', '--name-only', 'origin/main...HEAD'],
+              text=True,
+          ).splitlines())
+          if actual != expected:
+              raise SystemExit(f'unexpected diff files: {sorted(actual ^ expected)}')
+          print('diff file set PASS')
+          PY
