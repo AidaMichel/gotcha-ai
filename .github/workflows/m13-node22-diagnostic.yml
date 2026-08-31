@@ -1,4 +1,4 @@
-name: M13 Promise authority diagnostic
+name: M13 Promise authority fix validation
 
 on:
   push:
@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  inspect-util-types-alias:
+  validate-authority-fix:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -20,16 +20,36 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-      - name: Compare util types exports
+          cache: npm
+      - run: npm ci
+      - name: Apply round4 plus current Node authority fix
         run: |
-          node - <<'NODE'
-          const util = require('node:util');
-          const direct = require('node:util/types');
-          const original = util.types.isPromise;
-          console.log('node=' + process.version);
-          console.log('sameObject=' + (util.types === direct));
-          console.log('sameFunction=' + (util.types.isPromise === direct.isPromise));
-          util.types.isPromise = function poisoned() { throw new Error('poison'); };
-          console.log('mutationPropagates=' + (direct.isPromise === util.types.isPromise));
-          util.types.isPromise = original;
-          NODE
+          python3 scripts/qa/m13-codex-p1-round4.py
+          python3 scripts/qa/m13-codex-p1-round4-followup.py
+          python3 scripts/qa/m13-codex-p1-round4-core-followup.py
+          python3 scripts/qa/m13-node22-authority-fix.py
+      - name: Focused M13 suite
+        run: |
+          node --test \
+            test/m13-review-remediation.test.js \
+            test/provider-adapter-m13.test.js \
+            test/mutation-pack.test.js \
+            test/contract-protection-proposal.test.js \
+            test/contract-quality-loop.test.js \
+            test/package-contract-protection-proposal.test.js
+      - name: Full repository suite
+        run: npm test
+      - name: Node 22 stress focused x10
+        if: matrix.node == 22
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 10); do
+            echo "stress $i"
+            node --test \
+              test/m13-review-remediation.test.js \
+              test/provider-adapter-m13.test.js \
+              test/mutation-pack.test.js \
+              test/contract-protection-proposal.test.js \
+              test/contract-quality-loop.test.js \
+              test/package-contract-protection-proposal.test.js
+          done
