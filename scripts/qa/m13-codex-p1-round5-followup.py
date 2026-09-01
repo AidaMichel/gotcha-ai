@@ -7,15 +7,13 @@ for name in [
 ]:
     p = Path(name)
     text = p.read_text()
-    marker = '"use strict";\n\n'
-    if 'const { types: utilTypes } = require("node:util");' not in text:
-        if marker not in text:
-            raise SystemExit(f"missing strict marker in {name}")
-        text = text.replace(
-            marker,
-            marker + 'const { types: utilTypes } = require("node:util");\n',
-            1,
-        )
+    import_line = 'const { types: utilTypes } = require("node:util");\n'
+    if import_line not in text:
+        strict_marker = '"use strict";\n\n'
+        if strict_marker in text:
+            text = text.replace(strict_marker, strict_marker + import_line, 1)
+        else:
+            text = import_line + text
     p.write_text(text)
 
 print("round5 retained non-authority util dependencies restored")
