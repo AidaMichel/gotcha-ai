@@ -126,7 +126,7 @@ text = text.replace(
 )
 text = text.replace(
     '    ambientTypeErrorCandidate === localTypeErrorConstructor &&\n    !isProxy(ambientTypeErrorCandidate) &&\n',
-    '    ambientTypeErrorCandidate === localTypeErrorConstructor &&\n    !isProxy(ambientTypeErrorCandidate) &&\n    getPrototypeOf(ambientTypeErrorCandidate) === runtimeAuthority.localFunctionPrototype &&\n    ambientTypeErrorSource === pristineTypeErrorSource &&\n',
+    '    ambientTypeErrorCandidate === localTypeErrorConstructor &&\n    !isProxy(ambientTypeErrorCandidate) &&\n    ambientTypeErrorSource === pristineTypeErrorSource &&\n',
     1,
 )
 text = text.replace(
