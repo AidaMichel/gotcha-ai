@@ -6,6 +6,9 @@ const { runInNewContext } = require("node:vm");
 
 const pristineReflectApply = runInNewContext("Reflect.apply");
 const pristineGetPrototypeOf = runInNewContext("Object.getPrototypeOf");
+const pristineGetOwnPropertyDescriptor = runInNewContext(
+  "Object.getOwnPropertyDescriptor"
+);
 const pristineFunctionToString = runInNewContext(
   "Function.prototype.toString"
 );
@@ -52,7 +55,7 @@ try {
   inspectAuthorityAvailable = false;
 }
 
-function isProxy(value) {
+function bootstrapIsProxy(value) {
   if (!inspectAuthorityAvailable) return true;
   try {
     const rendered = inspectCandidate(value, {
@@ -76,9 +79,58 @@ function isProxy(value) {
   }
 }
 
+function unavailableProxyProbe() {
+  return true;
+}
+
+let isProxy = unavailableProxyProbe;
+try {
+  const descriptor = pristineReflectApply(
+    pristineGetOwnPropertyDescriptor,
+    undefined,
+    [nodeUtil.types, "isProxy"]
+  );
+  const candidate = (
+    descriptor !== undefined &&
+    !("get" in descriptor) &&
+    !("set" in descriptor)
+  ) ? descriptor.value : null;
+  const source = typeof candidate === "function"
+    ? pristineReflectApply(pristineFunctionToString, candidate, [])
+    : null;
+  const nativeSource = (
+    source === "function isProxy() { [native code] }" ||
+    source === "function () { [native code] }"
+  );
+  if (
+    typeof candidate === "function" &&
+    candidate.name === "isProxy" &&
+    nativeSource &&
+    pristineReflectApply(
+      pristineGetPrototypeOf,
+      undefined,
+      [candidate]
+    ) === localFunctionPrototype &&
+    bootstrapIsProxy(candidate) === false
+  ) {
+    isProxy = candidate;
+  }
+} catch {
+  isProxy = unavailableProxyProbe;
+}
+
 function nativeProbe(name) {
   try {
-    const candidate = nodeUtil.types[name];
+    const descriptor = pristineReflectApply(
+      pristineGetOwnPropertyDescriptor,
+      undefined,
+      [nodeUtil.types, name]
+    );
+    const candidate = (
+      descriptor !== undefined &&
+      !("get" in descriptor) &&
+      !("set" in descriptor)
+    ) ? descriptor.value : null;
     if (typeof candidate !== "function") return null;
     const source = pristineReflectApply(
       pristineFunctionToString,
