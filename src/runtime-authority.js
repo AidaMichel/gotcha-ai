@@ -1,14 +1,11 @@
 "use strict";
 
 const nodeUtil = require("node:util");
-const nodeProcess = require("node:process");
+const { Buffer: BufferConstructor } = require("node:buffer");
 const { runInNewContext } = require("node:vm");
 
 const pristineReflectApply = runInNewContext("Reflect.apply");
 const pristineGetPrototypeOf = runInNewContext("Object.getPrototypeOf");
-const pristineGetOwnPropertyDescriptor = runInNewContext(
-  "Object.getOwnPropertyDescriptor"
-);
 const pristineFunctionToString = runInNewContext(
   "Function.prototype.toString"
 );
@@ -30,19 +27,22 @@ try {
     inspectCandidate,
     []
   );
-  inspectAuthorityAvailable = (
-    typeof inspectCandidate === "function" &&
-    pristineReflectApply(
-      pristineGetPrototypeOf,
-      undefined,
-      [inspectCandidate]
-    ) === localFunctionPrototype &&
+  const sourceLooksLocal = (
     typeof inspectSource === "string" &&
     pristineReflectApply(
       pristineStringStartsWith,
       inspectSource,
       ["function inspect("]
     ) === true
+  );
+  inspectAuthorityAvailable = (
+    typeof inspectCandidate === "function" &&
+    sourceLooksLocal &&
+    pristineReflectApply(
+      pristineGetPrototypeOf,
+      undefined,
+      [inspectCandidate]
+    ) === localFunctionPrototype
   );
 } catch {
   inspectAuthorityAvailable = false;
@@ -72,116 +72,89 @@ function isProxy(value) {
   }
 }
 
-let internalUtil = null;
+function nativeProbe(name) {
+  try {
+    const candidate = nodeUtil.types[name];
+    if (typeof candidate !== "function") return null;
+    const source = pristineReflectApply(
+      pristineFunctionToString,
+      candidate,
+      []
+    );
+    const namedSource = "function " + name + "() { [native code] }";
+    if (
+      source !== namedSource &&
+      source !== "function () { [native code] }"
+    ) return null;
+    if (isProxy(candidate)) return null;
+    if (
+      pristineReflectApply(
+        pristineGetPrototypeOf,
+        undefined,
+        [candidate]
+      ) !== localFunctionPrototype
+    ) return null;
+    return candidate;
+  } catch {
+    return null;
+  }
+}
+
+function unavailableBrandProbe() {
+  return true;
+}
+
+function retainedProbe(name) {
+  const candidate = nativeProbe(name);
+  return candidate === null ? unavailableBrandProbe : candidate;
+}
+
+const isDate = retainedProbe("isDate");
+const isRegExp = retainedProbe("isRegExp");
+const isMap = retainedProbe("isMap");
+const isSet = retainedProbe("isSet");
+const isWeakMap = retainedProbe("isWeakMap");
+const isWeakSet = retainedProbe("isWeakSet");
+const isPromise = retainedProbe("isPromise");
+const isNativeError = retainedProbe("isNativeError");
+const isAnyArrayBuffer = retainedProbe("isAnyArrayBuffer");
+const isDataView = retainedProbe("isDataView");
+const isTypedArray = retainedProbe("isTypedArray");
+const isBoxedPrimitive = retainedProbe("isBoxedPrimitive");
+const isArgumentsObject = retainedProbe("isArgumentsObject");
+const isGeneratorObject = retainedProbe("isGeneratorObject");
+const isModuleNamespaceObject = retainedProbe("isModuleNamespaceObject");
+const isMapIterator = retainedProbe("isMapIterator");
+const isSetIterator = retainedProbe("isSetIterator");
+const isExternal = retainedProbe("isExternal");
+
+let bufferIsBuffer = unavailableBrandProbe;
 try {
-  const binding = nodeProcess.binding;
+  const candidate = BufferConstructor.isBuffer;
+  const source = pristineReflectApply(
+    pristineFunctionToString,
+    candidate,
+    []
+  );
   if (
-    typeof binding === "function" &&
+    typeof candidate === "function" &&
+    !isProxy(candidate) &&
     pristineReflectApply(
       pristineGetPrototypeOf,
       undefined,
-      [binding]
-    ) === localFunctionPrototype
+      [candidate]
+    ) === localFunctionPrototype &&
+    typeof source === "string" &&
+    pristineReflectApply(
+      pristineStringStartsWith,
+      source,
+      ["function isBuffer("]
+    ) === true
   ) {
-    internalUtil = pristineReflectApply(binding, nodeProcess, ["util"]);
+    bufferIsBuffer = candidate;
   }
 } catch {
-  internalUtil = null;
-}
-
-function internalProbe(name, value) {
-  if (internalUtil === null || typeof internalUtil !== "object") return true;
-  const descriptor = pristineReflectApply(
-    pristineGetOwnPropertyDescriptor,
-    undefined,
-    [internalUtil, name]
-  );
-  if (
-    descriptor === undefined ||
-    "get" in descriptor ||
-    "set" in descriptor ||
-    typeof descriptor.value !== "function" ||
-    isProxy(descriptor.value)
-  ) return true;
-  try {
-    return pristineReflectApply(descriptor.value, undefined, [value]) === true;
-  } catch {
-    return true;
-  }
-}
-
-function isPromise(value) {
-  return internalProbe("isPromise", value);
-}
-function isDate(value) {
-  return internalProbe("isDate", value);
-}
-function isRegExp(value) {
-  return internalProbe("isRegExp", value);
-}
-function isMap(value) {
-  return internalProbe("isMap", value);
-}
-function isSet(value) {
-  return internalProbe("isSet", value);
-}
-function isNativeError(value) {
-  return internalProbe("isNativeError", value);
-}
-function isAnyArrayBuffer(value) {
-  return internalProbe("isAnyArrayBuffer", value);
-}
-function isDataView(value) {
-  return internalProbe("isDataView", value);
-}
-function isTypedArray(value) {
-  return internalProbe("isTypedArray", value);
-}
-function isMapIterator(value) {
-  return internalProbe("isMapIterator", value);
-}
-function isSetIterator(value) {
-  return internalProbe("isSetIterator", value);
-}
-function isExternal(value) {
-  return internalProbe("isExternal", value);
-}
-
-const pristineWeakMapHas = runInNewContext("WeakMap.prototype.has");
-const pristineWeakSetHas = runInNewContext("WeakSet.prototype.has");
-const weakProbeKey = Object.freeze(Object.create(null));
-function isWeakMap(value) {
-  try {
-    pristineReflectApply(pristineWeakMapHas, value, [weakProbeKey]);
-    return true;
-  } catch {
-    return false;
-  }
-}
-function isWeakSet(value) {
-  try {
-    pristineReflectApply(pristineWeakSetHas, value, [weakProbeKey]);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-const boxedValueOfs = Object.freeze([
-  runInNewContext("Number.prototype.valueOf"),
-  runInNewContext("String.prototype.valueOf"),
-  runInNewContext("Boolean.prototype.valueOf"),
-  runInNewContext("BigInt.prototype.valueOf"),
-  runInNewContext("Symbol.prototype.valueOf")
-]);
-function isBoxedPrimitive(value) {
-  for (let index = 0; index < boxedValueOfs.length; index += 1) {
-    try {
-      pristineReflectApply(boxedValueOfs[index], value, []);
-      return true;
-    } catch {}
-  }
-  return false;
+  bufferIsBuffer = unavailableBrandProbe;
 }
 
 const forbiddenProbes = Object.freeze([
@@ -197,9 +170,13 @@ const forbiddenProbes = Object.freeze([
   isDataView,
   isTypedArray,
   isBoxedPrimitive,
+  isArgumentsObject,
+  isGeneratorObject,
+  isModuleNamespaceObject,
   isMapIterator,
   isSetIterator,
-  isExternal
+  isExternal,
+  bufferIsBuffer
 ]);
 
 const pristinePromiseSpeciesGetterSource = runInNewContext(
@@ -217,29 +194,26 @@ function hasTrustedLocalPromiseSpecies(constructor, speciesSymbol) {
         [constructor]
       ) !== localFunctionPrototype
     ) return false;
-    const descriptor = pristineReflectApply(
-      pristineGetOwnPropertyDescriptor,
-      undefined,
-      [constructor, speciesSymbol]
-    );
+    const descriptor = Object.getOwnPropertyDescriptor(constructor, speciesSymbol);
     if (
       descriptor === undefined ||
       typeof descriptor.get !== "function" ||
       descriptor.set !== undefined ||
       descriptor.enumerable !== false ||
       descriptor.configurable !== true ||
-      isProxy(descriptor.get) ||
-      pristineReflectApply(
-        pristineGetPrototypeOf,
-        undefined,
-        [descriptor.get]
-      ) !== localFunctionPrototype
+      isProxy(descriptor.get)
     ) return false;
-    return pristineReflectApply(
+    const getterSource = pristineReflectApply(
       pristineFunctionToString,
       descriptor.get,
       []
-    ) === pristinePromiseSpeciesGetterSource;
+    );
+    if (getterSource !== pristinePromiseSpeciesGetterSource) return false;
+    return pristineReflectApply(
+      pristineGetPrototypeOf,
+      undefined,
+      [descriptor.get]
+    ) === localFunctionPrototype;
   } catch {
     return false;
   }
