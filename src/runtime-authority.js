@@ -230,6 +230,7 @@ module.exports = Object.freeze({
   isProxy,
   isPromise,
   isTypedArray,
+  bufferIsBuffer,
   forbiddenProbes,
   hasForbiddenRuntimeBrand,
   localFunctionPrototype,
