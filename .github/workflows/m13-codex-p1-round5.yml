@@ -45,38 +45,24 @@ jobs:
         with: { node-version: 18, cache: npm }
       - run: npm ci
       - name: Node 18 authority diagnostics
+        env:
+          M13_AUTH_DEBUG: "1"
         run: |
           node - <<'NODE'
-          const util = require('node:util');
           const r = require('./src/runtime-authority');
-          const names = [
-            'isDate','isRegExp','isMap','isSet','isWeakMap','isWeakSet','isPromise',
-            'isNativeError','isAnyArrayBuffer','isDataView','isTypedArray','isBoxedPrimitive',
-            'isArgumentsObject','isGeneratorObject','isModuleNamespaceObject','isMapIterator',
-            'isSetIterator','isExternal'
-          ];
-          for (const name of names) {
-            const fn = util.types[name];
-            let source;
-            try { source = Function.prototype.toString.call(fn); } catch (e) { source = String(e); }
-            let plain;
-            try { plain = fn({}); } catch (e) { plain = 'throw:' + e.name; }
-            console.log(name, JSON.stringify({source, fnName: fn && fn.name, plain}));
-          }
-          console.log('sharedPlainResults', r.forbiddenProbes.map((probe, i) => {
-            try { return [i, probe({})]; } catch (e) { return [i, 'throw:' + e.name]; }
-          }));
           const checks = {
             proxyPlain: r.isProxy({}) === false,
             proxyPromiseCtor: r.isProxy(Promise) === false,
             promiseBrand: r.isPromise(Promise.resolve()) === true,
+            plainBrand: r.hasForbiddenRuntimeBrand({}) === false,
             localFunction: r.localFunctionPrototype === Object.getPrototypeOf(function localAnchor() {}),
             promiseSpecies: r.hasTrustedLocalPromiseSpecies(Promise, Symbol.species) === true
           };
-          console.log('checks', checks);
+          console.log('shared checks', checks);
           for (const [name, ok] of Object.entries(checks)) {
             if (!ok) throw new Error('authority diagnostic failed: ' + name);
           }
+          require('./src/provider-adapter-m13');
           NODE
       - name: Node 18 focused
         run: node --test test/m13-review-remediation.test.js test/provider-adapter-m13.test.js test/mutation-pack.test.js test/contract-protection-proposal.test.js test/contract-quality-loop.test.js test/package-contract-protection-proposal.test.js
