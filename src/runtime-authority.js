@@ -12,6 +12,7 @@ const pristineFunctionToString = runInNewContext(
 const pristineStringStartsWith = runInNewContext(
   "String.prototype.startsWith"
 );
+const pristineArrayBufferIsView = runInNewContext("ArrayBuffer.isView");
 
 const localFunctionPrototype = pristineReflectApply(
   pristineGetPrototypeOf,
@@ -119,7 +120,16 @@ const isPromise = retainedProbe("isPromise");
 const isNativeError = retainedProbe("isNativeError");
 const isAnyArrayBuffer = retainedProbe("isAnyArrayBuffer");
 const isDataView = retainedProbe("isDataView");
-const isTypedArray = retainedProbe("isTypedArray");
+function isTypedArray(value) {
+  try {
+    return (
+      pristineReflectApply(pristineArrayBufferIsView, undefined, [value]) === true &&
+      isDataView(value) !== true
+    );
+  } catch {
+    return true;
+  }
+}
 const isBoxedPrimitive = retainedProbe("isBoxedPrimitive");
 const isArgumentsObject = retainedProbe("isArgumentsObject");
 const isGeneratorObject = retainedProbe("isGeneratorObject");
