@@ -49,6 +49,7 @@ jobs:
           M13_AUTH_DEBUG: "1"
         run: |
           node - <<'NODE'
+          const { runInNewContext } = require('node:vm');
           const r = require('./src/runtime-authority');
           const checks = {
             proxyPlain: r.isProxy({}) === false,
@@ -62,6 +63,27 @@ jobs:
           for (const [name, ok] of Object.entries(checks)) {
             if (!ok) throw new Error('authority diagnostic failed: ' + name);
           }
+
+          let localTypeErrorPrototype = null;
+          try { null.round5TypeErrorDiagnostic; } catch (error) {
+            localTypeErrorPrototype = Object.getPrototypeOf(error);
+          }
+          const ambient = Object.getOwnPropertyDescriptor(globalThis, 'TypeError').value;
+          const ctorDesc = Object.getOwnPropertyDescriptor(localTypeErrorPrototype, 'constructor');
+          const localCtor = ctorDesc.value;
+          const protoDesc = Object.getOwnPropertyDescriptor(ambient, 'prototype');
+          const pristineToString = runInNewContext('Function.prototype.toString');
+          const pristineSource = runInNewContext('Function.prototype.toString.call(TypeError)');
+          const ambientSource = Reflect.apply(pristineToString, ambient, []);
+          console.log('typeError checks', {
+            ambientEqualsLocalCtor: ambient === localCtor,
+            ambientNonProxy: r.isProxy(ambient) === false,
+            ambientFunctionPrototypeLocal: Object.getPrototypeOf(ambient) === r.localFunctionPrototype,
+            ambientSourceMatches: ambientSource === pristineSource,
+            prototypeMatches: protoDesc.value === localTypeErrorPrototype,
+            ambientSource,
+            pristineSource
+          });
           require('./src/provider-adapter-m13');
           NODE
       - name: Node 18 focused
