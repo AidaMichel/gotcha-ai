@@ -13,6 +13,9 @@ const pristineStringStartsWith = runInNewContext(
   "String.prototype.startsWith"
 );
 const pristineArrayBufferIsView = runInNewContext("ArrayBuffer.isView");
+const pristineDataViewByteLengthGetter = runInNewContext(
+  "Object.getOwnPropertyDescriptor(DataView.prototype, 'byteLength').get"
+);
 
 const localFunctionPrototype = pristineReflectApply(
   pristineGetPrototypeOf,
@@ -119,7 +122,25 @@ const isWeakSet = retainedProbe("isWeakSet");
 const isPromise = retainedProbe("isPromise");
 const isNativeError = retainedProbe("isNativeError");
 const isAnyArrayBuffer = retainedProbe("isAnyArrayBuffer");
-const isDataView = retainedProbe("isDataView");
+function isDataView(value) {
+  try {
+    if (
+      pristineReflectApply(
+        pristineArrayBufferIsView,
+        undefined,
+        [value]
+      ) !== true
+    ) return false;
+    pristineReflectApply(
+      pristineDataViewByteLengthGetter,
+      value,
+      []
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
 function isTypedArray(value) {
   try {
     return (
