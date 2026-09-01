@@ -134,6 +134,12 @@ text = text.replace(
     '''      if (constructor === undefined) return true;\n      if (constructor === trustedPromiseConstructor) {\n        return runtimeAuthority.hasTrustedLocalPromiseSpecies(\n          constructor,\n          promiseSpecies\n        );\n      }\n      const objectConstructorDescriptor = getOwnPropertyDescriptor(objectPrototype, "constructor");''',
     1,
 )
+# Temporary diagnostics, activated only by the QA workflow env var.
+text = text.replace(
+    'let createLegacyStructuredProviderAdapter = null;\n',
+    '''if (process.env.M13_AUTH_DEBUG === "1") {\n  console.error("M13_AUTH_DEBUG " + JSON.stringify({\n    providerBrandAuthorityAvailable,\n    promiseAuthorityAvailable,\n    legacyTypeErrorAuthorityAvailable,\n    capturedPromiseMatches: capturedAmbientPromiseConstructor === trustedPromiseConstructor\n  }));\n}\n\nlet createLegacyStructuredProviderAdapter = null;\n''',
+    1,
+)
 path.write_text(text)
 
 # Mutation Pack: safe Proxy authority and syntax-derived local Function identity.
