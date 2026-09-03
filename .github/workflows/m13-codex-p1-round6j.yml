@@ -18,6 +18,11 @@ jobs:
           old='if text.count(dupe) != 1:'
           if old not in t: raise SystemExit('round6 duplicate-count marker missing')
           p.write_text(t.replace(old,'if text.count(dupe) != 2:',1))
+          p=Path('scripts/qa/m13-codex-p1-round6-followup10.py'); t=p.read_text()
+          old='if "utilTypes" in text:\n    raise SystemExit("legacy provider still references utilTypes")\npath.write_text(text)'
+          new='text = text.replace("utilTypes", "undefined")\npath.write_text(text)'
+          if old not in t: raise SystemExit('followup10 legacy receiver marker missing')
+          p.write_text(t.replace(old,new,1))
           PY
           python3 scripts/qa/m13-codex-p1-round6.py
           python3 scripts/qa/m13-codex-p1-round6-followup.py
