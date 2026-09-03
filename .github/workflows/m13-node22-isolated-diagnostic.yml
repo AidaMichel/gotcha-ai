@@ -29,49 +29,27 @@ jobs:
           python3 scripts/qa/m13-codex-round7-followup6.py
           python3 scripts/qa/m13-codex-round7-followup7.py
           python3 scripts/qa/m13-codex-round7-followup8.py
+          python3 scripts/qa/m13-codex-round7-followup9.py
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22.x
 
-      - name: Capture Buffer getter stacks
+      - name: Capture exact Node22 focused result
+        id: focused
         shell: bash
         run: |
-          node <<'NODE' > scripts/qa/m13-node22-isolated.log 2>&1
-          "use strict";
-          const path = require("node:path");
-          const bufferModule = require("node:buffer");
-          const original = Object.getOwnPropertyDescriptor(bufferModule, "Buffer");
-          let calls = 0;
-          const stacks = [];
-          Object.defineProperty(bufferModule, "Buffer", {
-            get() {
-              calls += 1;
-              if (stacks.length < 8) stacks.push(new Error("Buffer getter call " + calls).stack);
-              return original.value;
-            },
-            enumerable: original.enumerable,
-            configurable: true
-          });
-          let loaded = false;
-          let thrown = null;
-          try {
-            require(path.join(process.cwd(), "src", "index.js"));
-            loaded = true;
-          } catch (error) {
-            thrown = error && error.stack ? error.stack : String(error);
-          } finally {
-            Object.defineProperty(bufferModule, "Buffer", original);
-          }
-          console.log("node=" + process.version);
-          console.log("loaded=" + loaded);
-          console.log("calls=" + calls);
-          if (thrown) console.log("load-error=\n" + thrown);
-          for (let index = 0; index < stacks.length; index += 1) {
-            console.log("----- stack " + (index + 1) + " -----");
-            console.log(stacks[index]);
-          }
-          NODE
+          set +e
+          node --test --test-reporter=spec test/m13-review-remediation.test.js > /tmp/node22.log 2>&1
+          rc=$?
+          {
+            echo "node=$(node --version)"
+            echo "exit=$rc"
+            echo "----- output -----"
+            cat /tmp/node22.log
+          } > scripts/qa/m13-node22-isolated.log
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
 
       - name: Commit diagnostic log
         env:
@@ -80,5 +58,9 @@ jobs:
           git add scripts/qa/m13-node22-isolated.log
           git config user.name "AidaMichel"
           git config user.email "126730924+AidaMichel@users.noreply.github.com"
-          git commit -m "qa: record Node22 Buffer getter call stacks" || exit 0
+          git commit -m "qa: record exact Node22 focused result" || exit 0
           git push origin HEAD:${BRANCH}
+
+      - name: Preserve focused status
+        run: |
+          test "${{ steps.focused.outputs.rc }}" = "0"
