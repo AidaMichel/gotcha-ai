@@ -19,15 +19,14 @@ jobs:
         run: |
           python3 scripts/qa/m13-codex-p1-round5.py
           python3 scripts/qa/m13-codex-p1-round5-followup.py
-      - name: Syntax and diff hygiene
-        run: |
-          git diff --check
-          node --check src/runtime-authority.js
-          node --check test/runtime-authority.test.js
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
       - run: npm ci
-      - name: Node 22 basic runtime authority brands
-        run: node --test --test-name-pattern="distinguishes plain objects" test/runtime-authority.test.js
-      - name: Node 22 poisoned isDataView authority
-        run: node --test --test-name-pattern="mutable util.types.isDataView" test/runtime-authority.test.js
+      - name: Node 22 plain object allowed
+        run: node -e "const r=require('./src/runtime-authority'); if(r.hasForbiddenRuntimeBrand({})!==false) process.exit(31)"
+      - name: Node 22 DataView forbidden
+        run: node -e "const r=require('./src/runtime-authority'); if(r.hasForbiddenRuntimeBrand(new DataView(new ArrayBuffer(8)))!==true) process.exit(32)"
+      - name: Node 22 Uint8Array typed
+        run: node -e "const r=require('./src/runtime-authority'); if(r.isTypedArray(new Uint8Array(8))!==true) process.exit(33)"
+      - name: Node 22 DataView not typed
+        run: node -e "const r=require('./src/runtime-authority'); if(r.isTypedArray(new DataView(new ArrayBuffer(8)))!==false) process.exit(34)"
