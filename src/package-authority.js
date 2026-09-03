@@ -42,8 +42,46 @@ const ArrayConstructor = dataValue(globalThis, "Array");
 const ArrayIsArray = dataValue(ArrayConstructor, "isArray");
 const FunctionConstructor = dataValue(globalThis, "Function");
 const TypeErrorConstructor = dataValue(globalThis, "TypeError");
+const BufferConstructor = dataValue(globalThis, "Buffer");
+const ReflectObject = dataValue(globalThis, "Reflect");
+const ReflectApply = dataValue(ReflectObject, "apply");
+const ObjectConstructor = dataValue(globalThis, "Object");
+const ObjectPrototype = dataValue(ObjectConstructor, "prototype");
+const ObjectGetPrototypeOf = dataValue(ObjectConstructor, "getPrototypeOf");
+const ObjectFreeze = dataValue(ObjectConstructor, "freeze");
+const ObjectToString = dataValue(ObjectPrototype, "toString");
+const FunctionPrototype = dataValue(FunctionConstructor, "prototype");
+const FunctionToString = dataValue(FunctionPrototype, "toString");
+const StringConstructor = dataValue(globalThis, "String");
+const StringPrototype = dataValue(StringConstructor, "prototype");
+const StringStartsWith = dataValue(StringPrototype, "startsWith");
+const ArrayBufferConstructor = dataValue(globalThis, "ArrayBuffer");
+const ArrayBufferIsView = dataValue(ArrayBufferConstructor, "isView");
+const DataViewConstructor = dataValue(globalThis, "DataView");
+const DataViewPrototype = dataValue(DataViewConstructor, "prototype");
+const DataViewByteLengthGetter = accessorGetter(DataViewPrototype, "byteLength");
+const WeakMapConstructor = dataValue(globalThis, "WeakMap");
+const WeakMapPrototype = dataValue(WeakMapConstructor, "prototype");
+const WeakMapHas = dataValue(WeakMapPrototype, "has");
+const WeakSetConstructor = dataValue(globalThis, "WeakSet");
+const WeakSetPrototype = dataValue(WeakSetConstructor, "prototype");
+const WeakSetHas = dataValue(WeakSetPrototype, "has");
+const NumberConstructor = dataValue(globalThis, "Number");
+const NumberPrototype = dataValue(NumberConstructor, "prototype");
+const NumberValueOf = dataValue(NumberPrototype, "valueOf");
+const BooleanConstructor = dataValue(globalThis, "Boolean");
+const BooleanPrototype = dataValue(BooleanConstructor, "prototype");
+const BooleanValueOf = dataValue(BooleanPrototype, "valueOf");
+const BigIntConstructor = dataValue(globalThis, "BigInt");
+const BigIntPrototype = dataValue(BigIntConstructor, "prototype");
+const BigIntValueOf = dataValue(BigIntPrototype, "valueOf");
+const SymbolConstructor = dataValue(globalThis, "Symbol");
+const SymbolPrototype = dataValue(SymbolConstructor, "prototype");
+const SymbolValueOf = dataValue(SymbolPrototype, "valueOf");
+const SymbolSpecies = dataValue(SymbolConstructor, "species");
 
 module.exports = Object.freeze({
+  GetOwnPropertyDescriptor: getOwnPropertyDescriptor,
   PromiseConstructor,
   PromisePrototype,
   PromiseThen,
@@ -51,5 +89,23 @@ module.exports = Object.freeze({
   ArrayConstructor,
   ArrayIsArray,
   FunctionConstructor,
-  TypeErrorConstructor
+  TypeErrorConstructor,
+  BufferConstructor,
+  ReflectApply,
+  ObjectGetPrototypeOf,
+  ObjectFreeze,
+  ObjectToString,
+  FunctionToString,
+  StringStartsWith,
+  ArrayBufferIsView,
+  DataViewByteLengthGetter,
+  WeakMapHas,
+  WeakSetHas,
+  NumberValueOf,
+  StringValueOf: dataValue(StringPrototype, "valueOf"),
+  BooleanValueOf,
+  BigIntValueOf,
+  SymbolValueOf,
+  SymbolSpecies,
+  PromiseSpeciesGetter
 });

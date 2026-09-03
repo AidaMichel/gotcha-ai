@@ -1,15 +1,45 @@
 "use strict";
 
-const packageAuthorityModules = [
+const authorityRootModulePaths = [
   "./package-authority",
   "./runtime-authority",
-  "./ai-data-core",
   "./provider-adapter"
 ];
-for (const modulePath of packageAuthorityModules) {
+const authorityRootIds = new Set();
+for (const modulePath of authorityRootModulePaths) {
   try {
-    delete require.cache[require.resolve(modulePath)];
+    authorityRootIds.add(require.resolve(modulePath));
   } catch {}
+}
+
+function cachedModuleReachesAuthority(moduleRecord, seen) {
+  if (moduleRecord === undefined || moduleRecord === null) return false;
+  if (authorityRootIds.has(moduleRecord.id)) return true;
+  if (seen.has(moduleRecord.id)) return false;
+  seen.add(moduleRecord.id);
+  const children = Array.isArray(moduleRecord.children)
+    ? moduleRecord.children
+    : [];
+  for (let index = 0; index < children.length; index += 1) {
+    if (cachedModuleReachesAuthority(children[index], seen)) return true;
+  }
+  return false;
+}
+
+for (const id of Object.keys(require.cache)) {
+  const moduleRecord = require.cache[id];
+  if (moduleRecord === module) continue;
+  if (
+    id !== __dirname &&
+    !id.startsWith(__dirname + "/") &&
+    !id.startsWith(__dirname + "\\")
+  ) continue;
+  if (cachedModuleReachesAuthority(moduleRecord, new Set())) {
+    delete require.cache[id];
+  }
+}
+for (const id of authorityRootIds) {
+  delete require.cache[id];
 }
 
 const packageAuthority = require("./package-authority");

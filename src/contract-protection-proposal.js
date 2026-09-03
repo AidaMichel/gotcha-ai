@@ -1174,10 +1174,6 @@ function observeAcceptedPromise(promise, onFulfilled, onRejected) {
     previousConstructor !== undefined &&
     previousConstructor.configurable !== true
   ) {
-    if (trustedPromiseConstructorDescriptor(previousConstructor)) {
-      reflectApply(promiseThen, promise, [onFulfilled, onRejected]);
-      return;
-    }
     consumeRejectedRecognizedPromise(promise);
     throw boundaryError();
   }
@@ -1185,9 +1181,8 @@ function observeAcceptedPromise(promise, onFulfilled, onRejected) {
     previousConstructor === undefined &&
     isExtensible(promise) !== true
   ) {
-    if (!inheritedConstructorUsesSafeDefaultSpecies(promise)) throw boundaryError();
-    reflectApply(promiseThen, promise, [onFulfilled, onRejected]);
-    return;
+    consumeRejectedRecognizedPromise(promise);
+    throw boundaryError();
   }
 
   defineProperty(promise, "constructor", {

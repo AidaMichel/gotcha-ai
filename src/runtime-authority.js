@@ -1,50 +1,180 @@
 "use strict";
 
 const packageAuthority = require("./package-authority");
-const { Buffer: BufferConstructor } = require("node:buffer");
-const { runInNewContext } = require("node:vm");
+const bootstrapGetOwnPropertyDescriptor =
+  packageAuthority.GetOwnPropertyDescriptor;
 
-const pristineReflectApply = runInNewContext("Reflect.apply");
-const pristineGetPrototypeOf = runInNewContext("Object.getPrototypeOf");
-const pristineGetOwnPropertyDescriptor = runInNewContext(
-  "Object.getOwnPropertyDescriptor"
-);
-const pristineFunctionToString = runInNewContext(
-  "Function.prototype.toString"
-);
-const pristineStringStartsWith = runInNewContext(
-  "String.prototype.startsWith"
-);
-const pristineArrayBufferIsView = runInNewContext("ArrayBuffer.isView");
-const pristineDataViewByteLengthGetter = runInNewContext(
-  "Object.getOwnPropertyDescriptor(DataView.prototype, 'byteLength').get"
-);
-const pristineArrayConstructorSource = runInNewContext(
-  "Function.prototype.toString.call(Array)"
-);
-const pristineArrayIsArraySource = runInNewContext(
-  "Function.prototype.toString.call(Array.isArray)"
-);
-const pristinePromiseConstructorSource = runInNewContext(
-  "Function.prototype.toString.call(Promise)"
-);
-const pristinePromiseThenSource = runInNewContext(
-  "Function.prototype.toString.call(Promise.prototype.then)"
-);
-const pristinePromiseSpecies = runInNewContext("Symbol.species");
-const pristinePromiseSpeciesGetterSource = runInNewContext(
-  "Function.prototype.toString.call(Object.getOwnPropertyDescriptor(Promise, Symbol.species).get)"
-);
-const pristineFunctionConstructor = runInNewContext("Function");
-const pristineObjectToString = runInNewContext("Object.prototype.toString");
-const pristineWeakMapHas = runInNewContext("WeakMap.prototype.has");
-const pristineWeakSetHas = runInNewContext("WeakSet.prototype.has");
-const pristineNumberValueOf = runInNewContext("Number.prototype.valueOf");
-const pristineStringValueOf = runInNewContext("String.prototype.valueOf");
-const pristineBooleanValueOf = runInNewContext("Boolean.prototype.valueOf");
-const pristineBigIntValueOf = runInNewContext("BigInt.prototype.valueOf");
-const pristineSymbolValueOf = runInNewContext("Symbol.prototype.valueOf");
-const pristineObjectFreeze = runInNewContext("Object.freeze");
+function bootstrapOwnDataValue(object, key) {
+  if (
+    typeof bootstrapGetOwnPropertyDescriptor !== "function" ||
+    object === null ||
+    (typeof object !== "object" && typeof object !== "function")
+  ) return null;
+  try {
+    const descriptor = bootstrapGetOwnPropertyDescriptor(object, key);
+    return (
+      descriptor !== undefined &&
+      !("get" in descriptor) &&
+      !("set" in descriptor)
+    ) ? descriptor.value : null;
+  } catch {
+    return null;
+  }
+}
+
+function bootstrapBuiltinWasLoaded(modulePath) {
+  const list = bootstrapOwnDataValue(process, "moduleLoadList");
+  if (list === null || typeof list !== "object") return true;
+  const bareName = modulePath.slice(0, 5) === "node:"
+    ? modulePath.slice(5)
+    : modulePath;
+  try {
+    for (let index = 0; index < list.length; index += 1) {
+      if (list[index] === "NativeModule " + bareName) return true;
+    }
+  } catch {
+    return true;
+  }
+  return false;
+}
+
+function bootstrapBuiltinModule(modulePath, rejectIfAlreadyLoaded) {
+  const getBuiltinModule = bootstrapOwnDataValue(process, "getBuiltinModule");
+  if (typeof getBuiltinModule === "function") {
+    try {
+      return getBuiltinModule(modulePath);
+    } catch {
+      return null;
+    }
+  }
+
+  // Node 14/16/18 have no process.getBuiltinModule(). Requiring an already
+  // mutated builtin may synchronize its exports and execute accessors before
+  // we can inspect descriptors. For vm we therefore use a same-realm captured
+  // fallback when it was already loaded. V8 is allowed to re-require because
+  // its candidate is never invoked until exact implementation authentication.
+  if (rejectIfAlreadyLoaded === true && bootstrapBuiltinWasLoaded(modulePath)) {
+    return null;
+  }
+  try {
+    return require(modulePath);
+  } catch {
+    return null;
+  }
+}
+
+function bootstrapBuiltinDataExportIsSafe(modulePath, key) {
+  const getBuiltinModule = bootstrapOwnDataValue(process, "getBuiltinModule");
+  // Older supported Nodes do not expose getBuiltinModule. Preserve their
+  // already-validated bootstrap path instead of re-requiring a loaded builtin.
+  if (typeof getBuiltinModule !== "function") return true;
+  try {
+    const moduleObject = getBuiltinModule(modulePath);
+    const descriptor = bootstrapGetOwnPropertyDescriptor(moduleObject, key);
+    return (
+      descriptor !== undefined &&
+      !("get" in descriptor) &&
+      !("set" in descriptor)
+    );
+  } catch {
+    return false;
+  }
+}
+
+// On Node 22, loading node:vm can transitively read node:buffer.Buffer.
+// Inspect the export descriptor without invoking it. Only the accessor-backed
+// hostile case skips vm and uses the descriptor-captured fallback authority;
+// a normal already-loaded Buffer still retains fresh vm authority.
+const vmModule = bootstrapBuiltinDataExportIsSafe("node:buffer", "Buffer")
+  ? bootstrapBuiltinModule("node:vm", true)
+  : null;
+const runInNewContext = bootstrapOwnDataValue(vmModule, "runInNewContext");
+
+const hasFreshVmAuthority = typeof runInNewContext === "function";
+
+const pristineReflectApply = hasFreshVmAuthority
+  ? runInNewContext("Reflect.apply")
+  : packageAuthority.ReflectApply;
+const pristineGetPrototypeOf = hasFreshVmAuthority
+  ? runInNewContext("Object.getPrototypeOf")
+  : packageAuthority.ObjectGetPrototypeOf;
+const pristineGetOwnPropertyDescriptor = hasFreshVmAuthority
+  ? runInNewContext("Object.getOwnPropertyDescriptor")
+  : packageAuthority.GetOwnPropertyDescriptor;
+const pristineFunctionToString = hasFreshVmAuthority
+  ? runInNewContext("Function.prototype.toString")
+  : packageAuthority.FunctionToString;
+const pristineStringStartsWith = hasFreshVmAuthority
+  ? runInNewContext("String.prototype.startsWith")
+  : packageAuthority.StringStartsWith;
+const pristineArrayBufferIsView = hasFreshVmAuthority
+  ? runInNewContext("ArrayBuffer.isView")
+  : packageAuthority.ArrayBufferIsView;
+const pristineDataViewByteLengthGetter = hasFreshVmAuthority
+  ? runInNewContext("Object.getOwnPropertyDescriptor(DataView.prototype, 'byteLength').get")
+  : packageAuthority.DataViewByteLengthGetter;
+
+function bootstrapFunctionSource(value) {
+  if (
+    typeof pristineReflectApply !== "function" ||
+    typeof pristineFunctionToString !== "function" ||
+    typeof value !== "function"
+  ) return null;
+  try {
+    return pristineReflectApply(pristineFunctionToString, value, []);
+  } catch {
+    return null;
+  }
+}
+
+const pristineArrayConstructorSource = hasFreshVmAuthority
+  ? runInNewContext("Function.prototype.toString.call(Array)")
+  : bootstrapFunctionSource(packageAuthority.ArrayConstructor);
+const pristineArrayIsArraySource = hasFreshVmAuthority
+  ? runInNewContext("Function.prototype.toString.call(Array.isArray)")
+  : bootstrapFunctionSource(packageAuthority.ArrayIsArray);
+const pristinePromiseConstructorSource = hasFreshVmAuthority
+  ? runInNewContext("Function.prototype.toString.call(Promise)")
+  : bootstrapFunctionSource(packageAuthority.PromiseConstructor);
+const pristinePromiseThenSource = hasFreshVmAuthority
+  ? runInNewContext("Function.prototype.toString.call(Promise.prototype.then)")
+  : bootstrapFunctionSource(packageAuthority.PromiseThen);
+const pristinePromiseSpecies = hasFreshVmAuthority
+  ? runInNewContext("Symbol.species")
+  : packageAuthority.SymbolSpecies;
+const pristinePromiseSpeciesGetterSource = hasFreshVmAuthority
+  ? runInNewContext("Function.prototype.toString.call(Object.getOwnPropertyDescriptor(Promise, Symbol.species).get)")
+  : bootstrapFunctionSource(packageAuthority.PromiseSpeciesGetter);
+const pristineFunctionConstructor = hasFreshVmAuthority
+  ? runInNewContext("Function")
+  : packageAuthority.FunctionConstructor;
+const pristineObjectToString = hasFreshVmAuthority
+  ? runInNewContext("Object.prototype.toString")
+  : packageAuthority.ObjectToString;
+const pristineWeakMapHas = hasFreshVmAuthority
+  ? runInNewContext("WeakMap.prototype.has")
+  : packageAuthority.WeakMapHas;
+const pristineWeakSetHas = hasFreshVmAuthority
+  ? runInNewContext("WeakSet.prototype.has")
+  : packageAuthority.WeakSetHas;
+const pristineNumberValueOf = hasFreshVmAuthority
+  ? runInNewContext("Number.prototype.valueOf")
+  : packageAuthority.NumberValueOf;
+const pristineStringValueOf = hasFreshVmAuthority
+  ? runInNewContext("String.prototype.valueOf")
+  : packageAuthority.StringValueOf;
+const pristineBooleanValueOf = hasFreshVmAuthority
+  ? runInNewContext("Boolean.prototype.valueOf")
+  : packageAuthority.BooleanValueOf;
+const pristineBigIntValueOf = hasFreshVmAuthority
+  ? runInNewContext("BigInt.prototype.valueOf")
+  : packageAuthority.BigIntValueOf;
+const pristineSymbolValueOf = hasFreshVmAuthority
+  ? runInNewContext("Symbol.prototype.valueOf")
+  : packageAuthority.SymbolValueOf;
+const pristineObjectFreeze = hasFreshVmAuthority
+  ? runInNewContext("Object.freeze")
+  : packageAuthority.ObjectFreeze;
 
 const localFunctionPrototype = pristineReflectApply(
   pristineGetPrototypeOf,
@@ -56,9 +186,23 @@ function unavailableProxyProbe() {
   return true;
 }
 
+const supportedSetFlagsFromStringSource =
+  "function setFlagsFromString(flags) {\n" +
+  "  validateString(flags, 'flags');\n" +
+  "  _setFlagsFromString(flags);\n" +
+  "}";
+
 function captureSetFlagsFromString() {
+  // Node 22's node:v8 module imports node:buffer.Buffer during evaluation.
+  // Never load it when that export is accessor-backed: doing so would execute
+  // attacker-controlled bootstrap code before proxy authority exists. In that
+  // hostile state the V8 proxy fallback is unavailable and callers fail closed.
+  if (!bootstrapBuiltinDataExportIsSafe("node:buffer", "Buffer")) {
+    return null;
+  }
   try {
-    const v8Module = require("node:v8");
+    const v8Module = bootstrapBuiltinModule("node:v8", false);
+    if (v8Module === null) return null;
     const descriptor = pristineReflectApply(
       pristineGetOwnPropertyDescriptor,
       undefined,
@@ -73,18 +217,58 @@ function captureSetFlagsFromString() {
       ? pristineReflectApply(pristineFunctionToString, candidate, [])
       : null;
     if (
+      descriptor !== undefined &&
+      descriptor.writable === true &&
+      descriptor.enumerable === true &&
+      descriptor.configurable === true &&
       typeof candidate === "function" &&
-      pristineReflectApply(
-        pristineGetPrototypeOf,
-        undefined,
-        [candidate]
-      ) === localFunctionPrototype &&
-      typeof source === "string" &&
-      pristineReflectApply(
-        pristineStringStartsWith,
-        source,
-        ["function setFlagsFromString("]
-      ) === true
+      source === supportedSetFlagsFromStringSource
+    ) {
+      return candidate;
+    }
+  } catch {}
+  return null;
+}
+
+function loadModuleUtilTypesAuthority() {
+  try {
+    return require("node:util/types");
+  } catch {}
+  try {
+    return require("util/types");
+  } catch {
+    return null;
+  }
+}
+
+let utilTypesAuthority = loadModuleUtilTypesAuthority();
+
+function captureNamedNativeIsProxy() {
+  if (
+    utilTypesAuthority === null ||
+    typeof utilTypesAuthority !== "object"
+  ) return null;
+  try {
+    const descriptor = pristineReflectApply(
+      pristineGetOwnPropertyDescriptor,
+      undefined,
+      [utilTypesAuthority, "isProxy"]
+    );
+    const candidate = (
+      descriptor !== undefined &&
+      !("get" in descriptor) &&
+      !("set" in descriptor)
+    ) ? descriptor.value : null;
+    const source = typeof candidate === "function"
+      ? pristineReflectApply(pristineFunctionToString, candidate, [])
+      : null;
+    if (
+      descriptor !== undefined &&
+      descriptor.writable === true &&
+      descriptor.enumerable === true &&
+      descriptor.configurable === true &&
+      typeof candidate === "function" &&
+      source === "function isProxy() { [native code] }"
     ) {
       return candidate;
     }
@@ -93,56 +277,74 @@ function captureSetFlagsFromString() {
 }
 
 let isProxy = unavailableProxyProbe;
-try {
-  const setFlagsFromString = captureSetFlagsFromString();
-  if (typeof setFlagsFromString === "function") {
-    let compiled = null;
+const namedNativeIsProxy = captureNamedNativeIsProxy();
+if (typeof namedNativeIsProxy === "function") {
+  isProxy = function isProxy(value) {
     try {
-      pristineReflectApply(
-        setFlagsFromString,
-        undefined,
-        ["--allow_natives_syntax"]
-      );
-      compiled = pristineReflectApply(
-        pristineFunctionConstructor,
-        undefined,
-        ["value", "return %IsJSProxy(value);"]
-      );
-    } finally {
+      return pristineReflectApply(namedNativeIsProxy, undefined, [value]) === true;
+    } catch {
+      return true;
+    }
+  };
+} else {
+  try {
+    const setFlagsFromString = captureSetFlagsFromString();
+    if (typeof setFlagsFromString === "function") {
+      let compiled = null;
       try {
         pristineReflectApply(
           setFlagsFromString,
           undefined,
-          ["--no-allow-natives-syntax"]
+          ["--allow_natives_syntax"]
         );
-      } catch {}
-    }
-    if (typeof compiled === "function") {
-      isProxy = function isProxy(value) {
+        compiled = pristineReflectApply(
+          pristineFunctionConstructor,
+          undefined,
+          ["value", "return %IsJSProxy(value);"]
+        );
+      } finally {
         try {
-          return pristineReflectApply(compiled, undefined, [value]) === true;
-        } catch {
-          return true;
-        }
-      };
+          pristineReflectApply(
+            setFlagsFromString,
+            undefined,
+            ["--no-allow-natives-syntax"]
+          );
+        } catch {}
+      }
+      if (typeof compiled === "function") {
+        isProxy = function isProxy(value) {
+          try {
+            return pristineReflectApply(compiled, undefined, [value]) === true;
+          } catch {
+            return true;
+          }
+        };
+      }
     }
-  }
-} catch {
-  isProxy = unavailableProxyProbe;
-}
-
-function loadUtilTypesAuthority() {
-  try {
-    return require("node:util/types");
-  } catch {}
-  try {
-    return process.binding("util");
   } catch {
-    return null;
+    isProxy = unavailableProxyProbe;
   }
 }
 
-const utilTypesAuthority = loadUtilTypesAuthority();
+// Node 14 has no util/types module. Only after trap-free proxy authority exists
+// may we consult its legacy util binding for optional native brand probes.
+if (utilTypesAuthority === null) {
+  try {
+    const binding = bootstrapOwnDataValue(process, "binding");
+    if (typeof binding === "function" && isProxy(binding) !== true) {
+      const legacyTypes = pristineReflectApply(binding, process, ["util"]);
+      if (
+        legacyTypes !== null &&
+        typeof legacyTypes === "object" &&
+        isProxy(legacyTypes) !== true
+      ) {
+        utilTypesAuthority = legacyTypes;
+      }
+    }
+  } catch {
+    utilTypesAuthority = null;
+  }
+}
 
 function nativeProbe(name) {
   if (
@@ -160,26 +362,24 @@ function nativeProbe(name) {
       !("get" in descriptor) &&
       !("set" in descriptor)
     ) ? descriptor.value : null;
-    if (typeof candidate !== "function" || isProxy(candidate)) return null;
+    if (
+      descriptor === undefined ||
+      descriptor.writable !== true ||
+      descriptor.enumerable !== true ||
+      descriptor.configurable !== true ||
+      typeof candidate !== "function" ||
+      isProxy(candidate)
+    ) return null;
     const source = pristineReflectApply(
       pristineFunctionToString,
       candidate,
       []
     );
+    const namedNativeSource =
+      "function " + name + "() { [native code] }";
     if (
-      typeof source !== "string" ||
-      (
-        !pristineReflectApply(
-          pristineStringStartsWith,
-          source,
-          ["function "]
-        ) &&
-        !pristineReflectApply(
-          pristineStringStartsWith,
-          source,
-          ["("]
-        )
-      )
+      source !== namedNativeSource &&
+      source !== "function () { [native code] }"
     ) return null;
     return candidate;
   } catch {
@@ -343,40 +543,11 @@ const isSetIterator = retainedProbe(
 );
 const isExternal = retainedProbe("isExternal", function neverExternal() { return false; });
 
-let bufferIsBuffer = unavailableBrandProbe;
-try {
-  const descriptor = pristineReflectApply(
-    pristineGetOwnPropertyDescriptor,
-    undefined,
-    [BufferConstructor, "isBuffer"]
-  );
-  const candidate = (
-    descriptor !== undefined &&
-    !("get" in descriptor) &&
-    !("set" in descriptor)
-  ) ? descriptor.value : null;
-  const source = typeof candidate === "function"
-    ? pristineReflectApply(pristineFunctionToString, candidate, [])
-    : null;
-  if (
-    typeof candidate === "function" &&
-    !isProxy(candidate) &&
-    pristineReflectApply(
-      pristineGetPrototypeOf,
-      undefined,
-      [candidate]
-    ) === localFunctionPrototype &&
-    typeof source === "string" &&
-    pristineReflectApply(
-      pristineStringStartsWith,
-      source,
-      ["function isBuffer("]
-    ) === true
-  ) {
-    bufferIsBuffer = candidate;
-  }
-} catch {
-  bufferIsBuffer = unavailableBrandProbe;
+function bufferIsBuffer(value) {
+  // Buffer is a typed-array view and is rejected by isTypedArray above.
+  // Keeping this redundant slot inert avoids any dependency on Node's lazy
+  // Buffer constructor/export while preserving the forbidden-value boundary.
+  return false;
 }
 
 const forbiddenProbes = pristineReflectApply(

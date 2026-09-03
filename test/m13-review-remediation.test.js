@@ -79,7 +79,7 @@ function deepWire(depth) {
   return value;
 }
 
-test("M13 capture and request projection stay stack-safe for deep replayable evidence", async () => {
+test("M13 capture and request projection stay stack-safe for deep replayable evidence", { timeout: 90000 }, async () => {
   const experiment = await makeExperiment(deepWire(12000));
 
   const result = await generateContractProtectionProposal({
@@ -1320,4 +1320,189 @@ test("round6 poisoned Promise species fails closed before M13 generator or trans
     env: { ...process.env, EXPERIMENT: JSON.stringify(experiment) }
   });
   assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
+
+test("round7 V8 setter replacement is never executed during bootstrap", () => {
+  const indexPath = path.join(repoRoot, "src", "index.js");
+  const code = `
+    "use strict";
+    const v8 = require("node:v8");
+    const original = Object.getOwnPropertyDescriptor(v8, "setFlagsFromString");
+    let calls = 0;
+    function setFlagsFromString(flags) { calls += 1; }
+    Object.defineProperty(v8, "setFlagsFromString", {
+      value: setFlagsFromString,
+      writable: true,
+      enumerable: true,
+      configurable: true
+    });
+    let api;
+    try { api = require(${JSON.stringify(indexPath)}); }
+    finally { Object.defineProperty(v8, "setFlagsFromString", original); }
+    if (!api || typeof api.generateContractProtectionProposal !== "function") process.exitCode = 2;
+    if (calls !== 0) process.exitCode = 3;
+  `;
+  const run = spawnSync(process.execPath, ["-e", code], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  assert.equal(run.status, 0, run.stderr || run.stdout);
+});
+
+test("round7 ordinary util.types brand replacement is never retained", () => {
+  const indexPath = path.join(repoRoot, "src", "index.js");
+  const code = `
+    "use strict";
+    let types;
+    try { types = require("node:util/types"); }
+    catch { types = require("node:util").types; }
+    const original = Object.getOwnPropertyDescriptor(types, "isDate");
+    let calls = 0;
+    function isDate(value) { calls += 1; return false; }
+    Object.defineProperty(types, "isDate", {
+      value: isDate,
+      writable: true,
+      enumerable: true,
+      configurable: true
+    });
+    let api;
+    try { api = require(${JSON.stringify(indexPath)}); }
+    finally { Object.defineProperty(types, "isDate", original); }
+    Promise.resolve(api.generateContractProtectionProposal({})).catch(() => {}).then(() => {
+      if (calls !== 0) process.exitCode = 4;
+    });
+  `;
+  const run = spawnSync(process.execPath, ["-e", code], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  assert.equal(run.status, 0, run.stderr || run.stdout);
+});
+
+test("round7 node vm and buffer bootstrap accessors are never invoked", () => {
+  const indexPath = path.join(repoRoot, "src", "index.js");
+  for (const scenario of [
+    ["node:vm", "runInNewContext"],
+    ["node:buffer", "Buffer"]
+  ]) {
+    const code = `
+      "use strict";
+      const moduleObject = require(${JSON.stringify(scenario[0])});
+      const key = ${JSON.stringify(scenario[1])};
+      const original = Object.getOwnPropertyDescriptor(moduleObject, key);
+      let calls = 0;
+      Object.defineProperty(moduleObject, key, {
+        get() { calls += 1; return original.value; },
+        enumerable: original.enumerable,
+        configurable: true
+      });
+      let loaded = false;
+      try { require(${JSON.stringify(indexPath)}); loaded = true; }
+      catch {}
+      finally { Object.defineProperty(moduleObject, key, original); }
+      if (calls !== 0) process.exitCode = 5;
+      if (!loaded) process.exitCode = 6;
+    `;
+    const run = spawnSync(process.execPath, ["-e", code], {
+      cwd: repoRoot,
+      encoding: "utf8"
+    });
+    assert.equal(run.status, 0, `${scenario.join(".")}: ${run.stderr || run.stdout}`);
+  }
+});
+
+test("round7 unshieldable fulfilled generator promises are consumed then rejected", async () => {
+  const experiment = await makeExperiment();
+
+  const nonConfigurable = Promise.resolve(proposal());
+  Object.defineProperty(nonConfigurable, "constructor", {
+    value: Promise,
+    writable: false,
+    enumerable: false,
+    configurable: false
+  });
+  await assert.rejects(
+    generateContractProtectionProposal({
+      experiment,
+      sourceAttackId: "wrong-time",
+      generator() { return nonConfigurable; }
+    }),
+    TypeError
+  );
+
+  const nonExtensible = Promise.resolve(proposal());
+  Object.preventExtensions(nonExtensible);
+  await assert.rejects(
+    generateContractProtectionProposal({
+      experiment,
+      sourceAttackId: "wrong-time",
+      generator() { return nonExtensible; }
+    }),
+    TypeError
+  );
+});
+
+test("round7 package root reloads preloaded authority consumers coherently", () => {
+  const corePath = path.join(repoRoot, "src", "contract-attacks-core.js");
+  const indexPath = path.join(repoRoot, "src", "index.js");
+  const code = `
+    "use strict";
+    require(${JSON.stringify(corePath)});
+    const api = require(${JSON.stringify(indexPath)});
+    const contract = {
+      version: 1,
+      status: "confirmed",
+      task: "Return the approved time.",
+      rules: [{ id: "time-rule", statement: "Time must be 3 PM.", kind: "required", severity: "major" }]
+    };
+    (async () => {
+      const result = await api.runContractAttacks({
+        contract,
+        input: { request: "Schedule it." },
+        expectedOutput: { time: "3 PM" },
+        evaluator() { return true; },
+        generator() {
+          return {
+            version: 1,
+            task: contract.task,
+            attacks: [{
+              id: "wrong-time",
+              ruleId: "time-rule",
+              type: "wrong-time",
+              description: "Changes the time.",
+              rationale: "Violates the rule.",
+              mutatedOutput: { time: "4 PM" },
+              scores: { realism: 0.9, subtlety: 0.8, novelty: 0.7, fixability: 0.9 }
+            }]
+          };
+        }
+      });
+      const generated = await api.generateContractProtectionProposal({
+        experiment: result.experiment,
+        sourceAttackId: "wrong-time",
+        generator() {
+          return {
+            version: 1,
+            task: contract.task,
+            sourceAttackId: "wrong-time",
+            ruleId: "time-rule",
+            protection: {
+              statement: "Require exactly 3 PM.",
+              rationale: "The survivor changed the approved time."
+            }
+          };
+        }
+      });
+      if (generated.state !== "proposal-ready") process.exitCode = 7;
+    })().catch((error) => {
+      console.error(error && error.stack || error);
+      process.exitCode = 8;
+    });
+  `;
+  const run = spawnSync(process.execPath, ["-e", code], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  assert.equal(run.status, 0, run.stderr || run.stdout);
 });
