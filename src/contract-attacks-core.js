@@ -15,92 +15,29 @@ const promiseCaptureGetOwnPropertyDescriptor =
   Object.getOwnPropertyDescriptor;
 const promiseCaptureGetPrototypeOf =
   Object.getPrototypeOf;
-const promiseCaptureIsProxy =
-  runtimeAuthority.isProxy;
 
 const intrinsicPromiseProbe =
   (async function gotchaIntrinsicPromiseProbe() {})();
 const intrinsicPromisePrototype =
   promiseCaptureGetPrototypeOf(intrinsicPromiseProbe);
-const intrinsicPromiseConstructorDescriptor =
-  promiseCaptureGetOwnPropertyDescriptor(
-    intrinsicPromisePrototype,
-    "constructor"
-  );
-const intrinsicPromiseThenDescriptor =
-  promiseCaptureGetOwnPropertyDescriptor(
-    intrinsicPromisePrototype,
-    "then"
-  );
+const promiseAuthorityAvailable =
+  runtimeAuthority.promiseAuthorityAvailable === true;
 const intrinsicPromiseConstructor =
-  intrinsicPromiseConstructorDescriptor !== undefined &&
-  !("get" in intrinsicPromiseConstructorDescriptor) &&
-  !("set" in intrinsicPromiseConstructorDescriptor) &&
-  typeof intrinsicPromiseConstructorDescriptor.value === "function" &&
-  promiseCaptureIsProxy(intrinsicPromiseConstructorDescriptor.value) !== true
-    ? intrinsicPromiseConstructorDescriptor.value
+  promiseAuthorityAvailable
+    ? runtimeAuthority.promiseConstructor
     : null;
 const intrinsicPromiseThen =
-  intrinsicPromiseThenDescriptor !== undefined &&
-  !("get" in intrinsicPromiseThenDescriptor) &&
-  !("set" in intrinsicPromiseThenDescriptor) &&
-  typeof intrinsicPromiseThenDescriptor.value === "function" &&
-  promiseCaptureIsProxy(intrinsicPromiseThenDescriptor.value) !== true
-    ? intrinsicPromiseThenDescriptor.value
+  promiseAuthorityAvailable
+    ? runtimeAuthority.promiseThen
     : null;
-
-let capturedAmbientPromiseConstructor = null;
-let capturedAmbientPromisePrototype = null;
-let capturedAmbientPromiseThen = null;
-try {
-  const ambientPromiseDescriptor =
-    promiseCaptureGetOwnPropertyDescriptor(globalThis, "Promise");
-  const ambientPromiseCandidate =
-    ambientPromiseDescriptor !== undefined &&
-    !("get" in ambientPromiseDescriptor) &&
-    !("set" in ambientPromiseDescriptor)
-      ? ambientPromiseDescriptor.value
-      : null;
-  if (
-    typeof ambientPromiseCandidate === "function" &&
-    promiseCaptureIsProxy(ambientPromiseCandidate) !== true
-  ) {
-    const prototypeDescriptor =
-      promiseCaptureGetOwnPropertyDescriptor(
-        ambientPromiseCandidate,
-        "prototype"
-      );
-    if (
-      prototypeDescriptor !== undefined &&
-      !("get" in prototypeDescriptor) &&
-      !("set" in prototypeDescriptor) &&
-      prototypeDescriptor.value !== null &&
-      typeof prototypeDescriptor.value === "object" &&
-      promiseCaptureIsProxy(prototypeDescriptor.value) !== true
-    ) {
-      const thenDescriptor =
-        promiseCaptureGetOwnPropertyDescriptor(
-          prototypeDescriptor.value,
-          "then"
-        );
-      if (
-        thenDescriptor !== undefined &&
-        !("get" in thenDescriptor) &&
-        !("set" in thenDescriptor) &&
-        typeof thenDescriptor.value === "function" &&
-        promiseCaptureIsProxy(thenDescriptor.value) !== true
-      ) {
-        capturedAmbientPromiseConstructor = ambientPromiseCandidate;
-        capturedAmbientPromisePrototype = prototypeDescriptor.value;
-        capturedAmbientPromiseThen = thenDescriptor.value;
-      }
-    }
-  }
-} catch {
-  capturedAmbientPromiseConstructor = null;
-  capturedAmbientPromisePrototype = null;
-  capturedAmbientPromiseThen = null;
-}
+const capturedAmbientPromiseConstructor =
+  intrinsicPromiseConstructor;
+const capturedAmbientPromisePrototype =
+  promiseAuthorityAvailable
+    ? runtimeAuthority.promisePrototype
+    : intrinsicPromisePrototype;
+const capturedAmbientPromiseThen =
+  intrinsicPromiseThen;
 
 // The M8 core owns the experiment authority. It is created from the same
 // util.types instance observed by this core plus pristine VM operations at
@@ -159,7 +96,7 @@ const experimentIntrinsics =
     deleteProperty:
       Reflect.deleteProperty,
     arrayIsArray:
-      Array.isArray,
+      runtimeAuthority.arrayIsArray,
     stringTrim:
       String.prototype.trim,
     numberIsFinite:
@@ -181,7 +118,7 @@ const experimentIntrinsics =
     PromiseThen:
       capturedAmbientPromiseThen,
     PromiseSpecies:
-      Symbol.species
+      runtimeAuthority.promiseSpecies
   });
 
 const utilIsPromise =
@@ -190,14 +127,21 @@ const utilIsPromise =
 const utilIsProxy =
   runtimeAuthority.isProxy;
 
-const {
-  attack
-} = require("./engine");
+const m8DependencyAuthorityAvailable = (
+  promiseAuthorityAvailable === true &&
+  typeof runtimeAuthority.arrayIsArray === "function" &&
+  typeof runtimeAuthority.isProxy === "function" &&
+  typeof runtimeAuthority.isPromise === "function"
+);
 
-const {
-  cloneAiData,
-  snapshotAiData
-} = require("./ai-data");
+let attack = null;
+let cloneAiData = null;
+let snapshotAiData = null;
+
+if (m8DependencyAuthorityAvailable) {
+  ({ attack } = require("./engine"));
+  ({ cloneAiData, snapshotAiData } = require("./ai-data"));
+}
 
 const getOwnPropertyDescriptors =
   Object.getOwnPropertyDescriptors;
@@ -232,7 +176,7 @@ const arrayPrototypeDescriptors =
   );
 
 const arrayIsArray =
-  Array.isArray;
+  runtimeAuthority.arrayIsArray;
 
 const ArrayConstructor =
   Array;
@@ -421,7 +365,7 @@ const promiseThenDescriptor =
   );
 
 const promiseSpecies =
-  Symbol.species;
+  runtimeAuthority.promiseSpecies;
 
 const promisePrototypeConstructorDescriptor =
   getOwnPropertyDescriptor(
@@ -2734,6 +2678,25 @@ function withRestoredCallbackIntrinsicSurfaces(
 }
 
 function requirePromiseIntrinsicIntegrity() {
+  if (
+    !m8DependencyAuthorityAvailable ||
+    typeof attack !== "function" ||
+    typeof cloneAiData !== "function" ||
+    typeof snapshotAiData !== "function" ||
+    !promiseAuthorityAvailable ||
+    typeof promiseConstructor !== "function" ||
+    typeof promiseThen !== "function" ||
+    promisePrototype === null ||
+    !runtimeAuthority.hasTrustedLocalPromiseSpecies(
+      promiseConstructor,
+      promiseSpecies
+    )
+  ) {
+    throw new Error(
+      "Promise intrinsic integrity check failed."
+    );
+  }
+
   const currentPrototypeConstructor =
     getOwnPropertyDescriptor(
       promisePrototype,

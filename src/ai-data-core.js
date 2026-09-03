@@ -1,25 +1,7 @@
 "use strict";
 
-const nodeUtil =
-  require("node:util");
-
 const runtimeAuthority =
   require("./runtime-authority");
-
-const {
-  types: utilTypes,
-  inspect
-} = nodeUtil;
-
-const utilTypePredicates =
-  Object.freeze(
-    Object.create(
-      null,
-      Object.getOwnPropertyDescriptors(
-        utilTypes
-      )
-    )
-  );
 
 const {
   PerformanceObserver
@@ -90,7 +72,9 @@ const objectFreeze =
   Object.freeze;
 
 const arrayIsArray =
-  Array.isArray;
+  typeof runtimeAuthority.arrayIsArray === "function"
+    ? runtimeAuthority.arrayIsArray
+    : function unavailableArrayBrand() { return true; };
 
 const objectIs =
   Object.is;
@@ -1277,61 +1261,55 @@ function captureIntlConstructor(
     : null;
 }
 
+const performanceObserverInspectCustom =
+  Symbol.for("nodejs.util.inspect.custom");
+const performanceObserverInspectOptions =
+  objectFreeze({ depth: 0 });
+const performanceObserverInertInspect =
+  function gotchaPerformanceObserverInspect() { return ""; };
+
 function capturePerformanceObserverBrandProbe() {
   if (
-    typeof PerformanceObserver !==
-      "function" ||
-    PerformanceObserver.prototype ===
-      null ||
-    typeof PerformanceObserver.prototype !==
-      "object"
-  ) {
+    typeof PerformanceObserver !== "function" ||
+    runtimeAuthority.isProxy(PerformanceObserver) ||
+    PerformanceObserver.prototype === null ||
+    typeof PerformanceObserver.prototype !== "object" ||
+    runtimeAuthority.isProxy(PerformanceObserver.prototype)
+  ) return null;
+  let descriptor;
+  try {
+    descriptor = getOwnPropertyDescriptor(
+      PerformanceObserver.prototype,
+      performanceObserverInspectCustom
+    );
+  } catch {
     return null;
   }
-
-  const descriptor =
-    getOwnPropertyDescriptor(
-      PerformanceObserver.prototype,
-      inspect.custom
-    );
-
   return (
     descriptor !== undefined &&
-    typeof descriptor.value ===
-      "function"
-  )
-    ? descriptor.value
-    : null;
+    !("get" in descriptor) &&
+    !("set" in descriptor) &&
+    typeof descriptor.value === "function" &&
+    !runtimeAuthority.isProxy(descriptor.value)
+  ) ? descriptor.value : null;
 }
 
 const performanceObserverBrandProbe =
   capturePerformanceObserverBrandProbe();
 
-const performanceObserverInspectOptions =
-  objectFreeze({
-    depth: 0
-  });
-
-function hasUnsupportedPerformanceObserverBrand(
-  value
-) {
+function hasUnsupportedPerformanceObserverBrand(value) {
   if (
-    performanceObserverBrandProbe === null
-  ) {
-    return false;
-  }
-
+    performanceObserverBrandProbe === null ||
+    value === null ||
+    typeof value !== "object" ||
+    runtimeAuthority.isProxy(value)
+  ) return false;
   try {
     reflectApply(
       performanceObserverBrandProbe,
       value,
-      [
-        0,
-        performanceObserverInspectOptions,
-        inspect
-      ]
+      [0, performanceObserverInspectOptions, performanceObserverInertInspect]
     );
-
     return true;
   } catch {
     return false;
@@ -2084,14 +2062,14 @@ const trustedHostBrandGetters =
     [
       abortControllerBrandGetter,
       captureTrustedModuleGetter(
-        nodeUtil,
+        null,
         "TextEncoder",
         "encoding",
         "internal/encoding",
         false
       ),
       captureTrustedModuleGetter(
-        nodeUtil,
+        null,
         "TextDecoder",
         "encoding",
         "internal/encoding",
@@ -3037,36 +3015,36 @@ function isUnsupportedRuntimeObject(
         [value]
       )
     ) ||
-    utilTypePredicates.isAnyArrayBuffer(value) ||
-    utilTypePredicates.isArrayBufferView(value) ||
-    utilTypePredicates.isArgumentsObject(value) ||
-    utilTypePredicates.isBoxedPrimitive(value) ||
-    utilTypePredicates.isDate(value) ||
-    utilTypePredicates.isGeneratorObject(value) ||
-    utilTypePredicates.isMap(value) ||
-    utilTypePredicates.isMapIterator(value) ||
-    utilTypePredicates.isModuleNamespaceObject(value) ||
-    utilTypePredicates.isNativeError(value) ||
-    utilTypePredicates.isPromise(value) ||
-    utilTypePredicates.isRegExp(value) ||
-    utilTypePredicates.isSet(value) ||
-    utilTypePredicates.isSetIterator(value) ||
-    utilTypePredicates.isWeakMap(value) ||
-    utilTypePredicates.isWeakSet(value) ||
+    runtimeAuthority.isAnyArrayBuffer(value) ||
+    runtimeAuthority.isArrayBufferView(value) ||
+    runtimeAuthority.isArgumentsObject(value) ||
+    runtimeAuthority.isBoxedPrimitive(value) ||
+    runtimeAuthority.isDate(value) ||
+    runtimeAuthority.isGeneratorObject(value) ||
+    runtimeAuthority.isMap(value) ||
+    runtimeAuthority.isMapIterator(value) ||
+    runtimeAuthority.isModuleNamespaceObject(value) ||
+    runtimeAuthority.isNativeError(value) ||
+    runtimeAuthority.isPromise(value) ||
+    runtimeAuthority.isRegExp(value) ||
+    runtimeAuthority.isSet(value) ||
+    runtimeAuthority.isSetIterator(value) ||
+    runtimeAuthority.isWeakMap(value) ||
+    runtimeAuthority.isWeakSet(value) ||
     (
-      typeof utilTypePredicates.isCryptoKey ===
+      typeof runtimeAuthority.isCryptoKey ===
         "function" &&
-      utilTypePredicates.isCryptoKey(value)
+      runtimeAuthority.isCryptoKey(value)
     ) ||
     (
-      typeof utilTypePredicates.isKeyObject ===
+      typeof runtimeAuthority.isKeyObject ===
         "function" &&
-      utilTypePredicates.isKeyObject(value)
+      runtimeAuthority.isKeyObject(value)
     ) ||
     (
-      typeof utilTypePredicates.isExternal ===
+      typeof runtimeAuthority.isExternal ===
         "function" &&
-      utilTypePredicates.isExternal(value)
+      runtimeAuthority.isExternal(value)
     ) ||
     hasOpaqueNestedSymbolState(value) ||
     hasUnsupportedPerformanceObserverBrand(

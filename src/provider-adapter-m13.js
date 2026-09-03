@@ -3,9 +3,10 @@
 const { types: utilTypes } = require("node:util");
 const { runInNewContext } = require("node:vm");
 const runtimeAuthority = require("./runtime-authority");
+const packageAuthority = require("./package-authority");
 const ArrayConstructor = Array;
 const WeakSetConstructor = WeakSet;
-const promiseSpecies = Symbol.species;
+const promiseSpecies = runtimeAuthority.promiseSpecies;
 const objectPrototype = Object.prototype;
 const arrayPrototype = Array.prototype;
 const getPrototypeOf = Object.getPrototypeOf;
@@ -18,7 +19,7 @@ const deleteProperty = Reflect.deleteProperty;
 const objectCreate = Object.create;
 const objectKeys = Object.keys;
 const isExtensible = Object.isExtensible;
-const arrayIsArray = Array.isArray;
+const arrayIsArray = runtimeAuthority.arrayIsArray;
 const arrayPop = Array.prototype.pop;
 const numberIsFinite = Number.isFinite;
 const numberIsInteger = Number.isInteger;
@@ -36,7 +37,8 @@ const weakSetDelete = WeakSet.prototype.delete;
 
 const providerBrandAuthorityAvailable = (
   isProxy === runtimeAuthority.isProxy &&
-  isPromise === runtimeAuthority.isPromise
+  isPromise === runtimeAuthority.isPromise &&
+  typeof arrayIsArray === "function"
 );
 
 const CONTRACT_PROTECTION_INSTRUCTIONS_V1 =
@@ -46,21 +48,8 @@ const CONTRACT_PROTECTION_INSTRUCTIONS_V1 =
   "The protection statement must describe what the quality system should enforce.\n" +
   "The rationale must explain why this protection addresses the selected survivor.";
 
-let capturedAmbientPromiseConstructor = null;
-try {
-  const ambientPromiseDescriptor = getOwnPropertyDescriptor(globalThis, "Promise");
-  if (
-    ambientPromiseDescriptor !== undefined &&
-    !("get" in ambientPromiseDescriptor) &&
-    !("set" in ambientPromiseDescriptor) &&
-    typeof ambientPromiseDescriptor.value === "function" &&
-    !isProxy(ambientPromiseDescriptor.value)
-  ) {
-    capturedAmbientPromiseConstructor = ambientPromiseDescriptor.value;
-  }
-} catch {
-  capturedAmbientPromiseConstructor = null;
-}
+const capturedAmbientPromiseConstructor =
+  packageAuthority.PromiseConstructor;
 
 let trustedPromiseConstructor = null;
 let trustedPromisePrototype = null;
@@ -165,7 +154,15 @@ try {
   promiseAuthorityAvailable =
     providerBrandAuthorityAvailable &&
     intrinsicAuthorityValid &&
-    ambientPrototypeMatches;
+    ambientPrototypeMatches &&
+    runtimeAuthority.promiseAuthorityAvailable === true &&
+    trustedPromiseConstructor === runtimeAuthority.promiseConstructor &&
+    trustedPromisePrototype === runtimeAuthority.promisePrototype &&
+    trustedPromiseThen === runtimeAuthority.promiseThen &&
+    runtimeAuthority.hasTrustedLocalPromiseSpecies(
+      trustedPromiseConstructor,
+      promiseSpecies
+    );
 } catch {
   trustedPromiseConstructor = null;
   trustedPromisePrototype = null;
@@ -181,14 +178,8 @@ try {
   } catch (error) {
     localTypeErrorPrototype = getPrototypeOf(error);
   }
-  const ambientTypeErrorDescriptor =
-    getOwnPropertyDescriptor(globalThis, "TypeError");
   const ambientTypeErrorCandidate =
-    ambientTypeErrorDescriptor !== undefined &&
-    !("get" in ambientTypeErrorDescriptor) &&
-    !("set" in ambientTypeErrorDescriptor)
-      ? ambientTypeErrorDescriptor.value
-      : null;
+    packageAuthority.TypeErrorConstructor;
   const localTypeErrorConstructorDescriptor =
     localTypeErrorPrototype !== null
       ? getOwnPropertyDescriptor(localTypeErrorPrototype, "constructor")
@@ -594,8 +585,22 @@ function constructorDescriptorIsTrusted(descriptor) {
     descriptor !== undefined &&
     !("get" in descriptor) &&
     !("set" in descriptor) &&
-    descriptor.value === trustedPromiseConstructor
+    descriptor.value === trustedPromiseConstructor &&
+    runtimeAuthority.hasTrustedLocalPromiseSpecies(
+      trustedPromiseConstructor,
+      promiseSpecies
+    )
   );
+}
+
+function constructorDescriptorUsesSafeDefaultSpecies(descriptor) {
+  if (
+    descriptor === undefined ||
+    "get" in descriptor ||
+    "set" in descriptor
+  ) return false;
+  if (descriptor.value === undefined) return true;
+  return constructorDescriptorIsTrusted(descriptor);
 }
 
 function prototypeConstructorIsTrusted(promise) {
@@ -644,7 +649,7 @@ function consumeRejectedRecognizedPromise(promise) {
     constructorDescriptor !== undefined &&
     constructorDescriptor.configurable !== true
   ) {
-    if (!constructorDescriptorIsTrusted(constructorDescriptor)) return false;
+    if (!constructorDescriptorUsesSafeDefaultSpecies(constructorDescriptor)) return false;
     reflectApply(trustedPromiseThen, promise, [undefined, () => {}]);
     return true;
   }
@@ -683,15 +688,18 @@ function observeAcceptedPromise(promise, onFulfilled, onRejected) {
     constructorDescriptor !== undefined &&
     constructorDescriptor.configurable !== true
   ) {
-    if (!constructorDescriptorIsTrusted(constructorDescriptor)) throw boundaryError();
-    reflectApply(trustedPromiseThen, promise, [onFulfilled, onRejected]);
-    return;
+    if (constructorDescriptorIsTrusted(constructorDescriptor)) {
+      reflectApply(trustedPromiseThen, promise, [onFulfilled, onRejected]);
+      return;
+    }
+    consumeRejectedRecognizedPromise(promise);
+    throw boundaryError();
   }
   if (
     constructorDescriptor === undefined &&
     isExtensible(promise) !== true
   ) {
-    if (!prototypeConstructorIsTrusted(promise)) throw boundaryError();
+    if (!inheritedConstructorUsesSafeDefaultSpecies(promise)) throw boundaryError();
     reflectApply(trustedPromiseThen, promise, [onFulfilled, onRejected]);
     return;
   }

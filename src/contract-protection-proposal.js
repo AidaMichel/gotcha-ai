@@ -199,7 +199,16 @@ try {
   trustedPromiseConstructor = null;
 }
 
-if (!promiseAuthorityVerified || typeof promiseSpecies !== "symbol") {
+if (
+  !promiseAuthorityVerified ||
+  typeof promiseSpecies !== "symbol" ||
+  runtimeAuthority.promiseAuthorityAvailable !== true ||
+  trustedPromiseConstructor !== runtimeAuthority.promiseConstructor ||
+  !runtimeAuthority.hasTrustedLocalPromiseSpecies(
+    trustedPromiseConstructor,
+    promiseSpecies
+  )
+) {
   boundaryAuthorityAvailable = false;
 }
 
@@ -1056,8 +1065,22 @@ function trustedPromiseConstructorDescriptor(descriptor) {
     descriptor !== undefined &&
     !("get" in descriptor) &&
     !("set" in descriptor) &&
-    descriptor.value === trustedPromiseConstructor
+    descriptor.value === trustedPromiseConstructor &&
+    runtimeAuthority.hasTrustedLocalPromiseSpecies(
+      trustedPromiseConstructor,
+      promiseSpecies
+    )
   );
+}
+
+function constructorDescriptorUsesSafeDefaultSpecies(descriptor) {
+  if (
+    descriptor === undefined ||
+    "get" in descriptor ||
+    "set" in descriptor
+  ) return false;
+  if (descriptor.value === undefined) return true;
+  return trustedPromiseConstructorDescriptor(descriptor);
 }
 
 function inheritedConstructorUsesSafeDefaultSpecies(promise) {
@@ -1099,7 +1122,7 @@ function consumeRejectedRecognizedPromise(promise) {
     previousConstructor !== undefined &&
     previousConstructor.configurable !== true
   ) {
-    if (!trustedPromiseConstructorDescriptor(previousConstructor)) return false;
+    if (!constructorDescriptorUsesSafeDefaultSpecies(previousConstructor)) return false;
     reflectApply(promiseThen, promise, [undefined, () => {}]);
     return true;
   }
@@ -1151,17 +1174,18 @@ function observeAcceptedPromise(promise, onFulfilled, onRejected) {
     previousConstructor !== undefined &&
     previousConstructor.configurable !== true
   ) {
-    if (!trustedPromiseConstructorDescriptor(previousConstructor)) throw boundaryError();
-    reflectApply(promiseThen, promise, [onFulfilled, onRejected]);
-    return;
+    if (trustedPromiseConstructorDescriptor(previousConstructor)) {
+      reflectApply(promiseThen, promise, [onFulfilled, onRejected]);
+      return;
+    }
+    consumeRejectedRecognizedPromise(promise);
+    throw boundaryError();
   }
   if (
     previousConstructor === undefined &&
     isExtensible(promise) !== true
   ) {
-    if (!trustedPromiseConstructorDescriptor(
-      getOwnPropertyDescriptor(promisePrototype, "constructor")
-    )) throw boundaryError();
+    if (!inheritedConstructorUsesSafeDefaultSpecies(promise)) throw boundaryError();
     reflectApply(promiseThen, promise, [onFulfilled, onRejected]);
     return;
   }

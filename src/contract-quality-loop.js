@@ -19,73 +19,19 @@ const ownKeys = Reflect.ownKeys;
 const reflectApply = Reflect.apply;
 const deleteProperty = Reflect.deleteProperty;
 const functionToString = Function.prototype.toString;
-const arrayIsArray = Array.isArray;
+const arrayIsArray = runtimeAuthority.arrayIsArray;
 
 const ObjectPrototype = Object.prototype;
-const qualityLoopPromiseProbe =
-  (async function qualityLoopPromiseProbe() {})();
-const PromisePrototype =
-  getPrototypeOf(qualityLoopPromiseProbe);
-const PromiseConstructorDescriptor =
-  getOwnPropertyDescriptor(PromisePrototype, "constructor");
-const PromiseThenDescriptor =
-  getOwnPropertyDescriptor(PromisePrototype, "then");
-let PromiseConstructor = null;
-let PromiseThen = null;
-try {
-  const pristinePromiseConstructorSource = runInNewContext(
-    "Function.prototype.toString.call(Promise)"
-  );
-  const pristinePromiseThenSource = runInNewContext(
-    "Function.prototype.toString.call(Promise.prototype.then)"
-  );
-  const constructorCandidate =
-    PromiseConstructorDescriptor !== undefined &&
-    !("get" in PromiseConstructorDescriptor) &&
-    !("set" in PromiseConstructorDescriptor)
-      ? PromiseConstructorDescriptor.value
-      : null;
-  const thenCandidate =
-    PromiseThenDescriptor !== undefined &&
-    !("get" in PromiseThenDescriptor) &&
-    !("set" in PromiseThenDescriptor)
-      ? PromiseThenDescriptor.value
-      : null;
-  const ambientPromiseDescriptor =
-    getOwnPropertyDescriptor(globalThis, "Promise");
-  const ambientPromiseCandidate =
-    ambientPromiseDescriptor !== undefined &&
-    !("get" in ambientPromiseDescriptor) &&
-    !("set" in ambientPromiseDescriptor)
-      ? ambientPromiseDescriptor.value
-      : null;
-  const ambientPrototypeDescriptor =
-    typeof ambientPromiseCandidate === "function" &&
-    isProxy(ambientPromiseCandidate) !== true
-      ? getOwnPropertyDescriptor(ambientPromiseCandidate, "prototype")
-      : undefined;
-  if (
-    typeof constructorCandidate === "function" &&
-    isProxy(constructorCandidate) !== true &&
-    constructorCandidate === ambientPromiseCandidate &&
-    ambientPrototypeDescriptor !== undefined &&
-    !("get" in ambientPrototypeDescriptor) &&
-    !("set" in ambientPrototypeDescriptor) &&
-    ambientPrototypeDescriptor.value === PromisePrototype &&
-    reflectApply(functionToString, constructorCandidate, []) === pristinePromiseConstructorSource &&
-    typeof thenCandidate === "function" &&
-    isProxy(thenCandidate) !== true &&
-    getPrototypeOf(thenCandidate) === runtimeAuthority.localFunctionPrototype &&
-    reflectApply(functionToString, thenCandidate, []) === pristinePromiseThenSource
-  ) {
-    PromiseConstructor = constructorCandidate;
-    PromiseThen = thenCandidate;
-  }
-} catch {
-  PromiseConstructor = null;
-  PromiseThen = null;
-}
-const PromiseSpecies = Symbol.species;
+const PromisePrototype = runtimeAuthority.promisePrototype;
+const PromiseConstructor =
+  runtimeAuthority.promiseAuthorityAvailable === true
+    ? runtimeAuthority.promiseConstructor
+    : null;
+const PromiseThen =
+  runtimeAuthority.promiseAuthorityAvailable === true
+    ? runtimeAuthority.promiseThen
+    : null;
+const PromiseSpecies = runtimeAuthority.promiseSpecies;
 
 const draftContractProtection = remediation.draftContractProtection;
 const confirmContractProtection = remediation.confirmContractProtection;
@@ -120,6 +66,18 @@ for (let index = 0; index < requiredFunctions.length; index += 1) {
     authorityAvailable = false;
     break;
   }
+}
+
+if (
+  runtimeAuthority.promiseAuthorityAvailable !== true ||
+  typeof PromiseConstructor !== "function" ||
+  typeof PromiseThen !== "function" ||
+  !runtimeAuthority.hasTrustedLocalPromiseSpecies(
+    PromiseConstructor,
+    PromiseSpecies
+  )
+) {
+  authorityAvailable = false;
 }
 
 if (authorityAvailable) {

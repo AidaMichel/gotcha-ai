@@ -8,9 +8,9 @@ const util = require("node:util");
 
 const repoRoot = path.join(__dirname, "..");
 
-test("runtime authority retains the local util.types.isProxy authority", () => {
+test("runtime authority provides trap-free local Proxy detection", () => {
   const authority = require("../src/runtime-authority");
-  assert.equal(authority.isProxy, util.types.isProxy);
+  assert.equal(typeof authority.isProxy, "function");
   assert.equal(authority.isProxy({}), false);
   assert.equal(authority.isProxy(new Proxy({}, {})), true);
 });
@@ -58,7 +58,8 @@ test("runtime authority does not execute a poisoned Proxy util.types.isProxy", (
       util.types.isProxy = original;
     }
     if (poisonCalls !== 0) process.exit(21);
-    if (authority.isProxy({}) !== true) process.exit(22);
+    if (authority.isProxy({}) !== false) process.exit(22);
+    if (authority.isProxy(new Proxy({}, {})) !== true) process.exit(23);
   `;
   const run = spawnSync(process.execPath, ["-e", code], {
     cwd: repoRoot,

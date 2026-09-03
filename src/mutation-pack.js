@@ -1,8 +1,7 @@
-const { types: utilTypes } = require("node:util");
 const { runInNewContext } = require("node:vm");
 const runtimeAuthority = require("./runtime-authority");
 
-const functionToString = Function.prototype.toString;
+const functionToString = runInNewContext("Function.prototype.toString");
 const getOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
 const getOwnPropertyDescriptors = Object.getOwnPropertyDescriptors;
 const getPrototypeOf = Object.getPrototypeOf;
@@ -11,60 +10,21 @@ const defineProperty = Object.defineProperty;
 const deleteProperty = Reflect.deleteProperty;
 const ownKeys = Reflect.ownKeys;
 
-const mutationPromiseProbe =
-  (async function mutationPackPromiseProbe() {})();
-const mutationPromisePrototype =
-  getPrototypeOf(mutationPromiseProbe);
-const mutationPromiseConstructorDescriptor =
-  getOwnPropertyDescriptor(mutationPromisePrototype, "constructor");
-const mutationPromiseThenDescriptor =
-  getOwnPropertyDescriptor(mutationPromisePrototype, "then");
-let promiseThen = null;
-try {
-  const constructorCandidate =
-    mutationPromiseConstructorDescriptor !== undefined &&
-    !("get" in mutationPromiseConstructorDescriptor) &&
-    !("set" in mutationPromiseConstructorDescriptor)
-      ? mutationPromiseConstructorDescriptor.value
-      : null;
-  const thenCandidate =
-    mutationPromiseThenDescriptor !== undefined &&
-    !("get" in mutationPromiseThenDescriptor) &&
-    !("set" in mutationPromiseThenDescriptor)
-      ? mutationPromiseThenDescriptor.value
-      : null;
-  const ambientPromiseDescriptor = getOwnPropertyDescriptor(globalThis, "Promise");
-  const ambientPromiseCandidate =
-    ambientPromiseDescriptor !== undefined &&
-    !("get" in ambientPromiseDescriptor) &&
-    !("set" in ambientPromiseDescriptor)
-      ? ambientPromiseDescriptor.value
-      : null;
-  const pristinePromiseConstructorSource = runInNewContext(
-    "Function.prototype.toString.call(Promise)"
-  );
-  const pristinePromiseThenSource = runInNewContext(
-    "Function.prototype.toString.call(Promise.prototype.then)"
-  );
-  if (
-    typeof constructorCandidate === "function" &&
-    runtimeAuthority.isProxy(constructorCandidate) !== true &&
-    constructorCandidate === ambientPromiseCandidate &&
-    getPrototypeOf(constructorCandidate) === runtimeAuthority.localFunctionPrototype &&
-    Reflect.apply(functionToString, constructorCandidate, []) === pristinePromiseConstructorSource &&
-    typeof thenCandidate === "function" &&
-    runtimeAuthority.isProxy(thenCandidate) !== true &&
-    getPrototypeOf(thenCandidate) === runtimeAuthority.localFunctionPrototype &&
-    Reflect.apply(functionToString, thenCandidate, []) === pristinePromiseThenSource
-  ) {
-    promiseThen = thenCandidate;
-  }
-} catch {
-  promiseThen = null;
-}
+const promiseThen =
+  runtimeAuthority.promiseAuthorityAvailable
+    ? runtimeAuthority.promiseThen
+    : null;
+const promiseConstructor =
+  runtimeAuthority.promiseAuthorityAvailable
+    ? runtimeAuthority.promiseConstructor
+    : null;
+const promiseSpecies = runtimeAuthority.promiseSpecies;
+const asyncFunctionProbe = runtimeAuthority.isAsyncFunction;
+const generatorFunctionProbe = runtimeAuthority.isGeneratorFunction;
+const objectPrototype = Object.prototype;
 
 const safePromiseSpecies = Object.freeze({
-  [Symbol.species]: null
+  [promiseSpecies]: null
 });
 
 const callbackReceiver = Object.freeze(Object.create(null));
@@ -156,7 +116,7 @@ function requireSyncCallback(
   wrapperMessage
 ) {
   if (
-    utilTypes.isAsyncFunction(fn)
+    asyncFunctionProbe(fn)
   ) {
     throw new Error(
       asyncMessage
@@ -164,7 +124,7 @@ function requireSyncCallback(
   }
 
   if (
-    utilTypes.isGeneratorFunction(fn)
+    generatorFunctionProbe(fn)
   ) {
     throw new Error(
       generatorMessage
@@ -182,9 +142,93 @@ function requireSyncCallback(
   }
 }
 
+function constructorUsesSafeDefaultSpecies(constructor) {
+  if (constructor === undefined) return true;
+  if (constructor === promiseConstructor) {
+    return runtimeAuthority.hasTrustedLocalPromiseSpecies(
+      constructor,
+      promiseSpecies
+    );
+  }
+  const objectConstructorDescriptor = Reflect.apply(
+    getOwnPropertyDescriptor,
+    Object,
+    [objectPrototype, "constructor"]
+  );
+  const objectConstructor = (
+    objectConstructorDescriptor !== undefined &&
+    !("get" in objectConstructorDescriptor) &&
+    !("set" in objectConstructorDescriptor)
+  ) ? objectConstructorDescriptor.value : null;
+  if (
+    constructor !== objectConstructor ||
+    typeof constructor !== "function" ||
+    runtimeAuthority.isProxy(constructor)
+  ) return false;
+  const speciesDescriptor = Reflect.apply(
+    getOwnPropertyDescriptor,
+    Object,
+    [constructor, promiseSpecies]
+  );
+  return speciesDescriptor === undefined;
+}
+
+function withSafeInheritedPromiseConstructor(
+  value,
+  callback
+) {
+  let prototype = getPrototypeOf(value);
+  while (prototype !== null) {
+    if (runtimeAuthority.isProxy(prototype)) return false;
+    const descriptor = Reflect.apply(
+      getOwnPropertyDescriptor,
+      Object,
+      [prototype, "constructor"]
+    );
+    if (descriptor === undefined) {
+      prototype = getPrototypeOf(prototype);
+      continue;
+    }
+    if ("get" in descriptor || "set" in descriptor) return false;
+    if (constructorUsesSafeDefaultSpecies(descriptor.value)) {
+      callback();
+      return true;
+    }
+    if (descriptor.configurable !== true) return false;
+    Reflect.apply(
+      defineProperty,
+      Object,
+      [
+        prototype,
+        "constructor",
+        {
+          value: safePromiseSpecies,
+          writable: true,
+          enumerable: descriptor.enumerable,
+          configurable: true
+        }
+      ]
+    );
+    try {
+      callback();
+      return true;
+    } finally {
+      Reflect.apply(
+        defineProperty,
+        Object,
+        [prototype, "constructor", descriptor]
+      );
+    }
+  }
+  callback();
+  return true;
+}
+
 function consumeNativePromiseRejection(
   value
 ) {
+  if (typeof promiseThen !== "function") return false;
+
   const originalConstructor =
     Reflect.apply(
       getOwnPropertyDescriptor,
@@ -233,6 +277,18 @@ function consumeNativePromiseRejection(
 
       constructorShadowed =
         true;
+    } else {
+      return withSafeInheritedPromiseConstructor(
+        value,
+        () => Reflect.apply(
+          promiseThen,
+          value,
+          [
+            undefined,
+            () => {}
+          ]
+        )
+      );
     }
 
     Reflect.apply(
@@ -243,6 +299,7 @@ function consumeNativePromiseRejection(
         () => {}
       ]
     );
+    return true;
   } finally {
     if (
       constructorShadowed
@@ -279,7 +336,7 @@ function rejectNativePromiseResult(
   message
 ) {
   if (
-    !utilTypes.isPromise(value)
+    !runtimeAuthority.isPromise(value)
   ) {
     return value;
   }
@@ -374,7 +431,7 @@ function isOrdinaryArrayPrototype(
   prototype
 ) {
   if (
-    !Array.isArray(prototype) ||
+    !runtimeAuthority.arrayIsArray(prototype) ||
     runtimeAuthority.isProxy(prototype)
   ) {
     return false;
@@ -566,7 +623,7 @@ function prepareCanonicalValue(
   }
 
   if (
-    utilTypes.isPromise(value)
+    runtimeAuthority.isPromise(value)
   ) {
     throw new Error(
       `${label} must not contain Promise values.`
@@ -584,7 +641,7 @@ function prepareCanonicalValue(
   }
 
   const isArray =
-    Array.isArray(value);
+    runtimeAuthority.arrayIsArray(value);
 
   const prototype =
     getPrototypeOf(value);
@@ -1079,6 +1136,23 @@ function captureMutation(
 function compileMutationPack(
   options = {}
 ) {
+  if (
+    runtimeAuthority.promiseAuthorityAvailable !== true ||
+    typeof promiseThen !== "function" ||
+    typeof promiseConstructor !== "function" ||
+    typeof asyncFunctionProbe !== "function" ||
+    typeof generatorFunctionProbe !== "function" ||
+    typeof runtimeAuthority.arrayIsArray !== "function" ||
+    !runtimeAuthority.hasTrustedLocalPromiseSpecies(
+      promiseConstructor,
+      promiseSpecies
+    )
+  ) {
+    throw new Error(
+      "Mutation Pack runtime authority is unavailable."
+    );
+  }
+
   const optionDescriptors =
     captureMetadataDescriptors(
       options,

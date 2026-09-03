@@ -615,7 +615,7 @@ test("round4 rejects foreign-realm Promise.then authority across M13 and M12", a
   assert.equal(result.status, 0, result.stderr || result.stdout);
 });
 
-test("round4 rejects Proxy isPromise probe before proposal generator execution", async () => {
+test("round4 ignores poisoned mutable isPromise probe without trap execution", async () => {
   const experiment = await makeExperiment();
   const modulePath = path.join(repoRoot, "src", "index.js");
   const code = `
@@ -633,7 +633,7 @@ test("round4 rejects Proxy isPromise probe before proposal generator execution",
       generator() { generatorCalls += 1; return {}; }
     }).then(() => process.exit(23), (error) => {
       if (!(error instanceof TypeError)) process.exit(24);
-      if (generatorCalls !== 0 || trapCalls !== 0) process.exit(25);
+      if (generatorCalls !== 1 || trapCalls !== 0) process.exit(25);
     });
   `;
   const result = spawnSync(process.execPath, ["-e", code], {
@@ -728,7 +728,7 @@ test("round5 pre-load Proxy isProxy authority never executes its apply trap", ()
   assert.equal(result.status, 0, result.stderr || result.stdout);
 });
 
-test("round5 pre-load Proxy forbidden-brand probe fails closed without trap execution", async () => {
+test("round5 ignores poisoned mutable forbidden-brand probe without trap execution", async () => {
   const experiment = await makeExperiment();
   const modulePath = path.join(repoRoot, "src", "index.js");
   const code = `
@@ -750,7 +750,7 @@ test("round5 pre-load Proxy forbidden-brand probe fails closed without trap exec
       () => { process.exitCode = 75; },
       (error) => {
         if (!(error instanceof TypeError)) process.exitCode = 76;
-        if (generatorCalls !== 0 || trapCalls !== 0) process.exitCode = 77;
+        if (generatorCalls !== 1 || trapCalls !== 0) process.exitCode = 77;
       }
     );
   `;
@@ -995,6 +995,329 @@ test("round5 coordinated TypeError constructor poisoning cannot authorize legacy
   const result = spawnSync(process.execPath, ["-e", code], {
     cwd: repoRoot,
     encoding: "utf8"
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
+
+// ROUND6_CODEX_AUTHORITY_REGRESSIONS
+
+test("round6 AI-data never invokes retained Proxy forbidden-brand probes", () => {
+  const modulePath = path.join(repoRoot, "src", "ai-data-core.js");
+  const code = `
+    "use strict";
+    const util = require("node:util");
+    const original = util.types.isDate;
+    let trapCalls = 0;
+    util.types.isDate = new Proxy(original, {
+      apply() { trapCalls += 1; throw new Error("isDate trap executed"); }
+    });
+    const api = require(${JSON.stringify(modulePath)});
+    util.types.isDate = original;
+    try { api.cloneAiData({}); } catch {}
+    if (trapCalls !== 0) process.exitCode = 90;
+  `;
+  const result = spawnSync(process.execPath, ["-e", code], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
+test("round6 util.inspect accessor is never invoked during package bootstrap", () => {
+  const modulePath = path.join(repoRoot, "src", "runtime-authority.js");
+  const code = `
+    "use strict";
+    const util = require("node:util");
+    require("node:buffer");
+    require("node:vm");
+    const descriptor = Object.getOwnPropertyDescriptor(util, "inspect");
+    let getterCalls = 0;
+    Object.defineProperty(util, "inspect", {
+      configurable: true,
+      enumerable: descriptor.enumerable,
+      get() { getterCalls += 1; throw new Error("inspect getter executed"); }
+    });
+    try { require(${JSON.stringify(modulePath)}); }
+    catch (error) { console.error(error); process.exitCode = 91; }
+    Object.defineProperty(util, "inspect", descriptor);
+    if (getterCalls !== 0) process.exitCode = 92;
+  `;
+  const result = spawnSync(process.execPath, ["-e", code], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
+test("round6 Buffer.isBuffer accessor is never invoked during package bootstrap", () => {
+  const modulePath = path.join(repoRoot, "src", "index.js");
+  const { Buffer } = require("node:buffer");
+  const code = `
+    "use strict";
+    const { Buffer } = require("node:buffer");
+    const descriptor = Object.getOwnPropertyDescriptor(Buffer, "isBuffer");
+    let getterCalls = 0;
+    Object.defineProperty(Buffer, "isBuffer", {
+      configurable: true,
+      enumerable: descriptor.enumerable,
+      get() { getterCalls += 1; throw new Error("Buffer.isBuffer getter executed"); }
+    });
+    try { require(${JSON.stringify(modulePath)}); }
+    catch (error) { console.error(error); process.exitCode = 93; }
+    Object.defineProperty(Buffer, "isBuffer", descriptor);
+    if (getterCalls !== 0) process.exitCode = 94;
+  `;
+  const result = spawnSync(process.execPath, ["-e", code], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
+test("round6 pre-load Proxy Array.isArray fails closed without trap execution", () => {
+  const modulePath = path.join(repoRoot, "src", "index.js");
+  const code = `
+    "use strict";
+    const descriptor = Object.getOwnPropertyDescriptor(Array, "isArray");
+    let trapCalls = 0;
+    Object.defineProperty(Array, "isArray", {
+      ...descriptor,
+      value: new Proxy(descriptor.value, {
+        apply() { trapCalls += 1; throw new Error("Array.isArray trap executed"); }
+      })
+    });
+    const api = require(${JSON.stringify(modulePath)});
+    Object.defineProperty(Array, "isArray", descriptor);
+    const returned = api.generateContractProtectionProposal({});
+    returned.then(
+      () => { process.exitCode = 95; },
+      (error) => {
+        if (!(error instanceof TypeError)) process.exitCode = 96;
+        if (trapCalls !== 0) process.exitCode = 97;
+      }
+    );
+  `;
+  const result = spawnSync(process.execPath, ["-e", code], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
+test("round6 M8 rejects poisoned Promise constructor and then before callbacks", () => {
+  const modulePath = path.join(repoRoot, "src", "contract-attacks-core.js");
+  const code = `
+    "use strict";
+    const NativePromise = Promise;
+    const constructorDescriptor = Object.getOwnPropertyDescriptor(NativePromise.prototype, "constructor");
+    const thenDescriptor = Object.getOwnPropertyDescriptor(NativePromise.prototype, "then");
+    let poisonCalls = 0;
+    function PoisonPromise(executor) { poisonCalls += 1; return new NativePromise(executor); }
+    function poisonThen(onFulfilled, onRejected) {
+      poisonCalls += 1;
+      return Reflect.apply(thenDescriptor.value, this, [onFulfilled, onRejected]);
+    }
+    Object.defineProperty(NativePromise.prototype, "constructor", {
+      value: PoisonPromise, writable: true, enumerable: false, configurable: true
+    });
+    Object.defineProperty(NativePromise.prototype, "then", {
+      value: poisonThen, writable: true, enumerable: false, configurable: true
+    });
+    const api = require(${JSON.stringify(modulePath)});
+    let callbackCalls = 0;
+    let returned;
+    try {
+      returned = api.runContractAttacks({
+        contract: {
+          version: 1,
+          status: "confirmed",
+          task: "Return approved time.",
+          rules: [{ id: "time-rule", statement: "Time is 3 PM.", kind: "required", severity: "major" }]
+        },
+        input: {},
+        expectedOutput: {},
+        evaluator() { callbackCalls += 1; return true; },
+        generator() { callbackCalls += 1; return { version: 1, task: "Return approved time.", attacks: [] }; }
+      });
+    } catch {}
+    Object.defineProperty(NativePromise.prototype, "constructor", constructorDescriptor);
+    Object.defineProperty(NativePromise.prototype, "then", thenDescriptor);
+    if (returned && typeof returned.then === "function") returned.then(() => {}, () => {});
+    setImmediate(() => {
+      if (callbackCalls !== 0 || poisonCalls !== 0) { console.error(JSON.stringify({ callbackCalls, poisonCalls })); process.exitCode = 98; }
+    });
+  `;
+  const result = spawnSync(process.execPath, ["-e", code], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
+test("round6 consumes non-configurable undefined-constructor rejected generator and transport Promises", async () => {
+  const experiment = await makeExperiment();
+  let unhandled = null;
+  const listener = (value) => { unhandled = value; };
+  process.on("unhandledRejection", listener);
+
+  const generatorPromise = Promise.reject({ code: "round6-generator-undefined-constructor" });
+  Object.defineProperty(generatorPromise, "constructor", {
+    value: undefined,
+    writable: false,
+    enumerable: false,
+    configurable: false
+  });
+  await assert.rejects(generateContractProtectionProposal({
+    experiment,
+    sourceAttackId: "wrong-time",
+    generator() { return generatorPromise; }
+  }), TypeError);
+
+  const { createStructuredProviderAdapter } = require("../src");
+  const transportPromise = Promise.reject({ code: "round6-transport-undefined-constructor" });
+  Object.defineProperty(transportPromise, "constructor", {
+    value: undefined,
+    writable: false,
+    enumerable: false,
+    configurable: false
+  });
+  const adapter = createStructuredProviderAdapter({
+    mode: "contract-protection",
+    model: "x",
+    transport() { return transportPromise; }
+  });
+  await assert.rejects(adapter({
+    task: "Return the approved time.",
+    case: { input: {}, expectedOutput: {} },
+    source: { attackId: "wrong-time", ruleId: "time-rule" },
+    rule: { id: "time-rule", statement: "Time must be 3 PM.", kind: "required", severity: "major" },
+    attack: {
+      id: "wrong-time", ruleId: "time-rule", type: "wrong-time",
+      description: "Changes the approved time.", rationale: "Violates the confirmed rule.", output: {}
+    },
+    instructions:
+      "Propose one specific, testable declarative quality protection for the selected surviving attack.\n" +
+      "Return only the required structured proposal data. Bind the proposal to the supplied task, source attack, and rule.\n" +
+      "Do not generate executable evaluator code, JavaScript, patches, provider instructions, or an accept/edit/reject decision.\n" +
+      "The protection statement must describe what the quality system should enforce.\n" +
+      "The rationale must explain why this protection addresses the selected survivor."
+  }), TypeError);
+
+  await new Promise((resolve) => setImmediate(resolve));
+  process.removeListener("unhandledRejection", listener);
+  assert.equal(unhandled, null);
+});
+
+test("round6 Mutation Pack never executes inherited Proxy species traps", async () => {
+  const { compileMutationPack } = require("../src/mutation-pack");
+  let trapCalls = 0;
+  let unhandled = null;
+  const listener = (value) => { unhandled = value; };
+  process.on("unhandledRejection", listener);
+
+  const rejected = Promise.reject({ code: "round6-mutation-hostile-species" });
+  const hostileConstructor = new Proxy(function HostilePromiseConstructor() {}, {
+    get(target, property, receiver) {
+      if (property === Symbol.species) {
+        trapCalls += 1;
+        throw new Error("species trap executed");
+      }
+      return Reflect.get(target, property, receiver);
+    }
+  });
+  const prototype = {};
+  Object.defineProperty(prototype, "constructor", {
+    value: hostileConstructor,
+    writable: true,
+    enumerable: false,
+    configurable: true
+  });
+  Object.setPrototypeOf(rejected, prototype);
+  Object.preventExtensions(rejected);
+
+  const pack = [{
+    id: "wrong-value",
+    type: "value-substitution",
+    description: "Changes the expected value.",
+    mutate() { return rejected; },
+    scores: { severity: 1, realism: 0.9, subtlety: 0.8, novelty: 0.7, fixability: 0.6 },
+    protection: { description: "Keep value correct.", check() { return true; } }
+  }];
+  assert.throws(
+    () => compileMutationPack({ output: { value: "good" }, pack }),
+    /Async mutation(?:s| functions) are not supported|runtime authority is unavailable/i
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  process.removeListener("unhandledRejection", listener);
+  assert.equal(trapCalls, 0);
+  assert.equal(unhandled, null);
+});
+
+test("round6 poisoned Promise species fails closed before M13 generator or transport", async () => {
+  const experiment = await makeExperiment();
+  const modulePath = path.join(repoRoot, "src", "index.js");
+  const code = `
+    "use strict";
+    const NativePromise = Promise;
+    const speciesDescriptor = Object.getOwnPropertyDescriptor(NativePromise, Symbol.species);
+    let speciesCalls = 0;
+    Object.defineProperty(NativePromise, Symbol.species, {
+      configurable: true,
+      enumerable: false,
+      get() { speciesCalls += 1; throw new Error("species getter executed"); }
+    });
+    const api = require(${JSON.stringify(modulePath)});
+    let generatorCalls = 0;
+    let transportCalls = 0;
+    const p1 = api.generateContractProtectionProposal({
+      experiment: JSON.parse(process.env.EXPERIMENT),
+      sourceAttackId: "wrong-time",
+      generator() { generatorCalls += 1; return NativePromise.reject(new Error("generator")); }
+    });
+    let p2;
+    try {
+      const adapter = api.createStructuredProviderAdapter({
+        mode: "contract-protection",
+        model: "x",
+        transport() { transportCalls += 1; return NativePromise.reject(new Error("transport")); }
+      });
+      p2 = adapter({
+        task: "Return the approved time.",
+        case: { input: {}, expectedOutput: {} },
+        source: { attackId: "wrong-time", ruleId: "time-rule" },
+        rule: {
+          id: "time-rule",
+          statement: "Time must be 3 PM.",
+          kind: "required",
+          severity: "major"
+        },
+        attack: {
+          id: "wrong-time",
+          ruleId: "time-rule",
+          type: "wrong-time",
+          description: "Changes the approved time.",
+          rationale: "Violates the confirmed rule.",
+          output: {}
+        },
+        instructions: [
+          "Propose one specific, testable declarative quality protection for the selected surviving attack.",
+          "Return only the required structured proposal data. Bind the proposal to the supplied task, source attack, and rule.",
+          "Do not generate executable evaluator code, JavaScript, patches, provider instructions, or an accept/edit/reject decision.",
+          "The protection statement must describe what the quality system should enforce.",
+          "The rationale must explain why this protection addresses the selected survivor."
+        ].join(String.fromCharCode(10))
+      });
+    } catch (error) { p2 = NativePromise.reject(error); }
+    Object.defineProperty(NativePromise, Symbol.species, speciesDescriptor);
+    NativePromise.allSettled([p1, p2]).then(() => {
+      if (speciesCalls !== 0 || generatorCalls !== 0 || transportCalls !== 0) process.exitCode = 99;
+    });
+  `;
+  const result = spawnSync(process.execPath, ["-e", code], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    env: { ...process.env, EXPERIMENT: JSON.stringify(experiment) }
   });
   assert.equal(result.status, 0, result.stderr || result.stdout);
 });
