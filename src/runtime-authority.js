@@ -98,20 +98,29 @@ try {
   const source = typeof candidate === "function"
     ? pristineReflectApply(pristineFunctionToString, candidate, [])
     : null;
-  const nativeSource = (
-    source === "function isProxy() { [native code] }" ||
+  const legacyNamedAuthority = (
+    candidate !== null &&
+    candidate.name === "isProxy" &&
+    (
+      source === "function isProxy() { [native code] }" ||
+      source === "function () { [native code] }"
+    )
+  );
+  const anonymousNodeAuthority = (
+    candidate !== null &&
+    candidate.name === "" &&
+    candidate.length === 0 &&
     source === "function () { [native code] }"
   );
   if (
     typeof candidate === "function" &&
-    candidate.name === "isProxy" &&
-    nativeSource &&
+    (legacyNamedAuthority || anonymousNodeAuthority) &&
+    bootstrapIsProxy(candidate) === false &&
     pristineReflectApply(
       pristineGetPrototypeOf,
       undefined,
       [candidate]
-    ) === localFunctionPrototype &&
-    bootstrapIsProxy(candidate) === false
+    ) === localFunctionPrototype
   ) {
     isProxy = candidate;
   }
