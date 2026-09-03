@@ -17,7 +17,9 @@ jobs:
           fetch-depth: 0
 
       - name: Apply Round-7 remediation
-        run: python3 scripts/qa/m13-codex-round7.py
+        run: |
+          python3 scripts/qa/m13-codex-round7.py
+          python3 scripts/qa/m13-codex-round7-followup.py
 
       - name: Syntax and diff hygiene
         run: |
@@ -27,7 +29,6 @@ jobs:
           node --check src/index.js
           node --check src/contract-protection-proposal.js
           node --check test/m13-review-remediation.test.js
-          ! grep -R "m13-codex-round7-diagnostic" -n .github scripts src test || true
 
       - uses: actions/setup-node@v4
         with:
@@ -89,6 +90,7 @@ jobs:
         run: |
           rm -f .github/workflows/m13-codex-round7.yml
           rm -f scripts/qa/m13-codex-round7.py
+          rm -f scripts/qa/m13-codex-round7-followup.py
           test ! -e .github/workflows/m13-codex-round7-diagnostic.yml
           test -z "$(find .github/workflows scripts/qa -type f -iname '*round7*' -print)"
           git diff --check
