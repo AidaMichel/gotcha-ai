@@ -1,0 +1,141 @@
+name: M13 Codex P1 round 6
+
+on:
+  push:
+    branches:
+      - milestone-13-runtime-slice-a
+
+permissions:
+  contents: write
+
+jobs:
+  validate-round6:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply round6 production remediation and regressions
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('scripts/qa/m13-codex-p1-round6.py')
+          text = p.read_text()
+          old = 'if text.count(dupe) != 1:'
+          new = 'if text.count(dupe) != 2:'
+          if old not in text:
+              raise SystemExit('round6 harness duplicate-count marker missing')
+          p.write_text(text.replace(old, new, 1))
+          PY
+          python3 scripts/qa/m13-codex-p1-round6.py
+          python3 scripts/qa/m13-codex-p1-round6-followup.py
+
+      - name: Syntax and diff hygiene
+        run: |
+          git diff --check
+          node --check src/runtime-authority.js
+          node --check src/ai-data-core.js
+          node --check src/contract-attacks-core.js
+          node --check src/contract-protection-proposal.js
+          node --check src/provider-adapter-m13.js
+          node --check src/mutation-pack.js
+          node --check test/m13-review-remediation.test.js
+          if grep -R -n 'M13_AUTH_DEBUG\|M13_CONSUME_DEBUG' src test; then
+            echo 'temporary M13 debug marker leaked into tested production state' >&2
+            exit 90
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 14.21.3
+          cache: npm
+      - run: npm ci
+      - name: Node 14 compatibility smoke
+        run: node -e "const api=require('./src'); if(typeof api.generateContractProtectionProposal!=='function'||typeof api.createStructuredProviderAdapter!=='function') process.exit(1)"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 16.20.2
+          cache: npm
+      - run: npm ci
+      - name: Node 16 compatibility smoke
+        run: node -e "const api=require('./src'); if(typeof api.generateContractProtectionProposal!=='function'||typeof api.createStructuredProviderAdapter!=='function') process.exit(1)"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+      - run: npm ci
+      - name: Node 18 round6 regressions
+        run: node --test --test-name-pattern="round6" test/m13-review-remediation.test.js
+      - name: Node 18 focused
+        run: node --test test/runtime-authority.test.js test/ai-data.test.js test/contract-attacks.test.js test/m13-review-remediation.test.js test/provider-adapter-m13.test.js test/mutation-pack.test.js test/contract-protection-proposal.test.js test/contract-quality-loop.test.js test/package-contract-protection-proposal.test.js
+      - name: Node 18 full
+        run: npm test
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.20.2
+          cache: npm
+      - run: npm ci
+      - name: Node 20 focused
+        run: node --test test/runtime-authority.test.js test/ai-data.test.js test/contract-attacks.test.js test/m13-review-remediation.test.js test/provider-adapter-m13.test.js test/mutation-pack.test.js test/contract-protection-proposal.test.js test/contract-quality-loop.test.js test/package-contract-protection-proposal.test.js
+      - name: Node 20 full
+        run: npm test
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Node 22 focused
+        run: node --test test/runtime-authority.test.js test/ai-data.test.js test/contract-attacks.test.js test/m13-review-remediation.test.js test/provider-adapter-m13.test.js test/mutation-pack.test.js test/contract-protection-proposal.test.js test/contract-quality-loop.test.js test/package-contract-protection-proposal.test.js
+      - name: Node 22 full
+        run: npm test
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Node 24 focused
+        run: node --test test/runtime-authority.test.js test/ai-data.test.js test/contract-attacks.test.js test/m13-review-remediation.test.js test/provider-adapter-m13.test.js test/mutation-pack.test.js test/contract-protection-proposal.test.js test/contract-quality-loop.test.js test/package-contract-protection-proposal.test.js
+      - name: Node 24 full
+        run: npm test
+
+      - name: Materialize tested production state and remove round6 harness
+        run: |
+          rm -f \
+            .github/workflows/m13-codex-p1-round6.yml \
+            scripts/qa/m13-codex-p1-round6.py \
+            scripts/qa/m13-codex-p1-round6-followup.py
+
+          test ! -e .github/workflows/m13-codex-p1-round6.yml
+          test ! -e scripts/qa/m13-codex-p1-round6.py
+          test ! -e scripts/qa/m13-codex-p1-round6-followup.py
+          git diff --check
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+
+          staged="$(git diff --cached --name-only)"
+          echo "$staged"
+          for required in \
+            src/runtime-authority.js \
+            src/ai-data-core.js \
+            src/contract-attacks-core.js \
+            src/contract-protection-proposal.js \
+            src/provider-adapter-m13.js \
+            src/mutation-pack.js \
+            test/m13-review-remediation.test.js; do
+            echo "$staged" | grep -Fx "$required" >/dev/null || {
+              echo "required tested round6 production change missing from final commit: $required" >&2
+              exit 92
+            }
+          done
+
+          git commit -m 'fix: close M13 Codex round6 authority findings'
+          git push origin HEAD:milestone-13-runtime-slice-a
