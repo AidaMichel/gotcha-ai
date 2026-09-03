@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  types-binding:
+  source-shapes:
     strategy:
       fail-fast: false
       matrix:
@@ -20,23 +20,22 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-      - name: Inspect native types binding
+      - name: Inspect clean native source shapes
         shell: bash
         run: |
           node <<'NODE'
           const names = ['isProxy','isDate','isRegExp','isMap','isSet','isWeakMap','isWeakSet','isPromise','isNativeError','isAnyArrayBuffer','isBoxedPrimitive','isArgumentsObject','isGeneratorObject','isModuleNamespaceObject','isMapIterator','isSetIterator','isExternal','isAsyncFunction','isGeneratorFunction','isCryptoKey','isKeyObject'];
-          let binding;
-          try { binding = process.binding('types'); }
-          catch (error) { console.log('binding-error', error && error.message); process.exit(2); }
+          const source = Function.prototype.toString;
           let publicTypes = null;
-          try { publicTypes = require('node:util/types'); } catch {}
-          for (const name of names) {
-            const value = binding && binding[name];
-            const publicValue = publicTypes && publicTypes[name];
-            console.log(name, typeof value, publicValue ? value === publicValue : 'no-public');
+          try { publicTypes = require('node:util/types'); } catch {
+            try { publicTypes = require('node:util').types; } catch {}
           }
-          const target = function target() {};
-          let calls = 0;
-          const proxy = new Proxy(target, { apply() { calls += 1; return false; } });
-          console.log('proxy-check', binding.isProxy(proxy), 'trap-calls', calls);
+          let v8 = null;
+          try { v8 = require('node:v8'); } catch {}
+          console.log('node', process.version);
+          console.log('v8.setFlagsFromString', v8 && typeof v8.setFlagsFromString === 'function' ? JSON.stringify(source.call(v8.setFlagsFromString)) : 'missing');
+          for (const name of names) {
+            const value = publicTypes && publicTypes[name];
+            console.log(name, typeof value === 'function' ? JSON.stringify(source.call(value)) : 'missing');
+          }
           NODE
