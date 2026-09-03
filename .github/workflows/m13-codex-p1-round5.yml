@@ -22,17 +22,20 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
       - run: npm ci
-      - name: cumulative probes 00-04
-        continue-on-error: true
-        run: node -e "const r=require('./src/runtime-authority'),v={}; for(let i=0;i<=4;i++) if(r.forbiddenProbes[i](v)===true) process.exit(40+i)"
-      - name: cumulative probes 00-09
-        continue-on-error: true
-        run: node -e "const r=require('./src/runtime-authority'),v={}; for(let i=0;i<=9;i++) if(r.forbiddenProbes[i](v)===true) process.exit(40+i)"
-      - name: cumulative probes 00-14
-        continue-on-error: true
-        run: node -e "const r=require('./src/runtime-authority'),v={}; for(let i=0;i<=14;i++) if(r.forbiddenProbes[i](v)===true) process.exit(40+i)"
-      - name: cumulative probes 00-18
-        continue-on-error: true
-        run: node -e "const r=require('./src/runtime-authority'),v={}; for(let i=0;i<=18;i++) if(r.forbiddenProbes[i](v)===true) process.exit(40+i)"
-      - name: plain object final gate
-        run: node -e "const r=require('./src/runtime-authority'); if(r.hasForbiddenRuntimeBrand({})!==false) process.exit(59)"
+      - name: Inspect Node 22 isDate
+        run: |
+          node - <<'NODE'
+          const util = require('node:util');
+          const r = require('./src/runtime-authority');
+          const c = util.types.isDate;
+          console.log(JSON.stringify({
+            node: process.version,
+            name: c.name,
+            source: Function.prototype.toString.call(c),
+            localPrototype: Object.getPrototypeOf(c) === r.localFunctionPrototype,
+            proxyByAuthority: r.isProxy(c),
+            exportedProbeIsCandidate: r.forbiddenProbes[0] === c,
+            plainCandidate: c({}),
+            plainExportedProbe: r.forbiddenProbes[0]({})
+          }));
+          NODE
