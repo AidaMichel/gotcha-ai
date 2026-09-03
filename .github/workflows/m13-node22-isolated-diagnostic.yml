@@ -1,0 +1,63 @@
+name: M13 Node22 isolated diagnostic
+
+on:
+  push:
+    branches:
+      - milestone-13-runtime-slice-a
+    paths-ignore:
+      - scripts/qa/m13-node22-isolated.log
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply exact Round-7 candidate
+        run: |
+          python3 scripts/qa/m13-codex-round7.py
+          python3 scripts/qa/m13-codex-round7-followup.py
+          python3 scripts/qa/m13-codex-round7-followup2.py
+          python3 scripts/qa/m13-codex-round7-followup3.py
+          python3 scripts/qa/m13-codex-round7-followup4.py
+          python3 scripts/qa/m13-codex-round7-followup5.py
+          python3 scripts/qa/m13-codex-round7-followup6.py
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+
+      - name: Capture exact Node22 focused failure
+        id: focused
+        shell: bash
+        run: |
+          set +e
+          node --test --test-reporter=spec test/m13-review-remediation.test.js > /tmp/node22.log 2>&1
+          rc=$?
+          {
+            echo "node=$(node --version)"
+            echo "exit=$rc"
+            echo "----- output -----"
+            cat /tmp/node22.log
+          } > scripts/qa/m13-node22-isolated.log
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Commit diagnostic log
+        env:
+          BRANCH: milestone-13-runtime-slice-a
+        run: |
+          git add scripts/qa/m13-node22-isolated.log
+          git config user.name "AidaMichel"
+          git config user.email "126730924+AidaMichel@users.noreply.github.com"
+          git commit -m "qa: record exact Node22 Round7 failure" || exit 0
+          git push origin HEAD:${BRANCH}
+
+      - name: Preserve failing status
+        run: |
+          test "${{ steps.focused.outputs.rc }}" = "0"
