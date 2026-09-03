@@ -25,6 +25,7 @@ jobs:
           python3 scripts/qa/m13-codex-round7-followup4.py
           python3 scripts/qa/m13-codex-round7-followup5.py
           python3 scripts/qa/m13-codex-round7-followup6.py
+          python3 scripts/qa/m13-codex-round7-followup7.py
 
       - name: Syntax and diff hygiene
         run: |
@@ -96,7 +97,8 @@ jobs:
         run: |
           rm -f .github/workflows/*round7*
           rm -f scripts/qa/*round7*
-          test -z "$(find .github/workflows scripts/qa -type f -iname '*round7*' -print)"
+          rm -f .github/workflows/m13-node22-isolated-diagnostic.yml scripts/qa/m13-node22-isolated.log
+          test -z "$(find .github/workflows scripts/qa -type f \( -iname '*round7*' -o -iname 'm13-node22-isolated*' \) -print)"
           git diff --check
           git add src/package-authority.js src/runtime-authority.js src/index.js src/contract-protection-proposal.js test/contract-protection-proposal.test.js test/m13-review-remediation.test.js
           git add -u .github/workflows scripts/qa
