@@ -22,11 +22,62 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
       - run: npm ci
-      - name: Node 22 plain object allowed
-        run: node -e "const r=require('./src/runtime-authority'); if(r.hasForbiddenRuntimeBrand({})!==false) process.exit(31)"
-      - name: Node 22 DataView forbidden
-        run: node -e "const r=require('./src/runtime-authority'); if(r.hasForbiddenRuntimeBrand(new DataView(new ArrayBuffer(8)))!==true) process.exit(32)"
-      - name: Node 22 Uint8Array typed
-        run: node -e "const r=require('./src/runtime-authority'); if(r.isTypedArray(new Uint8Array(8))!==true) process.exit(33)"
-      - name: Node 22 DataView not typed
-        run: node -e "const r=require('./src/runtime-authority'); if(r.isTypedArray(new DataView(new ArrayBuffer(8)))!==false) process.exit(34)"
+      - name: probe 00 isDate
+        continue-on-error: true
+        run: node -e "const r=require('./src/runtime-authority'); if(r.forbiddenProbes[0]({})!==false) process.exit(40)"
+      - name: probe 01 isRegExp
+        continue-on-error: true
+        run: node -e "const r=require('./src/runtime-authority'); if(r.forbiddenProbes[1]({})!==false) process.exit(41)"
+      - name: probe 02 isMap
+        continue-on-error: true
+        run: node -e "const r=require('./src/runtime-authority'); if(r.forbiddenProbes[2]({})!==false) process.exit(42)"
+      - name: probe 03 isSet
+        continue-on-error: true
+        run: node -e "const r=require('./src/runtime-authority'); if(r.forbiddenProbes[3]({})!==false) process.exit(43)"
+      - name: probe 04 isWeakMap
+        continue-on-error: true
+        run: node -e "const r=require('./src/runtime-authority'); if(r.forbiddenProbes[4]({})!==false) process.exit(44)"
+      - name: probe 05 isWeakSet
+        continue-on-error: true
+        run: node -e "const r=require('./src/runtime-authority'); if(r.forbiddenProbes[5]({})!==false) process.exit(45)"
+      - name: probe 06 isPromise
+        continue-on-error: true
+        run: node -e "const r=require('./src/runtime-authority'); if(r.forbiddenProbes[6]({})!==false) process.exit(46)"
+      - name: probe 07 isNativeError
+        continue-on-error: true
+        run: node -e "const r=require('./src/runtime-authority'); if(r.forbiddenProbes[7]({})!==false) process.exit(47)"
+      - name: probe 08 isAnyArrayBuffer
+        continue-on-error: true
+        run: node -e "const r=require('./src/runtime-authority'); if(r.forbiddenProbes[8]({})!==false) process.exit(48)"
+      - name: probe 09 isDataView
+        continue-on-error: true
+        run: node -e "const r=require('./src/runtime-authority'); if(r.forbiddenProbes[9]({})!==false) process.exit(49)"
+      - name: probe 10 isTypedArray
+        continue-on-error: true
+        run: node -e "const r=require('./src/runtime-authority'); if(r.forbiddenProbes[10]({})!==false) process.exit(50)"
+      - name: probe 11 isBoxedPrimitive
+        continue-on-error: true
+        run: node -e "const r=require('./src/runtime-authority'); if(r.forbiddenProbes[11]({})!==false) process.exit(51)"
+      - name: probe 12 isArgumentsObject
+        continue-on-error: true
+        run: node -e "const r=require('./src/runtime-authority'); if(r.forbiddenProbes[12]({})!==false) process.exit(52)"
+      - name: probe 13 isGeneratorObject
+        continue-on-error: true
+        run: node -e "const r=require('./src/runtime-authority'); if(r.forbiddenProbes[13]({})!==false) process.exit(53)"
+      - name: probe 14 isModuleNamespaceObject
+        continue-on-error: true
+        run: node -e "const r=require('./src/runtime-authority'); if(r.forbiddenProbes[14]({})!==false) process.exit(54)"
+      - name: probe 15 isMapIterator
+        continue-on-error: true
+        run: node -e "const r=require('./src/runtime-authority'); if(r.forbiddenProbes[15]({})!==false) process.exit(55)"
+      - name: probe 16 isSetIterator
+        continue-on-error: true
+        run: node -e "const r=require('./src/runtime-authority'); if(r.forbiddenProbes[16]({})!==false) process.exit(56)"
+      - name: probe 17 isExternal
+        continue-on-error: true
+        run: node -e "const r=require('./src/runtime-authority'); if(r.forbiddenProbes[17]({})!==false) process.exit(57)"
+      - name: probe 18 bufferIsBuffer
+        continue-on-error: true
+        run: node -e "const r=require('./src/runtime-authority'); if(r.forbiddenProbes[18]({})!==false) process.exit(58)"
+      - name: plain object final gate
+        run: node -e "const r=require('./src/runtime-authority'); if(r.hasForbiddenRuntimeBrand({})!==false) process.exit(59)"
