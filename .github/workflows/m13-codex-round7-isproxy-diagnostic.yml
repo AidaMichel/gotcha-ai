@@ -1,0 +1,46 @@
+name: M13 round7 isProxy diagnostic
+
+on:
+  push:
+    branches:
+      - milestone-13-runtime-slice-a
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [14.21.3, 16.20.2, 18.20.8, 20.20.2, 22.x, 24.x]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Inspect util types proxy authority
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fts = Function.prototype.toString;
+          function inspect(label, load) {
+            try {
+              const types = load();
+              const d = Object.getOwnPropertyDescriptor(types, 'isProxy');
+              const c = d && !d.get && !d.set ? d.value : null;
+              console.log(label, JSON.stringify({
+                ok: true,
+                descriptor: d && {writable:d.writable, enumerable:d.enumerable, configurable:d.configurable},
+                source: typeof c === 'function' ? fts.call(c) : null,
+                objectTag: Object.prototype.toString.call(types)
+              }));
+            } catch (e) {
+              console.log(label, JSON.stringify({ok:false, code:e && e.code, message:e && e.message}));
+            }
+          }
+          console.log('node', process.version, 'getBuiltinModule', typeof process.getBuiltinModule);
+          inspect('node:util/types', () => require('node:util/types'));
+          inspect('util/types', () => require('util/types'));
+          NODE
