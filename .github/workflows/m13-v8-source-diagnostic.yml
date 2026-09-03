@@ -1,0 +1,50 @@
+name: M13 V8 authority diagnostic
+on:
+  push:
+    branches: [milestone-13-runtime-slice-a]
+jobs:
+  inspect-v8-authority:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [14.21.3, 16.20.2, 18.20.8, 20.20.2, 22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Inspect node:v8 authority
+        shell: bash
+        run: |
+          node <<'NODE'
+          const v8 = require('node:v8');
+          const d = Object.getOwnPropertyDescriptor(v8, 'setFlagsFromString');
+          const f = d && d.value;
+          console.log('NODE=' + process.version);
+          console.log('DESC=' + JSON.stringify(d && {
+            enumerable: d.enumerable,
+            configurable: d.configurable,
+            writable: d.writable,
+            accessor: !!(d.get || d.set),
+            type: typeof f
+          }));
+          console.log('NAME=' + (typeof f === 'function' ? f.name : '<none>'));
+          console.log('LENGTH=' + (typeof f === 'function' ? f.length : '<none>'));
+          console.log('LOCAL_PROTO=' + (typeof f === 'function' && Object.getPrototypeOf(f) === Function.prototype));
+          console.log('SOURCE=' + (typeof f === 'function' ? Function.prototype.toString.call(f) : '<none>'));
+          console.log('GET_BUILTIN=' + typeof process.getBuiltinModule);
+          try {
+            if (typeof f !== 'function') throw new Error('missing setFlagsFromString');
+            f('--allow-natives-syntax');
+            const probe = require('node:vm').runInNewContext('(function(value){ return %IsJSProxy(value); })');
+            f('--no-allow-natives-syntax');
+            const p = new Proxy({}, {});
+            console.log('PROBE_PROXY=' + probe(p));
+            console.log('PROBE_PLAIN=' + probe({}));
+          } catch (error) {
+            try { if (typeof f === 'function') f('--no-allow-natives-syntax'); } catch {}
+            console.log('PROBE_ERROR=' + String(error && error.stack || error));
+            process.exitCode = 7;
+          }
+          NODE
