@@ -28,6 +28,7 @@ jobs:
           python3 scripts/qa/m13-codex-round7-followup5.py
           python3 scripts/qa/m13-codex-round7-followup6.py
           python3 scripts/qa/m13-codex-round7-followup7.py
+          python3 scripts/qa/m13-codex-round7-followup8.py
 
       - uses: actions/setup-node@v4
         with:
