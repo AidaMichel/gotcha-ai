@@ -9,13 +9,14 @@ const {
 const {
   runInNewContext
 } = require("node:vm");
+const runtimeAuthority = require("./runtime-authority");
 
 const promiseCaptureGetOwnPropertyDescriptor =
   Object.getOwnPropertyDescriptor;
 const promiseCaptureGetPrototypeOf =
   Object.getPrototypeOf;
 const promiseCaptureIsProxy =
-  utilTypes.isProxy;
+  runtimeAuthority.isProxy;
 
 const intrinsicPromiseProbe =
   (async function gotchaIntrinsicPromiseProbe() {})();
@@ -108,59 +109,14 @@ try {
 const experimentFreeze =
   runInNewContext("Object.freeze");
 
-function unavailablePromiseBrandProbe() {
-  // Fail closed: every inspected value is treated as a forbidden Promise brand
-  // when genuine local util.types.isPromise authority cannot be established.
-  return true;
-}
-
-let experimentPromiseBrandProbe = unavailablePromiseBrandProbe;
-try {
-  const candidate = utilTypes.isPromise;
-  const pristineReflectApply = runInNewContext("Reflect.apply");
-  const pristineFunctionToString = runInNewContext("Function.prototype.toString");
-  if (
-    typeof candidate === "function" &&
-    promiseCaptureIsProxy(candidate) !== true &&
-    (
-      pristineReflectApply(pristineFunctionToString, candidate, []) ===
-        "function isPromise() { [native code] }" ||
-      pristineReflectApply(pristineFunctionToString, candidate, []) ===
-        "function () { [native code] }"
-    )
-  ) {
-    experimentPromiseBrandProbe = candidate;
-  }
-} catch {
-  experimentPromiseBrandProbe = unavailablePromiseBrandProbe;
-}
-
+const experimentPromiseBrandProbe =
+  runtimeAuthority.isPromise;
 const experimentForbiddenProbes =
-  experimentFreeze([
-    utilTypes.isDate,
-    utilTypes.isRegExp,
-    utilTypes.isMap,
-    utilTypes.isSet,
-    utilTypes.isWeakMap,
-    utilTypes.isWeakSet,
-    experimentPromiseBrandProbe,
-    utilTypes.isNativeError,
-    utilTypes.isAnyArrayBuffer,
-    utilTypes.isDataView,
-    utilTypes.isTypedArray,
-    utilTypes.isBoxedPrimitive,
-    utilTypes.isArgumentsObject,
-    utilTypes.isGeneratorObject,
-    utilTypes.isModuleNamespaceObject,
-    utilTypes.isMapIterator,
-    utilTypes.isSetIterator,
-    utilTypes.isExternal,
-    BufferConstructor.isBuffer
-  ]);
+  runtimeAuthority.forbiddenProbes;
 
 const experimentIntrinsics =
   experimentFreeze({
-    isProxy: utilTypes.isProxy,
+    isProxy: runtimeAuthority.isProxy,
     forbiddenProbes: experimentForbiddenProbes,
     stringConstructor:
       String,
@@ -178,6 +134,8 @@ const experimentIntrinsics =
       Object.prototype,
     ObjectPrototypeParent:
       Object.getPrototypeOf(Object.prototype),
+    FunctionPrototype:
+      runtimeAuthority.localFunctionPrototype,
     PromiseConstructor:
       capturedAmbientPromiseConstructor,
     PromisePrototype:
@@ -230,7 +188,7 @@ const utilIsPromise =
   experimentPromiseBrandProbe;
 
 const utilIsProxy =
-  utilTypes["isProxy"];
+  runtimeAuthority.isProxy;
 
 const {
   attack

@@ -1,5 +1,6 @@
 const { types: utilTypes } = require("node:util");
 const { runInNewContext } = require("node:vm");
+const runtimeAuthority = require("./runtime-authority");
 
 const functionToString = Function.prototype.toString;
 const getOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
@@ -47,13 +48,13 @@ try {
   );
   if (
     typeof constructorCandidate === "function" &&
-    utilTypes.isProxy(constructorCandidate) !== true &&
+    runtimeAuthority.isProxy(constructorCandidate) !== true &&
     constructorCandidate === ambientPromiseCandidate &&
-    getPrototypeOf(constructorCandidate) === Function.prototype &&
+    getPrototypeOf(constructorCandidate) === runtimeAuthority.localFunctionPrototype &&
     Reflect.apply(functionToString, constructorCandidate, []) === pristinePromiseConstructorSource &&
     typeof thenCandidate === "function" &&
-    utilTypes.isProxy(thenCandidate) !== true &&
-    getPrototypeOf(thenCandidate) === Function.prototype &&
+    runtimeAuthority.isProxy(thenCandidate) !== true &&
+    getPrototypeOf(thenCandidate) === runtimeAuthority.localFunctionPrototype &&
     Reflect.apply(functionToString, thenCandidate, []) === pristinePromiseThenSource
   ) {
     promiseThen = thenCandidate;
@@ -300,7 +301,7 @@ function isOrdinaryObjectPrototype(
   if (
     prototype === null ||
     typeof prototype !== "object" ||
-    utilTypes.isProxy(prototype)
+    runtimeAuthority.isProxy(prototype)
   ) {
     return false;
   }
@@ -324,7 +325,7 @@ function isOrdinaryObjectPrototype(
       constructorDescriptor ||
     typeof constructorDescriptor
       .value !== "function" ||
-    utilTypes.isProxy(
+    runtimeAuthority.isProxy(
       constructorDescriptor.value
     )
   ) {
@@ -374,7 +375,7 @@ function isOrdinaryArrayPrototype(
 ) {
   if (
     !Array.isArray(prototype) ||
-    utilTypes.isProxy(prototype)
+    runtimeAuthority.isProxy(prototype)
   ) {
     return false;
   }
@@ -398,7 +399,7 @@ function isOrdinaryArrayPrototype(
       constructorDescriptor ||
     typeof constructorDescriptor
       .value !== "function" ||
-    utilTypes.isProxy(
+    runtimeAuthority.isProxy(
       constructorDescriptor.value
     )
   ) {
@@ -557,7 +558,7 @@ function prepareCanonicalValue(
   }
 
   if (
-    utilTypes.isProxy(value)
+    runtimeAuthority.isProxy(value)
   ) {
     throw new Error(
       `${label} must not contain Proxy values.`
@@ -852,7 +853,7 @@ function captureMetadataDescriptors(
   }
 
   if (
-    utilTypes.isProxy(value)
+    runtimeAuthority.isProxy(value)
   ) {
     throw new Error(
       `${label} must not be a Proxy.`
@@ -1098,7 +1099,7 @@ function compileMutationPack(
     );
 
   if (
-    utilTypes.isProxy(pack)
+    runtimeAuthority.isProxy(pack)
   ) {
     throw new Error(
       "Mutation pack must not be a Proxy."

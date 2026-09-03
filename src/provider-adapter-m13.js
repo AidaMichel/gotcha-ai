@@ -2,9 +2,7 @@
 
 const { types: utilTypes } = require("node:util");
 const { runInNewContext } = require("node:vm");
-const {
-  isUnsupportedRuntimeObject
-} = require("./ai-data-core");
+const runtimeAuthority = require("./runtime-authority");
 const ArrayConstructor = Array;
 const WeakSetConstructor = WeakSet;
 const promiseSpecies = Symbol.species;
@@ -30,33 +28,16 @@ const stringConstructor = String;
 const functionHasInstance = Function.prototype[Symbol.hasInstance];
 const functionToString = Function.prototype.toString;
 const stringStartsWith = String.prototype.startsWith;
-const isProxy = utilTypes.isProxy;
-const isPromise = utilTypes.isPromise;
+const isProxy = runtimeAuthority.isProxy;
+const isPromise = runtimeAuthority.isPromise;
 const weakSetHas = WeakSet.prototype.has;
 const weakSetAdd = WeakSet.prototype.add;
 const weakSetDelete = WeakSet.prototype.delete;
 
-let providerBrandAuthorityAvailable = false;
-try {
-  const pristineReflectApply = runInNewContext("Reflect.apply");
-  const pristineFunctionToString = runInNewContext("Function.prototype.toString");
-  const promiseProbeSource =
-    pristineReflectApply(pristineFunctionToString, isPromise, []);
-  const proxyProbeSource =
-    pristineReflectApply(pristineFunctionToString, isProxy, []);
-  providerBrandAuthorityAvailable = (
-    (
-      promiseProbeSource === "function isPromise() { [native code] }" ||
-      promiseProbeSource === "function () { [native code] }"
-    ) &&
-    (
-      proxyProbeSource === "function isProxy() { [native code] }" ||
-      proxyProbeSource === "function () { [native code] }"
-    )
-  );
-} catch {
-  providerBrandAuthorityAvailable = false;
-}
+const providerBrandAuthorityAvailable = (
+  isProxy === runtimeAuthority.isProxy &&
+  isPromise === runtimeAuthority.isPromise
+);
 
 const CONTRACT_PROTECTION_INSTRUCTIONS_V1 =
   "Propose one specific, testable declarative quality protection for the selected surviving attack.\n" +
@@ -151,7 +132,7 @@ try {
     thenDescriptor.enumerable === false &&
     thenDescriptor.configurable === true &&
     !isProxy(thenDescriptor.value) &&
-    pristineReflectApply(pristineGetPrototypeOf, undefined, [thenDescriptor.value]) === Function.prototype &&
+    pristineReflectApply(pristineGetPrototypeOf, undefined, [thenDescriptor.value]) === runtimeAuthority.localFunctionPrototype &&
     intrinsicThenSource === pristinePromiseThenSource
   );
 
@@ -219,6 +200,16 @@ try {
     typeof localTypeErrorConstructorDescriptor.value === "function"
       ? localTypeErrorConstructorDescriptor.value
       : null;
+  const pristineTypeErrorSource = runInNewContext(
+    "Function.prototype.toString.call(TypeError)"
+  );
+  const pristineFunctionToString = runInNewContext(
+    "Function.prototype.toString"
+  );
+  const ambientTypeErrorSource =
+    typeof ambientTypeErrorCandidate === "function"
+      ? reflectApply(pristineFunctionToString, ambientTypeErrorCandidate, [])
+      : null;
   const ambientTypeErrorPrototypeDescriptor =
     typeof ambientTypeErrorCandidate === "function" &&
     !isProxy(ambientTypeErrorCandidate)
@@ -229,6 +220,7 @@ try {
     localTypeErrorConstructor !== null &&
     ambientTypeErrorCandidate === localTypeErrorConstructor &&
     !isProxy(ambientTypeErrorCandidate) &&
+    ambientTypeErrorSource === pristineTypeErrorSource &&
     ambientTypeErrorPrototypeDescriptor !== undefined &&
     !("get" in ambientTypeErrorPrototypeDescriptor) &&
     !("set" in ambientTypeErrorPrototypeDescriptor) &&
@@ -345,7 +337,7 @@ function exactDataDescriptors(value, expectedKeys, label, requirePlainLocal) {
   if (value === null || typeof value !== "object" || arrayIsArray(value) || isProxy(value)) {
     throw boundaryError(`${label} must be a non-Proxy record.`);
   }
-  if (isUnsupportedRuntimeObject(value)) {
+  if (runtimeAuthority.hasForbiddenRuntimeBrand(value)) {
     throw boundaryError(`${label} must be a plain record.`);
   }
   if (requirePlainLocal) {
@@ -448,7 +440,7 @@ function prepareInvocationNode(value, label, active) {
     assertSafePrimitive(value, label);
     return { value, frame: null };
   }
-  if (isProxy(value) || isUnsupportedRuntimeObject(value)) {
+  if (isProxy(value) || runtimeAuthority.hasForbiddenRuntimeBrand(value)) {
     throw boundaryError(`${label} contains unsupported runtime data.`);
   }
   if (reflectApply(weakSetHas, active, [value])) {
@@ -501,7 +493,7 @@ function prepareProviderNode(value, label, seen, root) {
     assertSafePrimitive(value, label);
     return { value, frame: null };
   }
-  if (isProxy(value) || isUnsupportedRuntimeObject(value)) {
+  if (isProxy(value) || runtimeAuthority.hasForbiddenRuntimeBrand(value)) {
     throw boundaryError(`${label} contains unsupported runtime data.`);
   }
   if (reflectApply(weakSetHas, seen, [value])) {
@@ -622,6 +614,12 @@ function inheritedConstructorUsesSafeDefaultSpecies(promise) {
       if ("get" in constructorDescriptor || "set" in constructorDescriptor) return false;
       const constructor = constructorDescriptor.value;
       if (constructor === undefined) return true;
+      if (constructor === trustedPromiseConstructor) {
+        return runtimeAuthority.hasTrustedLocalPromiseSpecies(
+          constructor,
+          promiseSpecies
+        );
+      }
       const objectConstructorDescriptor = getOwnPropertyDescriptor(objectPrototype, "constructor");
       const objectConstructor =
         objectConstructorDescriptor !== undefined &&

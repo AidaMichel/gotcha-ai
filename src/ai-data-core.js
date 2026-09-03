@@ -3,6 +3,9 @@
 const nodeUtil =
   require("node:util");
 
+const runtimeAuthority =
+  require("./runtime-authority");
+
 const {
   types: utilTypes,
   inspect
@@ -198,7 +201,7 @@ function isNativeConstructorDescriptor(
     "set" in descriptor ||
     typeof descriptor.value !==
       "function" ||
-    utilTypePredicates.isProxy(
+    runtimeAuthority.isProxy(
       descriptor.value
     )
   ) {
@@ -245,7 +248,7 @@ function isOrdinaryObjectPrototype(
 
   if (
     typeof prototype !== "object" ||
-    utilTypePredicates.isProxy(prototype)
+    runtimeAuthority.isProxy(prototype)
   ) {
     return false;
   }
@@ -283,7 +286,7 @@ function isOrdinaryArrayPrototype(
   if (
     prototype === null ||
     typeof prototype !== "object" ||
-    utilTypePredicates.isProxy(prototype)
+    runtimeAuthority.isProxy(prototype)
   ) {
     return false;
   }
@@ -348,7 +351,7 @@ function captureNavigatorSingleton() {
     return (
       value !== null &&
       typeof value === "object" &&
-      !utilTypePredicates.isProxy(value)
+      !runtimeAuthority.isProxy(value)
     )
       ? value
       : null;
@@ -372,7 +375,7 @@ function captureNavigatorLocks() {
     return (
       locks !== null &&
       typeof locks === "object" &&
-      !utilTypePredicates.isProxy(locks)
+      !runtimeAuthority.isProxy(locks)
     )
       ? locks
       : null;
@@ -392,7 +395,7 @@ function captureCryptoSingleton() {
     return (
       value !== null &&
       typeof value === "object" &&
-      !utilTypePredicates.isProxy(value)
+      !runtimeAuthority.isProxy(value)
     )
       ? value
       : null;
@@ -496,7 +499,7 @@ function captureConstructorPrototype(
 ) {
   if (
     typeof constructor !== "function" ||
-    utilTypePredicates.isProxy(constructor)
+    runtimeAuthority.isProxy(constructor)
   ) {
     return null;
   }
@@ -519,7 +522,7 @@ function captureConstructorPrototype(
     "set" in descriptor ||
     descriptor.value === null ||
     typeof descriptor.value !== "object" ||
-    utilTypePredicates.isProxy(
+    runtimeAuthority.isProxy(
       descriptor.value
     )
   ) {
@@ -536,7 +539,7 @@ function captureGetterFromPrototypeObject(
   if (
     prototype === null ||
     typeof prototype !== "object" ||
-    utilTypePredicates.isProxy(prototype)
+    runtimeAuthority.isProxy(prototype)
   ) {
     return null;
   }
@@ -556,7 +559,7 @@ function captureGetterFromPrototypeObject(
   return (
     descriptor !== undefined &&
     typeof descriptor.get === "function" &&
-    !utilTypePredicates.isProxy(
+    !runtimeAuthority.isProxy(
       descriptor.get
     )
   )
@@ -571,7 +574,7 @@ function captureMethodFromPrototypeObject(
   if (
     prototype === null ||
     typeof prototype !== "object" ||
-    utilTypePredicates.isProxy(prototype)
+    runtimeAuthority.isProxy(prototype)
   ) {
     return null;
   }
@@ -592,7 +595,7 @@ function captureMethodFromPrototypeObject(
     descriptor !== undefined &&
     "value" in descriptor &&
     typeof descriptor.value === "function" &&
-    !utilTypePredicates.isProxy(
+    !runtimeAuthority.isProxy(
       descriptor.value
     )
   )
@@ -627,7 +630,7 @@ function captureMethodFromPrototype(
   if (
     prototype === null ||
     typeof prototype !== "object" ||
-    utilTypePredicates.isProxy(prototype)
+    runtimeAuthority.isProxy(prototype)
   ) {
     return null;
   }
@@ -684,7 +687,7 @@ function captureUndiciNativeSource() {
     "get" in bindingDescriptor ||
     "set" in bindingDescriptor ||
     typeof bindingDescriptor.value !== "function" ||
-    utilTypePredicates.isProxy(
+    runtimeAuthority.isProxy(
       bindingDescriptor.value
     )
   ) {
@@ -709,7 +712,7 @@ function captureUndiciNativeSource() {
   if (
     natives === null ||
     typeof natives !== "object" ||
-    utilTypePredicates.isProxy(natives)
+    runtimeAuthority.isProxy(natives)
   ) {
     undiciHostBrandAuthorityAvailable = false;
     return null;
@@ -751,7 +754,7 @@ function sourceBelongsToUndiciBundle(
   if (
     undiciNativeSource === null ||
     typeof callable !== "function" ||
-    utilTypePredicates.isProxy(callable)
+    runtimeAuthority.isProxy(callable)
   ) {
     return false;
   }
@@ -796,7 +799,7 @@ function captureEmbeddedNodeSource(
     "get" in bindingDescriptor ||
     "set" in bindingDescriptor ||
     typeof bindingDescriptor.value !== "function" ||
-    utilTypePredicates.isProxy(
+    runtimeAuthority.isProxy(
       bindingDescriptor.value
     )
   ) {
@@ -819,7 +822,7 @@ function captureEmbeddedNodeSource(
   if (
     natives === null ||
     typeof natives !== "object" ||
-    utilTypePredicates.isProxy(natives)
+    runtimeAuthority.isProxy(natives)
   ) {
     return null;
   }
@@ -862,7 +865,7 @@ function sourceBelongsToUndiciLazyCore(
 ) {
   if (
     typeof callable !== "function" ||
-    utilTypePredicates.isProxy(callable)
+    runtimeAuthority.isProxy(callable)
   ) {
     return false;
   }
@@ -1007,7 +1010,7 @@ function hasTrustedUndiciBlobDependency() {
       "function" ||
     globalBlobDescriptor.value !==
       moduleBlobDescriptor.value ||
-    utilTypePredicates.isProxy(
+    runtimeAuthority.isProxy(
       globalBlobDescriptor.value
     )
   ) {
@@ -1053,7 +1056,7 @@ function resolveRequiredUndiciConstructor(
   ) {
     return (
       typeof globalDescriptor.value === "function" &&
-      !utilTypePredicates.isProxy(
+      !runtimeAuthority.isProxy(
         globalDescriptor.value
       )
     )
@@ -1071,8 +1074,8 @@ function resolveRequiredUndiciConstructor(
     globalDescriptor.configurable !== true ||
     typeof getter !== "function" ||
     typeof setter !== "function" ||
-    utilTypePredicates.isProxy(getter) ||
-    utilTypePredicates.isProxy(setter) ||
+    runtimeAuthority.isProxy(getter) ||
+    runtimeAuthority.isProxy(setter) ||
     !hasExpectedLazyAccessorMetadata(
       getter,
       "get",
@@ -1106,7 +1109,7 @@ function resolveRequiredUndiciConstructor(
 
   if (
     typeof constructor !== "function" ||
-    utilTypePredicates.isProxy(constructor)
+    runtimeAuthority.isProxy(constructor)
   ) {
     return null;
   }
@@ -1233,7 +1236,7 @@ function captureRequiredUndiciProbe(
 
   if (
     typeof callable !== "function" ||
-    utilTypePredicates.isProxy(callable) ||
+    runtimeAuthority.isProxy(callable) ||
     !hasExpectedCallableMetadata(
       callable,
       expectedName,
@@ -1345,7 +1348,7 @@ function sourceBelongsToEmbeddedModule(
   if (
     typeof moduleSource !== "string" ||
     typeof callable !== "function" ||
-    utilTypePredicates.isProxy(callable)
+    runtimeAuthority.isProxy(callable)
   ) {
     return false;
   }
@@ -1421,7 +1424,7 @@ function matchesAmbientNativeConstructor(
     !("set" in descriptor) &&
     descriptor.value === constructor &&
     typeof constructor === "function" &&
-    !utilTypePredicates.isProxy(constructor) &&
+    !runtimeAuthority.isProxy(constructor) &&
     reflectApply(
       stringIncludes,
       source,
@@ -1441,7 +1444,7 @@ function resolveTrustedModuleOrGlobalConstructor(
   if (
     moduleObject !== null &&
     typeof moduleObject === "object" &&
-    !utilTypePredicates.isProxy(moduleObject)
+    !runtimeAuthority.isProxy(moduleObject)
   ) {
     try {
       moduleDescriptor =
@@ -1458,7 +1461,7 @@ function resolveTrustedModuleOrGlobalConstructor(
       "value" in moduleDescriptor &&
       typeof moduleDescriptor.value ===
         "function" &&
-      !utilTypePredicates.isProxy(
+      !runtimeAuthority.isProxy(
         moduleDescriptor.value
       )
     ) {
@@ -1517,7 +1520,7 @@ function resolveTrustedModuleOrGlobalConstructor(
       globalDescriptor.enumerable !== false ||
       globalDescriptor.configurable !== true ||
       typeof getter !== "function" ||
-      utilTypePredicates.isProxy(getter) ||
+      runtimeAuthority.isProxy(getter) ||
       !hasExpectedLazyAccessorMetadata(
         getter,
         "get",
@@ -1529,7 +1532,7 @@ function resolveTrustedModuleOrGlobalConstructor(
         setter !== undefined &&
         (
           typeof setter !== "function" ||
-          utilTypePredicates.isProxy(setter) ||
+          runtimeAuthority.isProxy(setter) ||
           !hasExpectedLazyAccessorMetadata(
             setter,
             "set",
@@ -1579,7 +1582,7 @@ function resolveTrustedModuleOrGlobalConstructor(
 
   if (
     typeof globalConstructor !== "function" ||
-    utilTypePredicates.isProxy(globalConstructor)
+    runtimeAuthority.isProxy(globalConstructor)
   ) {
     return null;
   }
@@ -1692,7 +1695,7 @@ function captureTrustedModuleBrandCallable(
 
   if (
     typeof callable !== "function" ||
-    utilTypePredicates.isProxy(callable)
+    runtimeAuthority.isProxy(callable)
   ) {
     trustedModuleBrandAuthorityAvailable =
       false;
@@ -1781,7 +1784,7 @@ function hasOpaqueNestedSymbolState(
   if (
     value === null ||
     typeof value !== "object" ||
-    utilTypePredicates.isProxy(value)
+    runtimeAuthority.isProxy(value)
   ) {
     return false;
   }
@@ -1819,7 +1822,7 @@ function hasOpaqueNestedSymbolState(
       continue;
     }
 
-    if (utilTypePredicates.isProxy(child)) {
+    if (runtimeAuthority.isProxy(child)) {
       return true;
     }
 
@@ -1862,7 +1865,7 @@ function sourceBelongsToAbortControllerNative(
   if (
     abortControllerNativeSource === null ||
     typeof callable !== "function" ||
-    utilTypePredicates.isProxy(callable)
+    runtimeAuthority.isProxy(callable)
   ) {
     return false;
   }
@@ -1931,8 +1934,8 @@ function resolveTrustedAbortControllerConstructor() {
       globalDescriptor.configurable !== true ||
       typeof getter !== "function" ||
       typeof setter !== "function" ||
-      utilTypePredicates.isProxy(getter) ||
-      utilTypePredicates.isProxy(setter) ||
+      runtimeAuthority.isProxy(getter) ||
+      runtimeAuthority.isProxy(setter) ||
       !hasExpectedLazyAccessorMetadata(
         getter,
         "get",
@@ -1990,7 +1993,7 @@ function resolveTrustedAbortControllerConstructor() {
 
   if (
     typeof constructor !== "function" ||
-    utilTypePredicates.isProxy(constructor) ||
+    runtimeAuthority.isProxy(constructor) ||
     !hasExpectedCallableMetadata(
       constructor,
       "AbortController",
@@ -2051,7 +2054,7 @@ function captureAbortControllerBrandGetter() {
     signalDescriptor.configurable !== true ||
     typeof signalDescriptor.get !== "function" ||
     signalDescriptor.set !== undefined ||
-    utilTypePredicates.isProxy(
+    runtimeAuthority.isProxy(
       signalDescriptor.get
     ) ||
     !hasExpectedCallableMetadata(
@@ -2933,7 +2936,7 @@ function isStructuredCloneProbeSafe(
   if (
     value === null ||
     typeof value !== "object" ||
-    utilTypePredicates.isProxy(value)
+    runtimeAuthority.isProxy(value)
   ) {
     return false;
   }
@@ -3324,7 +3327,7 @@ function prepareAiDataValue(
     );
   }
 
-  if (utilTypePredicates.isProxy(value)) {
+  if (runtimeAuthority.isProxy(value)) {
     throw new Error(
       `${label} must not be a Proxy.`
     );
@@ -3335,7 +3338,7 @@ function prepareAiDataValue(
 
   if (
     directPrototype !== null &&
-    utilTypePredicates.isProxy(
+    runtimeAuthority.isProxy(
       directPrototype
     )
   ) {
@@ -3529,7 +3532,7 @@ function freezeAiData(
       continue;
     }
 
-    if (utilTypePredicates.isProxy(current)) {
+    if (runtimeAuthority.isProxy(current)) {
       throw new Error(
         `${frame.label} must not be a Proxy.`
       );

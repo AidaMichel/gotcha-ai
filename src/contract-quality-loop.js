@@ -1,14 +1,14 @@
 "use strict";
 
-const utilTypes = require("node:util").types;
-const { Buffer } = require("node:buffer");
+const { types: utilTypes } = require("node:util");
+const runtimeAuthority = require("./runtime-authority");
 const { runInNewContext } = require("node:vm");
 
 const remediation = require("./contract-remediation");
 
-const isProxy = utilTypes.isProxy;
-const isPromise = utilTypes.isPromise;
-const bufferIsBuffer = Buffer.isBuffer;
+const isProxy = runtimeAuthority.isProxy;
+const isPromise = runtimeAuthority.isPromise;
+const bufferIsBuffer = runtimeAuthority.bufferIsBuffer;
 
 const getOwnPropertyDescriptors = Object.getOwnPropertyDescriptors;
 const getOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
@@ -75,7 +75,7 @@ try {
     reflectApply(functionToString, constructorCandidate, []) === pristinePromiseConstructorSource &&
     typeof thenCandidate === "function" &&
     isProxy(thenCandidate) !== true &&
-    getPrototypeOf(thenCandidate) === Function.prototype &&
+    getPrototypeOf(thenCandidate) === runtimeAuthority.localFunctionPrototype &&
     reflectApply(functionToString, thenCandidate, []) === pristinePromiseThenSource
   ) {
     PromiseConstructor = constructorCandidate;
@@ -91,27 +91,7 @@ const draftContractProtection = remediation.draftContractProtection;
 const confirmContractProtection = remediation.confirmContractProtection;
 const verifyContractProtection = remediation.verifyContractProtection;
 
-const forbiddenProbes = [
-  utilTypes.isDate,
-  utilTypes.isRegExp,
-  utilTypes.isMap,
-  utilTypes.isSet,
-  utilTypes.isWeakMap,
-  utilTypes.isWeakSet,
-  utilTypes.isPromise,
-  utilTypes.isNativeError,
-  utilTypes.isAnyArrayBuffer,
-  utilTypes.isDataView,
-  utilTypes.isTypedArray,
-  utilTypes.isBoxedPrimitive,
-  utilTypes.isArgumentsObject,
-  utilTypes.isGeneratorObject,
-  utilTypes.isModuleNamespaceObject,
-  utilTypes.isMapIterator,
-  utilTypes.isSetIterator,
-  utilTypes.isExternal,
-  bufferIsBuffer
-];
+const forbiddenProbes = runtimeAuthority.forbiddenProbes;
 
 let authorityAvailable = true;
 

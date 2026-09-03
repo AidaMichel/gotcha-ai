@@ -1,6 +1,7 @@
 "use strict";
 
 const { runInNewContext } = require("node:vm");
+const runtimeAuthority = require("./runtime-authority");
 
 const {
   experimentIntrinsics: authority
@@ -17,6 +18,7 @@ const {
   ArrayPrototype: arrayPrototype,
   ObjectPrototype: objectPrototype,
   ObjectPrototypeParent: objectPrototypeParent,
+  FunctionPrototype: localFunctionPrototype,
   PromiseConstructor,
   PromisePrototype: promisePrototype,
   getOwnPropertyDescriptors,
@@ -93,21 +95,11 @@ for (let index = 0; index < requiredFunctions.length; index += 1) {
   }
 }
 
-try {
-  const pristineReflectApply = runInNewContext("Reflect.apply");
-  const pristineFunctionToString = runInNewContext("Function.prototype.toString");
-  const promiseBrandProbeSource = pristineReflectApply(
-    pristineFunctionToString,
-    promiseBrandProbe,
-    []
-  );
-  if (
-    promiseBrandProbeSource !== "function isPromise() { [native code] }" &&
-    promiseBrandProbeSource !== "function () { [native code] }"
-  ) {
-    boundaryAuthorityAvailable = false;
-  }
-} catch {
+if (
+  promiseBrandProbe !== runtimeAuthority.isPromise ||
+  isProxy !== runtimeAuthority.isProxy ||
+  forbiddenProbes !== runtimeAuthority.forbiddenProbes
+) {
   boundaryAuthorityAvailable = false;
 }
 
@@ -199,7 +191,7 @@ try {
     promiseThenDescriptor.writable === true &&
     promiseThenDescriptor.enumerable === false &&
     promiseThenDescriptor.configurable === true &&
-    pristineReflectApply(pristineGetPrototypeOf, undefined, [promiseThen]) === Function.prototype &&
+    pristineReflectApply(pristineGetPrototypeOf, undefined, [promiseThen]) === localFunctionPrototype &&
     capturedPromiseThenSource === pristinePromiseThenSource
   );
 } catch {
@@ -1077,6 +1069,12 @@ function inheritedConstructorUsesSafeDefaultSpecies(promise) {
       if ("get" in constructorDescriptor || "set" in constructorDescriptor) return false;
       const constructor = constructorDescriptor.value;
       if (constructor === undefined) return true;
+      if (constructor === trustedPromiseConstructor) {
+        return runtimeAuthority.hasTrustedLocalPromiseSpecies(
+          constructor,
+          promiseSpecies
+        );
+      }
       const objectConstructorDescriptor = getOwnPropertyDescriptor(objectPrototype, "constructor");
       const objectConstructor =
         objectConstructorDescriptor !== undefined &&
