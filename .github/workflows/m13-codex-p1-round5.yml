@@ -22,20 +22,21 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
       - run: npm ci
-      - name: Inspect Node 22 isDate
+      - name: Inspect Node 22 isProxy
         run: |
           node - <<'NODE'
           const util = require('node:util');
           const r = require('./src/runtime-authority');
-          const c = util.types.isDate;
+          const c = util.types.isProxy;
           console.log(JSON.stringify({
             node: process.version,
             name: c.name,
+            length: c.length,
             source: Function.prototype.toString.call(c),
             localPrototype: Object.getPrototypeOf(c) === r.localFunctionPrototype,
-            proxyByAuthority: r.isProxy(c),
-            exportedProbeIsCandidate: r.forbiddenProbes[0] === c,
-            plainCandidate: c({}),
-            plainExportedProbe: r.forbiddenProbes[0]({})
+            exportedIsCandidate: r.isProxy === c,
+            exportedPlain: r.isProxy({}),
+            candidatePlain: c({}),
+            candidateKnownProxy: c(new Proxy({}, {}))
           }));
           NODE
