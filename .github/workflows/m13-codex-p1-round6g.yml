@@ -1,0 +1,91 @@
+name: M13 Codex P1 round 6g
+on:
+  push:
+    branches: [milestone-13-runtime-slice-a]
+permissions:
+  contents: write
+jobs:
+  validate-round6g:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Apply round6 remediation
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('scripts/qa/m13-codex-p1-round6.py'); t=p.read_text()
+          old='if text.count(dupe) != 1:'
+          if old not in t: raise SystemExit('round6 duplicate-count marker missing')
+          p.write_text(t.replace(old,'if text.count(dupe) != 2:',1))
+          PY
+          python3 scripts/qa/m13-codex-p1-round6.py
+          python3 scripts/qa/m13-codex-p1-round6-followup.py
+          python3 scripts/qa/m13-codex-p1-round6-followup2.py
+          python3 scripts/qa/m13-codex-p1-round6-followup3.py
+          python3 scripts/qa/m13-codex-p1-round6-followup4.py
+          python3 scripts/qa/m13-codex-p1-round6-followup7.py
+      - name: Syntax and diff hygiene
+        run: |
+          git diff --check
+          for f in src/runtime-authority.js src/ai-data-core.js src/contract-attacks-core.js src/contract-remediation.js src/contract-protection-proposal.js src/contract-quality-loop.js src/provider-adapter-m13.js src/mutation-pack.js test/m13-review-remediation.test.js; do node --check "$f"; done
+          ! grep -R -n 'M13_AUTH_DEBUG\|M13_CONSUME_DEBUG' src test
+      - uses: actions/setup-node@v4
+        with: { node-version: 14.21.3, cache: npm }
+      - run: npm ci
+      - name: Node 14 compatibility
+        run: node -e "const a=require('./src');if(typeof a.generateContractProtectionProposal!=='function'||typeof a.createStructuredProviderAdapter!=='function')process.exit(1)"
+      - uses: actions/setup-node@v4
+        with: { node-version: 16.20.2, cache: npm }
+      - run: npm ci
+      - name: Node 16 compatibility
+        run: node -e "const a=require('./src');if(typeof a.generateContractProtectionProposal!=='function'||typeof a.createStructuredProviderAdapter!=='function')process.exit(1)"
+      - uses: actions/setup-node@v4
+        with: { node-version: 18, cache: npm }
+      - run: npm ci
+      - name: Node 18 round6 regressions
+        run: node --test --test-name-pattern="round6" test/m13-review-remediation.test.js
+      - name: Node 18 focused
+        run: node --test test/runtime-authority.test.js test/ai-data.test.js test/contract-attacks.test.js test/m13-review-remediation.test.js test/provider-adapter-m13.test.js test/mutation-pack.test.js test/contract-protection-proposal.test.js test/contract-quality-loop.test.js test/package-contract-protection-proposal.test.js
+      - name: Node 18 full
+        run: npm test
+      - uses: actions/setup-node@v4
+        with: { node-version: 20.20.2, cache: npm }
+      - run: npm ci
+      - name: Node 20 focused
+        run: node --test test/runtime-authority.test.js test/ai-data.test.js test/contract-attacks.test.js test/m13-review-remediation.test.js test/provider-adapter-m13.test.js test/mutation-pack.test.js test/contract-protection-proposal.test.js test/contract-quality-loop.test.js test/package-contract-protection-proposal.test.js
+      - name: Node 20 full
+        run: npm test
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - name: Node 22 focused
+        run: node --test test/runtime-authority.test.js test/ai-data.test.js test/contract-attacks.test.js test/m13-review-remediation.test.js test/provider-adapter-m13.test.js test/mutation-pack.test.js test/contract-protection-proposal.test.js test/contract-quality-loop.test.js test/package-contract-protection-proposal.test.js
+      - name: Node 22 round4-6 stress
+        run: |
+          for i in 1 2 3; do
+            node --test --test-name-pattern="round4|round5|round6" test/m13-review-remediation.test.js
+          done
+      - name: Node 22 full
+        run: npm test
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - run: npm ci
+      - name: Node 24 focused
+        run: node --test test/runtime-authority.test.js test/ai-data.test.js test/contract-attacks.test.js test/m13-review-remediation.test.js test/provider-adapter-m13.test.js test/mutation-pack.test.js test/contract-protection-proposal.test.js test/contract-quality-loop.test.js test/package-contract-protection-proposal.test.js
+      - name: Node 24 full
+        run: npm test
+      - name: Materialize clean production state
+        run: |
+          rm -f .github/workflows/m13-codex-p1-round6g.yml scripts/qa/m13-codex-p1-round6.py scripts/qa/m13-codex-p1-round6-followup.py scripts/qa/m13-codex-p1-round6-followup2.py scripts/qa/m13-codex-p1-round6-followup3.py scripts/qa/m13-codex-p1-round6-followup4.py scripts/qa/m13-codex-p1-round6-followup5.py scripts/qa/m13-codex-p1-round6-followup6.py scripts/qa/m13-codex-p1-round6-followup7.py
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          staged="$(git diff --cached --name-only)"
+          for f in src/runtime-authority.js src/ai-data-core.js src/contract-attacks-core.js src/contract-remediation.js src/contract-protection-proposal.js src/contract-quality-loop.js src/provider-adapter-m13.js src/mutation-pack.js test/m13-review-remediation.test.js; do echo "$staged" | grep -Fx "$f" >/dev/null || exit 92; done
+          if echo "$staged" | grep -Fx 'src/index.js' >/dev/null; then echo 'unnecessary entrypoint patch leaked into final state' >&2; exit 94; fi
+          if find .github/workflows scripts/qa -maxdepth 1 -type f -name '*round6*' | grep .; then echo 'round6 harness leaked into final state' >&2; exit 93; fi
+          git commit -m 'fix: close M13 Codex round6 authority findings'
+          git push origin HEAD:milestone-13-runtime-slice-a
