@@ -38,5 +38,40 @@ jobs:
             speciesLocalPrototype: Object.getPrototypeOf(d.get) === r.localFunctionPrototype
           }));
           NODE
+      - name: Show patched inherited species helpers
+        run: |
+          grep -n -A30 -B5 'function inheritedConstructorUsesSafeDefaultSpecies' src/provider-adapter-m13.js
+          grep -n -A30 -B5 'function inheritedConstructorUsesSafeDefaultSpecies' src/contract-protection-proposal.js
+      - name: Node 18 direct inherited Promise consumption proof
+        run: |
+          node - <<'NODE'
+          const r = require('./src/runtime-authority');
+          const then = Object.getOwnPropertyDescriptor(Promise.prototype, 'then').value;
+          let unhandled = null;
+          process.on('unhandledRejection', (reason) => { unhandled = reason; });
+          const reason = { code: 'direct-inherited-proof' };
+          const p = Promise.reject(reason);
+          const proto = {};
+          Object.defineProperty(proto, 'constructor', {
+            value: Promise,
+            writable: true,
+            enumerable: false,
+            configurable: true
+          });
+          Object.setPrototypeOf(p, proto);
+          Object.preventExtensions(p);
+          console.log(JSON.stringify({
+            brand: r.isPromise(p),
+            trustedSpecies: r.hasTrustedLocalPromiseSpecies(Promise, Symbol.species),
+            inheritedConstructor: p.constructor === Promise
+          }));
+          Reflect.apply(then, p, [undefined, () => {}]);
+          setImmediate(() => {
+            if (unhandled !== null) {
+              console.error('direct inherited consumption left unhandled rejection', unhandled);
+              process.exit(91);
+            }
+          });
+          NODE
       - name: Node 18 round5 targeted regressions
         run: node --test --test-name-pattern="round5 pre-load Proxy isProxy authority|round5 consumes inherited trusted-constructor" test/m13-review-remediation.test.js
