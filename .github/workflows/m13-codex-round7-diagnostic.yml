@@ -1,0 +1,42 @@
+name: M13 Codex round 7 diagnostic
+
+on:
+  push:
+    branches:
+      - milestone-13-runtime-slice-a
+
+permissions:
+  contents: read
+
+jobs:
+  types-binding:
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [14.21.3, 16.20.2, 18.20.8, 20.20.2, 22.x, 24.x]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Inspect native types binding
+        shell: bash
+        run: |
+          node <<'NODE'
+          const names = ['isProxy','isDate','isRegExp','isMap','isSet','isWeakMap','isWeakSet','isPromise','isNativeError','isAnyArrayBuffer','isBoxedPrimitive','isArgumentsObject','isGeneratorObject','isModuleNamespaceObject','isMapIterator','isSetIterator','isExternal','isAsyncFunction','isGeneratorFunction','isCryptoKey','isKeyObject'];
+          let binding;
+          try { binding = process.binding('types'); }
+          catch (error) { console.log('binding-error', error && error.message); process.exit(2); }
+          let publicTypes = null;
+          try { publicTypes = require('node:util/types'); } catch {}
+          for (const name of names) {
+            const value = binding && binding[name];
+            const publicValue = publicTypes && publicTypes[name];
+            console.log(name, typeof value, publicValue ? value === publicValue : 'no-public');
+          }
+          const target = function target() {};
+          let calls = 0;
+          const proxy = new Proxy(target, { apply() { calls += 1; return false; } });
+          console.log('proxy-check', binding.isProxy(proxy), 'trap-calls', calls);
+          NODE
