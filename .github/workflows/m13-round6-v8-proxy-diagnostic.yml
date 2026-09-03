@@ -1,0 +1,50 @@
+name: M13 round6 V8 proxy diagnostic
+on:
+  push:
+    branches: [milestone-13-runtime-slice-a]
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [14.21.3, 16.20.2, 18.20.8, 20.20.2, 22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ matrix.node }}' }
+      - name: Verify trap-free V8 proxy intrinsic
+        shell: bash
+        run: |
+          node - <<'NODE'
+          'use strict';
+          console.log('node', process.version);
+          const binding = process.binding('v8');
+          console.log('setFlags', typeof binding.setFlagsFromString);
+          let intrinsic = null;
+          try {
+            binding.setFlagsFromString('--allow_natives_syntax');
+            intrinsic = Function('value', 'return %IsJSProxy(value);');
+          } finally {
+            try { binding.setFlagsFromString('--no-allow_natives-syntax'); } catch {}
+          }
+          if (typeof intrinsic !== 'function') process.exit(10);
+          let applyCalls = 0;
+          const fn = function target() {};
+          const proxy = new Proxy(fn, { apply() { applyCalls += 1; return 1; } });
+          const objectProxy = new Proxy({}, { get() { throw new Error('get trap'); }, ownKeys() { throw new Error('keys trap'); } });
+          console.log('plainFn', intrinsic(fn));
+          console.log('proxyFn', intrinsic(proxy));
+          console.log('proxyObj', intrinsic(objectProxy));
+          console.log('applyCalls', applyCalls);
+          if (intrinsic(fn) !== false || intrinsic(proxy) !== true || intrinsic(objectProxy) !== true || applyCalls !== 0) process.exit(11);
+          try {
+            Function('value', 'return %IsJSProxy(value);');
+            console.log('nativeSyntaxStillEnabled', true);
+            process.exit(12);
+          } catch (error) {
+            console.log('nativeSyntaxStillEnabled', false, error.name);
+          }
+          NODE
