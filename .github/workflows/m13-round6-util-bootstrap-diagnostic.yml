@@ -1,0 +1,66 @@
+name: M13 round6 util bootstrap diagnostic
+on:
+  push:
+    branches: [milestone-13-runtime-slice-a]
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [14.21.3, 16.20.2, 18.20.8, 20.20.2, 22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ matrix.node }}' }
+      - name: Inspect builtin bootstrap authority
+        shell: bash
+        run: |
+          node - <<'NODE'
+          'use strict';
+          const util = require('node:util');
+          const typesBefore = util.types;
+          const inspectDescriptor = Object.getOwnPropertyDescriptor(util, 'inspect');
+          const isProxyDescriptor = Object.getOwnPropertyDescriptor(typesBefore, 'isProxy');
+          const bindingUtil = process.binding('util');
+          console.log('node', process.version);
+          console.log('getBuiltinModule', typeof process.getBuiltinModule);
+          console.log('bindingKeys', Object.getOwnPropertyNames(bindingUtil).sort().join(','));
+          console.log('bindingIsProxy', typeof bindingUtil.isProxy);
+          for (const name of ['isDate','isPromise','isMap','isSet','isRegExp','isNativeError','isExternal','isDataView','isAnyArrayBuffer','isMapIterator','isSetIterator']) {
+            console.log('identity', name, typeof typesBefore[name], typeof bindingUtil[name], typesBefore[name] === bindingUtil[name]);
+          }
+          let getterCalls = 0;
+          Object.defineProperty(util, 'inspect', {
+            configurable: true,
+            enumerable: inspectDescriptor.enumerable,
+            get() { getterCalls += 1; throw new Error('inspect accessor executed'); }
+          });
+          try {
+            const t = require('node:util/types');
+            console.log('typesRequireOK', true, 'getterCalls', getterCalls, 'sameObject', t === typesBefore);
+          } catch (error) {
+            console.log('typesRequireOK', false, 'getterCalls', getterCalls, error && error.message);
+          }
+          try {
+            require('node:util');
+            console.log('utilRerequireOK', true, 'getterCalls', getterCalls);
+          } catch (error) {
+            console.log('utilRerequireOK', false, 'getterCalls', getterCalls, error && error.message);
+          }
+          Object.defineProperty(util, 'inspect', inspectDescriptor);
+          Object.defineProperty(typesBefore, 'isProxy', {
+            ...isProxyDescriptor,
+            value: new Proxy(isProxyDescriptor.value, { apply() { throw new Error('proxy apply'); } })
+          });
+          try {
+            const t = require('node:util/types');
+            const d = Object.getOwnPropertyDescriptor(t, 'isProxy');
+            console.log('poisonedTypesRequireOK', true, 'descriptorData', !!d && !('get' in d) && !('set' in d), 'sameObject', t === typesBefore);
+          } catch (error) {
+            console.log('poisonedTypesRequireOK', false, error && error.message);
+          }
+          Object.defineProperty(typesBefore, 'isProxy', isProxyDescriptor);
+          NODE
