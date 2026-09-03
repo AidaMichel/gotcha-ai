@@ -23,4 +23,18 @@ if debug_block in text:
     text = text.replace(debug_block, "", 1)
 provider.write_text(text)
 
-print("round5 retained non-authority dependencies restored; temporary debug removed")
+# ai-data-core previously snapshotted util.types.isProxy directly. Under pre-load
+# poisoning that duplicate authority could execute a Proxy apply trap during module load.
+# Route every Proxy classification in this module through the shared, trap-safe authority.
+ai_data_core = Path("src/ai-data-core.js")
+text = ai_data_core.read_text()
+runtime_import = 'const runtimeAuthority =\n  require("./runtime-authority");\n\n'
+if runtime_import not in text:
+    marker = 'const nodeUtil =\n  require("node:util");\n\n'
+    if marker not in text:
+        raise SystemExit("missing ai-data-core nodeUtil import marker")
+    text = text.replace(marker, marker + runtime_import, 1)
+text = text.replace("utilTypePredicates.isProxy(", "runtimeAuthority.isProxy(")
+ai_data_core.write_text(text)
+
+print("round5 dependencies restored; debug removed; ai-data-core uses shared Proxy authority")
