@@ -20,6 +20,7 @@ jobs:
         run: |
           python3 scripts/qa/m13-codex-round8.py
           python3 scripts/qa/m13-codex-round8-followup.py
+          python3 scripts/qa/m13-codex-round8-followup2.py
 
       - name: Syntax and diff hygiene
         run: |
@@ -28,6 +29,8 @@ jobs:
           node --check src/index.js
           node --check src/provider-adapter-m13.js
           node --check test/m13-review-remediation.test.js
+          node --check test/provider-adapter-m13.test.js
+          node --check test/runtime-authority.test.js
           test -z "$(grep -nE 'getBuiltinModule|setFlagsFromString|node:v8|pristineObjectToString' src/runtime-authority.js || true)"
           test -z "$(grep -nE 'new Set|authorityRootModulePaths' src/index.js || true)"
 
@@ -92,7 +95,7 @@ jobs:
           rm -f scripts/qa/*round8*
           test -z "$(find .github/workflows scripts/qa -type f -iname '*round8*' -print)"
           git diff --check
-          git add src/runtime-authority.js src/index.js src/provider-adapter-m13.js test/m13-review-remediation.test.js
+          git add src/runtime-authority.js src/index.js src/provider-adapter-m13.js test/m13-review-remediation.test.js test/provider-adapter-m13.test.js test/runtime-authority.test.js
           git add -u .github/workflows scripts/qa
           git diff --cached --check
           git status --short
