@@ -1,76 +1,59 @@
 node=v22.23.2
 exit=1
 ----- output -----
-✔ M13 capture and request projection stay stack-safe for deep replayable evidence (19739.945159ms)
-✔ missing pre-load Array.isArray keeps M13 loadable and rejects through the public Promise (35.258472ms)
-✔ callable pre-load Promise.then poisoning fails closed before generator execution (72.902272ms)
-✔ callable pre-load Promise constructor poisoning fails closed without constructor authority (42.787933ms)
-✔ missing global Promise keeps package loadable and M13 fails closed through a native Promise (31.901403ms)
-✔ contract-protection adapter rejects pre-load Promise constructor poisoning without executing it (31.150882ms)
-✔ poisoned Promise prototype constructor keeps package loadable and M13 fails closed (29.45618ms)
-✔ legacy adapter Promise authority is captured at package initialization (74.783266ms)
-✔ poisoned global TypeError is never used for M13 boundary failures (75.788267ms)
-✔ accessor-backed global Promise is rejected without getter execution (41.958652ms)
-✔ poisoned global TypeError is never used by M13 provider adapter boundaries (36.28762ms)
-✔ M12 rejects pre-load Promise constructor Proxy authority without executing it (31.802012ms)
-✔ round3 rejects accessor-backed core Promise authority without invoking the getter (28.199279ms)
-✔ round3 M12 rejects foreign-realm Promise constructor authority (30.5217ms)
-✔ round3 proposal consumes rejected changed-prototype native Promise (35.926704ms)
-✔ round3 legacy adapter does not retain poisoned pre-load TypeError authority (36.510777ms)
-✔ round4 rejects foreign-realm Promise.then authority across M13 and M12 (47.412728ms)
-✔ round4 ignores poisoned mutable isPromise probe without trap execution (89.609421ms)
-✔ round4 consumes non-extensible changed-prototype rejected generator Promise (20.631524ms)
-✔ round4 rejects same-prototype fake TypeError and pre-cached poisoned legacy adapter (97.904937ms)
-✔ round5 pre-load Proxy isProxy authority never executes its apply trap (72.86365ms)
-✔ round5 ignores poisoned mutable forbidden-brand probe without trap execution (95.534002ms)
-✔ round5 foreign Promise.then plus foreign Function fails closed across M13 and M12 (47.325164ms)
-✔ round5 provider rejects foreign Promise.then plus foreign Function before transport (32.302184ms)
-✔ round5 Mutation Pack rejects coordinated foreign Promise and Function authority before callbacks (32.387065ms)
-✔ round5 consumes inherited trusted-constructor rejected generator and transport Promises (25.324865ms)
-✔ round5 coordinated TypeError constructor poisoning cannot authorize legacy delegation (35.764579ms)
-✔ round6 AI-data never invokes retained Proxy forbidden-brand probes (65.336548ms)
-✔ round6 util.inspect accessor is never invoked during package bootstrap (32.892454ms)
-✔ round6 Buffer.isBuffer accessor is never invoked during package bootstrap (30.36215ms)
-✔ round6 pre-load Proxy Array.isArray fails closed without trap execution (37.918895ms)
-✔ round6 M8 rejects poisoned Promise constructor and then before callbacks (35.815351ms)
-✔ round6 consumes non-configurable undefined-constructor rejected generator and transport Promises (17.545343ms)
-✔ round6 Mutation Pack never executes inherited Proxy species traps (3.225762ms)
-✖ round6 poisoned Promise species fails closed before M13 generator or transport (85.218012ms)
-✔ round7 V8 setter replacement is never executed during bootstrap (33.780407ms)
-✔ round7 ordinary util.types brand replacement is never retained (73.315866ms)
-✖ round7 node vm and buffer bootstrap accessors are never invoked (62.035922ms)
-✔ round7 unshieldable fulfilled generator promises are consumed then rejected (17.330833ms)
-✔ round7 package root reloads preloaded authority consumers coherently (119.154452ms)
+✔ M13 capture and request projection stay stack-safe for deep replayable evidence (18586.36371ms)
+✔ missing pre-load Array.isArray keeps M13 loadable and rejects through the public Promise (47.826137ms)
+✔ callable pre-load Promise.then poisoning fails closed before generator execution (47.28665ms)
+✔ callable pre-load Promise constructor poisoning fails closed without constructor authority (48.302145ms)
+✔ missing global Promise keeps package loadable and M13 fails closed through a native Promise (43.741541ms)
+✔ contract-protection adapter rejects pre-load Promise constructor poisoning without executing it (42.220174ms)
+✔ poisoned Promise prototype constructor keeps package loadable and M13 fails closed (41.383845ms)
+✔ legacy adapter Promise authority is captured at package initialization (86.995542ms)
+✔ poisoned global TypeError is never used for M13 boundary failures (87.879128ms)
+✔ accessor-backed global Promise is rejected without getter execution (52.171729ms)
+✔ poisoned global TypeError is never used by M13 provider adapter boundaries (50.611529ms)
+✔ M12 rejects pre-load Promise constructor Proxy authority without executing it (43.861271ms)
+✔ round3 rejects accessor-backed core Promise authority without invoking the getter (40.382917ms)
+✔ round3 M12 rejects foreign-realm Promise constructor authority (43.488499ms)
+✔ round3 proposal consumes rejected changed-prototype native Promise (28.712989ms)
+✔ round3 legacy adapter does not retain poisoned pre-load TypeError authority (49.4479ms)
+✔ round4 rejects foreign-realm Promise.then authority across M13 and M12 (60.887822ms)
+✔ round4 ignores poisoned mutable isPromise probe without trap execution (101.679961ms)
+✔ round4 consumes non-extensible changed-prototype rejected generator Promise (25.584462ms)
+✔ round4 rejects same-prototype fake TypeError and pre-cached poisoned legacy adapter (129.481406ms)
+✔ round5 pre-load Proxy isProxy authority never executes its apply trap (83.543522ms)
+✔ round5 ignores poisoned mutable forbidden-brand probe without trap execution (104.796029ms)
+✔ round5 foreign Promise.then plus foreign Function fails closed across M13 and M12 (60.610355ms)
+✔ round5 provider rejects foreign Promise.then plus foreign Function before transport (42.821415ms)
+✔ round5 Mutation Pack rejects coordinated foreign Promise and Function authority before callbacks (42.538649ms)
+✔ round5 consumes inherited trusted-constructor rejected generator and transport Promises (24.059049ms)
+✔ round5 coordinated TypeError constructor poisoning cannot authorize legacy delegation (49.942801ms)
+✔ round6 AI-data never invokes retained Proxy forbidden-brand probes (75.393372ms)
+✔ round6 util.inspect accessor is never invoked during package bootstrap (46.035821ms)
+✔ round6 Buffer.isBuffer accessor is never invoked during package bootstrap (45.311545ms)
+✔ round6 pre-load Proxy Array.isArray fails closed without trap execution (50.61546ms)
+✔ round6 M8 rejects poisoned Promise constructor and then before callbacks (50.130644ms)
+✔ round6 consumes non-configurable undefined-constructor rejected generator and transport Promises (15.970245ms)
+✔ round6 Mutation Pack never executes inherited Proxy species traps (3.095072ms)
+✔ round6 poisoned Promise species fails closed before M13 generator or transport (56.20582ms)
+✔ round7 V8 setter replacement is never executed during bootstrap (40.924878ms)
+✔ round7 ordinary util.types brand replacement is never retained (82.361372ms)
+✖ round7 node vm and buffer bootstrap accessors are never invoked (64.031147ms)
+✔ round7 unshieldable fulfilled generator promises are consumed then rejected (16.261885ms)
+✔ round7 package root reloads preloaded authority consumers coherently (138.302207ms)
 ℹ tests 40
 ℹ suites 0
-ℹ pass 38
-ℹ fail 2
+ℹ pass 39
+ℹ fail 1
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 21798.04003
+ℹ duration_ms 20883.928009
 
 ✖ failing tests:
 
-test at test/m13-review-remediation.test.js:1257:1
-✖ round6 poisoned Promise species fails closed before M13 generator or transport (85.218012ms)
-  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
-  
-  99 !== 0
-  
-      at TestContext.<anonymous> (/home/runner/work/gotcha-ai/gotcha-ai/test/m13-review-remediation.test.js:1322:10)
-      at async Test.run (node:internal/test_runner/test:1054:7)
-      at async Test.processPendingSubtests (node:internal/test_runner/test:744:7) {
-    generatedMessage: true,
-    code: 'ERR_ASSERTION',
-    actual: 99,
-    expected: 0,
-    operator: 'strictEqual',
-    diff: 'simple'
-  }
-
 test at test/m13-review-remediation.test.js:1383:1
-✖ round7 node vm and buffer bootstrap accessors are never invoked (62.035922ms)
+✖ round7 node vm and buffer bootstrap accessors are never invoked (64.031147ms)
   AssertionError [ERR_ASSERTION]: node:buffer.Buffer: 
   
   5 !== 0
