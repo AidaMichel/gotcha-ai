@@ -98,31 +98,57 @@ try {
   const source = typeof candidate === "function"
     ? pristineReflectApply(pristineFunctionToString, candidate, [])
     : null;
-  const legacyNamedAuthority = (
-    candidate !== null &&
-    candidate.name === "isProxy" &&
-    (
-      source === "function isProxy() { [native code] }" ||
-      source === "function () { [native code] }"
-    )
-  );
-  const anonymousNodeAuthority = (
-    candidate !== null &&
-    candidate.name === "" &&
-    candidate.length === 0 &&
+  const sourceLooksNative = (
+    source === "function isProxy() { [native code] }" ||
     source === "function () { [native code] }"
   );
   if (
     typeof candidate === "function" &&
-    (legacyNamedAuthority || anonymousNodeAuthority) &&
-    bootstrapIsProxy(candidate) === false &&
-    pristineReflectApply(
-      pristineGetPrototypeOf,
-      undefined,
-      [candidate]
-    ) === localFunctionPrototype
+    sourceLooksNative &&
+    bootstrapIsProxy(candidate) === false
   ) {
-    isProxy = candidate;
+    const nameDescriptor = pristineReflectApply(
+      pristineGetOwnPropertyDescriptor,
+      undefined,
+      [candidate, "name"]
+    );
+    const lengthDescriptor = pristineReflectApply(
+      pristineGetOwnPropertyDescriptor,
+      undefined,
+      [candidate, "length"]
+    );
+    const candidateName = (
+      nameDescriptor !== undefined &&
+      !("get" in nameDescriptor) &&
+      !("set" in nameDescriptor)
+    ) ? nameDescriptor.value : null;
+    const candidateLength = (
+      lengthDescriptor !== undefined &&
+      !("get" in lengthDescriptor) &&
+      !("set" in lengthDescriptor)
+    ) ? lengthDescriptor.value : null;
+    const legacyNamedAuthority = (
+      candidateName === "isProxy" &&
+      (
+        source === "function isProxy() { [native code] }" ||
+        source === "function () { [native code] }"
+      )
+    );
+    const anonymousNodeAuthority = (
+      candidateName === "" &&
+      candidateLength === 0 &&
+      source === "function () { [native code] }"
+    );
+    if (
+      (legacyNamedAuthority || anonymousNodeAuthority) &&
+      pristineReflectApply(
+        pristineGetPrototypeOf,
+        undefined,
+        [candidate]
+      ) === localFunctionPrototype
+    ) {
+      isProxy = candidate;
+    }
   }
 } catch {
   isProxy = unavailableProxyProbe;
