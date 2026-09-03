@@ -16,4 +16,11 @@ for name in [
             text = import_line + text
     p.write_text(text)
 
-print("round5 retained non-authority util dependencies restored")
+provider = Path("src/provider-adapter-m13.js")
+text = provider.read_text()
+debug_block = '''if (process.env.M13_AUTH_DEBUG === "1") {\n  console.error("M13_AUTH_DEBUG " + JSON.stringify({\n    providerBrandAuthorityAvailable,\n    promiseAuthorityAvailable,\n    legacyTypeErrorAuthorityAvailable,\n    capturedPromiseMatches: capturedAmbientPromiseConstructor === trustedPromiseConstructor\n  }));\n}\n\n'''
+if debug_block in text:
+    text = text.replace(debug_block, "", 1)
+provider.write_text(text)
+
+print("round5 retained non-authority dependencies restored; temporary debug removed")
