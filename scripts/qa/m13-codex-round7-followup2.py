@@ -51,7 +51,6 @@ const SymbolConstructor = dataValue(globalThis, "Symbol");
 const SymbolPrototype = dataValue(SymbolConstructor, "prototype");
 const SymbolValueOf = dataValue(SymbolPrototype, "valueOf");
 const SymbolSpecies = dataValue(SymbolConstructor, "species");
-const PromiseSpeciesGetter = accessorGetter(PromiseConstructor, SymbolSpecies);
 ''',
     "same-realm primitive fallback capture",
 )
