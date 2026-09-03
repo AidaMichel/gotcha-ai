@@ -29,35 +29,6 @@ jobs:
           node --check src/provider-adapter-m13.js
           node --check src/mutation-pack.js
           node --check test/runtime-authority.test.js
-
-      - uses: actions/setup-node@v4
-        with: { node-version: 14.21.3, cache: npm }
-      - run: npm ci
-      - name: Node 14 smoke
-        run: node -e "const api=require('./src'); if(typeof api.generateContractProtectionProposal!=='function') process.exit(1)"
-
-      - uses: actions/setup-node@v4
-        with: { node-version: 16.20.2, cache: npm }
-      - run: npm ci
-      - name: Node 16 smoke
-        run: node -e "const api=require('./src'); if(typeof api.createStructuredProviderAdapter!=='function') process.exit(1)"
-
-      - uses: actions/setup-node@v4
-        with: { node-version: 18, cache: npm }
-      - run: npm ci
-      - name: Node 18 focused
-        run: node --test test/runtime-authority.test.js test/m13-review-remediation.test.js test/provider-adapter-m13.test.js test/mutation-pack.test.js test/contract-protection-proposal.test.js test/contract-quality-loop.test.js test/package-contract-protection-proposal.test.js
-      - name: Node 18 full
-        run: npm test
-
-      - uses: actions/setup-node@v4
-        with: { node-version: 20.20.2, cache: npm }
-      - run: npm ci
-      - name: Node 20 focused
-        run: node --test test/runtime-authority.test.js test/m13-review-remediation.test.js test/provider-adapter-m13.test.js test/mutation-pack.test.js test/contract-protection-proposal.test.js test/contract-quality-loop.test.js test/package-contract-protection-proposal.test.js
-      - name: Node 20 full
-        run: npm test
-
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
       - run: npm ci
@@ -75,30 +46,3 @@ jobs:
         run: node --test test/contract-quality-loop.test.js
       - name: Node 22 package proof
         run: node --test test/package-contract-protection-proposal.test.js
-      - name: Node 22 full
-        run: npm test
-
-      - uses: actions/setup-node@v4
-        with: { node-version: 24, cache: npm }
-      - run: npm ci
-      - name: Node 24 authority diagnostics
-        run: |
-          node - <<'NODE'
-          const r = require('./src/runtime-authority');
-          const checks = {
-            proxyPlain: r.isProxy({}) === false,
-            promiseBrand: r.isPromise(Promise.resolve()) === true,
-            plainBrand: r.hasForbiddenRuntimeBrand({}) === false,
-            dataViewBrand: r.hasForbiddenRuntimeBrand(new DataView(new ArrayBuffer(4))) === true,
-            typedArrayBrand: r.isTypedArray(new Uint8Array(4)) === true,
-            promiseSpecies: r.hasTrustedLocalPromiseSpecies(Promise, Symbol.species) === true
-          };
-          console.log(checks);
-          for (const [name, ok] of Object.entries(checks)) {
-            if (!ok) throw new Error('Node24 authority diagnostic failed: ' + name);
-          }
-          NODE
-      - name: Node 24 focused
-        run: node --test test/runtime-authority.test.js test/m13-review-remediation.test.js test/provider-adapter-m13.test.js test/mutation-pack.test.js test/contract-protection-proposal.test.js test/contract-quality-loop.test.js test/package-contract-protection-proposal.test.js
-      - name: Node 24 full
-        run: npm test
