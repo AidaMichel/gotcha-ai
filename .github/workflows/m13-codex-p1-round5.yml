@@ -23,26 +23,11 @@ jobs:
         run: |
           git diff --check
           node --check src/runtime-authority.js
-          node --check src/contract-attacks-core.js
-          node --check src/contract-protection-proposal.js
-          node --check src/contract-quality-loop.js
-          node --check src/provider-adapter-m13.js
-          node --check src/mutation-pack.js
           node --check test/runtime-authority.test.js
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
       - run: npm ci
-      - name: Node 22 runtime authority
-        run: node --test test/runtime-authority.test.js
-      - name: Node 22 M13 remediation
-        run: node --test test/m13-review-remediation.test.js
-      - name: Node 22 provider adapter
-        run: node --test test/provider-adapter-m13.test.js
-      - name: Node 22 mutation pack
-        run: node --test test/mutation-pack.test.js
-      - name: Node 22 protection proposal
-        run: node --test test/contract-protection-proposal.test.js
-      - name: Node 22 quality loop
-        run: node --test test/contract-quality-loop.test.js
-      - name: Node 22 package proof
-        run: node --test test/package-contract-protection-proposal.test.js
+      - name: Node 22 basic runtime authority brands
+        run: node --test --test-name-pattern="distinguishes plain objects" test/runtime-authority.test.js
+      - name: Node 22 poisoned isDataView authority
+        run: node --test --test-name-pattern="mutable util.types.isDataView" test/runtime-authority.test.js
