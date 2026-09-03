@@ -30,6 +30,7 @@ jobs:
           python3 scripts/qa/m13-codex-p1-round6-followup8.py
           python3 scripts/qa/m13-codex-p1-round6-followup9.py
           python3 scripts/qa/m13-codex-p1-round6-followup10.py
+          python3 scripts/qa/m13-codex-p1-round6-followup11.py
       - name: Syntax and hygiene
         run: |
           git diff --check
