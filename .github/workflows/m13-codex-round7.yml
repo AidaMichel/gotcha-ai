@@ -23,6 +23,7 @@ jobs:
           python3 scripts/qa/m13-codex-round7-followup2.py
           python3 scripts/qa/m13-codex-round7-followup3.py
           python3 scripts/qa/m13-codex-round7-followup4.py
+          python3 scripts/qa/m13-codex-round7-followup5.py
 
       - name: Syntax and diff hygiene
         run: |
@@ -31,6 +32,7 @@ jobs:
           node --check src/runtime-authority.js
           node --check src/index.js
           node --check src/contract-protection-proposal.js
+          node --check test/contract-protection-proposal.test.js
           node --check test/m13-review-remediation.test.js
 
       - uses: actions/setup-node@v4
@@ -95,7 +97,7 @@ jobs:
           rm -f scripts/qa/*round7*
           test -z "$(find .github/workflows scripts/qa -type f -iname '*round7*' -print)"
           git diff --check
-          git add src/package-authority.js src/runtime-authority.js src/index.js src/contract-protection-proposal.js test/m13-review-remediation.test.js
+          git add src/package-authority.js src/runtime-authority.js src/index.js src/contract-protection-proposal.js test/contract-protection-proposal.test.js test/m13-review-remediation.test.js
           git add -u .github/workflows scripts/qa
           git diff --cached --check
           git status --short
