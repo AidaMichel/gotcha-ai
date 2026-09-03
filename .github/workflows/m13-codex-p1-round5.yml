@@ -15,10 +15,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Apply round5 redesign
+
+      - name: Apply round5 production redesign and regressions
         run: |
           python3 scripts/qa/m13-codex-p1-round5.py
           python3 scripts/qa/m13-codex-p1-round5-followup.py
+          python3 scripts/qa/m13-codex-p1-round5-regressions.py
+
       - name: Syntax and diff hygiene
         run: |
           git diff --check
@@ -29,12 +32,113 @@ jobs:
           node --check src/provider-adapter-m13.js
           node --check src/mutation-pack.js
           node --check test/runtime-authority.test.js
+          node --check test/m13-review-remediation.test.js
+          if grep -q 'M13_AUTH_DEBUG' src/provider-adapter-m13.js; then
+            echo 'temporary M13_AUTH_DEBUG leaked into tested state' >&2
+            exit 90
+          fi
+
+      - uses: actions/setup-node@v4
+        with: { node-version: 14.21.3, cache: npm }
+      - run: npm ci
+      - name: Node 14 compatibility smoke
+        run: node -e "const api=require('./src'); if(typeof api.generateContractProtectionProposal!=='function'||typeof api.createStructuredProviderAdapter!=='function') process.exit(1)"
+
+      - uses: actions/setup-node@v4
+        with: { node-version: 16.20.2, cache: npm }
+      - run: npm ci
+      - name: Node 16 compatibility smoke
+        run: node -e "const api=require('./src'); if(typeof api.generateContractProtectionProposal!=='function'||typeof api.createStructuredProviderAdapter!=='function') process.exit(1)"
+
+      - uses: actions/setup-node@v4
+        with: { node-version: 18, cache: npm }
+      - run: npm ci
+      - name: Node 18 focused
+        run: node --test test/runtime-authority.test.js test/m13-review-remediation.test.js test/provider-adapter-m13.test.js test/mutation-pack.test.js test/contract-protection-proposal.test.js test/contract-quality-loop.test.js test/package-contract-protection-proposal.test.js
+      - name: Node 18 full
+        run: npm test
+
+      - uses: actions/setup-node@v4
+        with: { node-version: 20.20.2, cache: npm }
+      - run: npm ci
+      - name: Node 20 focused
+        run: node --test test/runtime-authority.test.js test/m13-review-remediation.test.js test/provider-adapter-m13.test.js test/mutation-pack.test.js test/contract-protection-proposal.test.js test/contract-quality-loop.test.js test/package-contract-protection-proposal.test.js
+      - name: Node 20 full
+        run: npm test
+
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
       - run: npm ci
-      - name: Node 22 runtime authority
-        run: node --test test/runtime-authority.test.js
       - name: Node 22 focused
         run: node --test test/runtime-authority.test.js test/m13-review-remediation.test.js test/provider-adapter-m13.test.js test/mutation-pack.test.js test/contract-protection-proposal.test.js test/contract-quality-loop.test.js test/package-contract-protection-proposal.test.js
       - name: Node 22 full
         run: npm test
+
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - run: npm ci
+      - name: Node 24 authority diagnostics
+        run: |
+          node - <<'NODE'
+          const util = require('node:util');
+          const r = require('./src/runtime-authority');
+          const checks = {
+            exactProxyAuthority: r.isProxy === util.types.isProxy,
+            proxyPlain: r.isProxy({}) === false,
+            proxyActual: r.isProxy(new Proxy({}, {})) === true,
+            promiseBrand: r.isPromise(Promise.resolve()) === true,
+            plainBrand: r.hasForbiddenRuntimeBrand({}) === false,
+            dataViewBrand: r.hasForbiddenRuntimeBrand(new DataView(new ArrayBuffer(4))) === true,
+            typedArrayBrand: r.isTypedArray(new Uint8Array(4)) === true,
+            promiseSpecies: r.hasTrustedLocalPromiseSpecies(Promise, Symbol.species) === true
+          };
+          console.log(checks);
+          for (const [name, ok] of Object.entries(checks)) {
+            if (!ok) throw new Error('Node24 authority diagnostic failed: ' + name);
+          }
+          NODE
+      - name: Node 24 focused
+        run: node --test test/runtime-authority.test.js test/m13-review-remediation.test.js test/provider-adapter-m13.test.js test/mutation-pack.test.js test/contract-protection-proposal.test.js test/contract-quality-loop.test.js test/package-contract-protection-proposal.test.js
+      - name: Node 24 full
+        run: npm test
+
+      - name: Materialize tested production state and remove round5 harness
+        run: |
+          rm -f \
+            .github/workflows/m13-codex-p1-round5.yml \
+            scripts/qa/m13-codex-p1-round5.py \
+            scripts/qa/m13-codex-p1-round5-followup.py \
+            scripts/qa/m13-codex-p1-round5-regressions.py
+
+          if grep -q 'M13_AUTH_DEBUG' src/provider-adapter-m13.js; then
+            echo 'temporary M13_AUTH_DEBUG leaked into final state' >&2
+            exit 91
+          fi
+          test ! -e .github/workflows/m13-codex-p1-round5.yml
+          test ! -e scripts/qa/m13-codex-p1-round5.py
+          test ! -e scripts/qa/m13-codex-p1-round5-followup.py
+          test ! -e scripts/qa/m13-codex-p1-round5-regressions.py
+          git diff --check
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+
+          staged="$(git diff --cached --name-only)"
+          echo "$staged"
+          for required in \
+            src/contract-attacks-core.js \
+            src/contract-protection-proposal.js \
+            src/contract-quality-loop.js \
+            src/provider-adapter-m13.js \
+            src/mutation-pack.js \
+            test/m13-review-remediation.test.js; do
+            echo "$staged" | grep -Fx "$required" >/dev/null || {
+              echo "required tested production change missing from final commit: $required" >&2
+              exit 92
+            }
+          done
+
+          git commit -m 'fix: close M13 Codex runtime authority findings'
+          git push origin HEAD:milestone-13-runtime-slice-a
