@@ -8,43 +8,76 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: [14.21.3, 16.20.2, 18.20.8, 20.20.2, 22, 24]
+        node: [18.20.8, 20.20.2]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-      - name: Inspect node:v8 authority
+      - name: Isolate loader side effects
         shell: bash
         run: |
-          node <<'NODE'
-          const v8 = require('node:v8');
-          const d = Object.getOwnPropertyDescriptor(v8, 'setFlagsFromString');
-          const f = d && d.value;
-          console.log('NODE=' + process.version);
-          console.log('DESC=' + JSON.stringify(d && {
-            enumerable: d.enumerable,
-            configurable: d.configurable,
-            writable: d.writable,
-            accessor: !!(d.get || d.set),
-            type: typeof f
-          }));
-          console.log('NAME=' + (typeof f === 'function' ? f.name : '<none>'));
-          console.log('LENGTH=' + (typeof f === 'function' ? f.length : '<none>'));
-          console.log('LOCAL_PROTO=' + (typeof f === 'function' && Object.getPrototypeOf(f) === Function.prototype));
-          console.log('SOURCE=' + (typeof f === 'function' ? Function.prototype.toString.call(f) : '<none>'));
-          console.log('GET_BUILTIN=' + typeof process.getBuiltinModule);
-          try {
-            if (typeof f !== 'function') throw new Error('missing setFlagsFromString');
-            f('--allow-natives-syntax');
-            const probe = require('node:vm').runInNewContext('(function(value){ return %IsJSProxy(value); })');
-            f('--no-allow-natives-syntax');
-            const p = new Proxy({}, {});
-            console.log('PROBE_PROXY=' + probe(p));
-            console.log('PROBE_PLAIN=' + probe({}));
-          } catch (error) {
-            try { if (typeof f === 'function') f('--no-allow-natives-syntax'); } catch {}
-            console.log('PROBE_ERROR=' + String(error && error.stack || error));
-            process.exitCode = 7;
+          cat > /tmp/diag.js <<'NODE'
+          "use strict";
+          const strategy = process.argv[2];
+          const NativePromise = Promise;
+          const constructorDescriptor = Object.getOwnPropertyDescriptor(NativePromise.prototype, "constructor");
+          const thenDescriptor = Object.getOwnPropertyDescriptor(NativePromise.prototype, "then");
+          const speciesDescriptor = Object.getOwnPropertyDescriptor(NativePromise, Symbol.species);
+          let constructorCalls = 0;
+          let thenCalls = 0;
+          let speciesCalls = 0;
+          function PoisonPromise(executor) { constructorCalls += 1; return new NativePromise(executor); }
+          function poisonThen(onFulfilled, onRejected) {
+            thenCalls += 1;
+            return Reflect.apply(thenDescriptor.value, this, [onFulfilled, onRejected]);
           }
+          Object.defineProperty(NativePromise.prototype, "constructor", {
+            value: PoisonPromise, writable: true, enumerable: false, configurable: true
+          });
+          Object.defineProperty(NativePromise.prototype, "then", {
+            value: poisonThen, writable: true, enumerable: false, configurable: true
+          });
+          Object.defineProperty(NativePromise, Symbol.species, {
+            configurable: true, enumerable: false,
+            get() { speciesCalls += 1; throw new Error("species getter executed"); }
+          });
+          let outcome = "ok";
+          try {
+            let v8;
+            if (strategy === "getBuiltin") {
+              const getter = Object.getOwnPropertyDescriptor(process, "getBuiltinModule")?.value;
+              v8 = typeof getter === "function" ? Reflect.apply(getter, process, ["node:v8"]) : null;
+            } else if (strategy === "require") {
+              v8 = require("node:v8");
+            } else {
+              throw new Error("unknown strategy");
+            }
+            const f = v8 && Object.getOwnPropertyDescriptor(v8, "setFlagsFromString")?.value;
+            if (typeof f !== "function") throw new Error("no flags authority");
+            f("--allow-natives-syntax");
+            const run = require("node:vm").runInNewContext;
+            const probe = run("(function(value){ return %IsJSProxy(value); })");
+            f("--no-allow-natives-syntax");
+            if (!probe(new Proxy({}, {})) || probe({})) outcome = "bad-probe";
+          } catch (error) {
+            outcome = String(error && error.message || error);
+            try {
+              const v8 = require("node:v8");
+              if (typeof v8.setFlagsFromString === "function") v8.setFlagsFromString("--no-allow-natives-syntax");
+            } catch {}
+          }
+          Object.defineProperty(NativePromise.prototype, "constructor", constructorDescriptor);
+          Object.defineProperty(NativePromise.prototype, "then", thenDescriptor);
+          Object.defineProperty(NativePromise, Symbol.species, speciesDescriptor);
+          console.log(JSON.stringify({
+            node: process.version,
+            strategy,
+            constructorCalls,
+            thenCalls,
+            speciesCalls,
+            outcome
+          }));
           NODE
+          node /tmp/diag.js require
+          node /tmp/diag.js getBuiltin
