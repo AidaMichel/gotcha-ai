@@ -27,6 +27,7 @@ jobs:
           python3 scripts/qa/m13-codex-round8-followup6.py
           python3 scripts/qa/m13-codex-round8-followup7.py
           python3 scripts/qa/m13-codex-round8-followup8.py
+          python3 scripts/qa/m13-codex-round8-followup9.py
 
       - name: Syntax and diff hygiene
         run: |
@@ -34,6 +35,7 @@ jobs:
           node --check src/runtime-authority.js
           node --check src/index.js
           node --check src/provider-adapter-m13.js
+          node --check src/contract-attacks-core.js
           node --check test/m13-review-remediation.test.js
           node --check test/provider-adapter-m13.test.js
           node --check test/runtime-authority.test.js
@@ -48,6 +50,7 @@ jobs:
           node --check src/runtime-authority.js
           node --check src/index.js
           node --check src/provider-adapter-m13.js
+          node --check src/contract-attacks-core.js
           node -e "const api=require('./src'); if(typeof api.generateContractProtectionProposal!=='function') process.exit(1)"
 
       - uses: actions/setup-node@v4
@@ -58,6 +61,7 @@ jobs:
           node --check src/runtime-authority.js
           node --check src/index.js
           node --check src/provider-adapter-m13.js
+          node --check src/contract-attacks-core.js
           node -e "const api=require('./src'); if(typeof api.generateContractProtectionProposal!=='function') process.exit(1)"
 
       - uses: actions/setup-node@v4
@@ -120,7 +124,7 @@ jobs:
           rm -f scripts/qa/*round8*
           test -z "$(find .github/workflows scripts/qa -type f \( -iname '*round8*' -o -name 'm13-proxy-surface-diag.yml' \) -print)"
           git diff --check
-          git add src/runtime-authority.js src/index.js src/provider-adapter-m13.js test/m13-review-remediation.test.js test/provider-adapter-m13.test.js test/runtime-authority.test.js
+          git add src/runtime-authority.js src/index.js src/provider-adapter-m13.js src/contract-attacks-core.js test/m13-review-remediation.test.js test/provider-adapter-m13.test.js test/runtime-authority.test.js
           git add -u .github/workflows scripts/qa
           git diff --cached --check
           test -z "$(git diff --cached --name-only | grep -Ei 'round8|m13-proxy-surface-diag' || true)"
