@@ -1,4 +1,4 @@
-name: M13 proxy surface diagnostic
+name: M13 Node22 runtime-authority diagnostic
 
 on:
   push:
@@ -9,50 +9,49 @@ permissions:
   contents: read
 
 jobs:
-  diagnose:
-    strategy:
-      fail-fast: false
-      matrix:
-        node: [18.20.8, 22.x, 24.x]
+  diagnose-node22:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node }}
-      - name: Compare util proxy authority surfaces
+          node-version: 22.x
+      - name: Apply Round-8 candidate
+        run: |
+          python3 scripts/qa/m13-codex-round8.py
+          python3 scripts/qa/m13-codex-round8-followup.py
+          python3 scripts/qa/m13-codex-round8-followup2.py
+          python3 scripts/qa/m13-codex-round8-followup3.py
+          python3 scripts/qa/m13-codex-round8-followup4.py
+          python3 scripts/qa/m13-codex-round8-followup5.py
+          python3 scripts/qa/m13-codex-round8-followup6.py
+      - name: Expose runtime-authority under node test
         shell: bash
         run: |
-          node <<'NODE' > proxy-surface-${{ matrix.node }}.log 2>&1
+          cat > .round8-runtime-diag.test.js <<'NODE'
           "use strict";
-          const gopd = Object.getOwnPropertyDescriptor;
-          const fts = Function.prototype.toString;
-          const util = require("node:util");
-          let types;
-          try { types = require("node:util/types"); }
-          catch (e) { types = null; }
-          const a = util && util.types;
-          const ad = a && gopd(a, "isProxy");
-          const bd = types && gopd(types, "isProxy");
-          console.log("node", process.version);
-          console.log("same-types-object", a === types);
-          console.log("same-isProxy", !!ad && !!bd && ad.value === bd.value);
-          console.log("util.types desc", ad && {writable:ad.writable, enumerable:ad.enumerable, configurable:ad.configurable, type:typeof ad.value, source:typeof ad.value === "function" ? fts.call(ad.value) : null});
-          console.log("util/types desc", bd && {writable:bd.writable, enumerable:bd.enumerable, configurable:bd.configurable, type:typeof bd.value, source:typeof bd.value === "function" ? fts.call(bd.value) : null});
-          if (ad && bd) {
-            const originalA = ad.value;
-            const poison = new Proxy(originalA, {apply(){throw new Error("poison apply");}});
-            Object.defineProperty(a, "isProxy", {...ad, value: poison});
-            const ad2 = gopd(a, "isProxy");
-            const bd2 = gopd(types, "isProxy");
-            console.log("after-poison same-isProxy", ad2.value === bd2.value);
-            console.log("after-poison util source", fts.call(ad2.value));
-            console.log("after-poison standalone source", fts.call(bd2.value));
-            Object.defineProperty(a, "isProxy", ad);
-          }
+          const test = require("node:test");
+          const assert = require("node:assert/strict");
+          test("diagnose runtime authority", () => {
+            console.log("preloads", process.moduleLoadList.filter((x) => /NativeModule (inspector|v8|vm|util|util\/types|buffer)$/.test(x)));
+            let authority;
+            try {
+              authority = require("./src/runtime-authority");
+              console.log("authority-loaded", true);
+              console.log("promiseAuthorityAvailable", authority.promiseAuthorityAvailable);
+              console.log("plain", authority.isProxy({}));
+              console.log("proxy", authority.isProxy(new Proxy({}, {})));
+            } catch (error) {
+              console.error("RUNTIME_AUTHORITY_ERROR", error && error.stack || error);
+              throw error;
+            }
+            assert.ok(authority);
+          });
           NODE
+          node --test .round8-runtime-diag.test.js 2>&1 | tee round8-runtime-diag.log
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: proxy-surface-${{ matrix.node }}
-          path: proxy-surface-${{ matrix.node }}.log
+          name: round8-runtime-diag
+          path: round8-runtime-diag.log
           retention-days: 1
