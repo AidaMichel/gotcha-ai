@@ -1,4 +1,4 @@
-name: M13 Codex round 8 Node22 authority diagnostic
+name: M13 Codex round 8 Node22 binding diagnostic
 
 on:
   push:
@@ -9,74 +9,46 @@ permissions:
   contents: read
 
 jobs:
-  diagnose-node22-authority:
+  diagnose-node22-binding:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22.x
-
-      - name: Capture Node 22 authority metadata
+      - name: Capture Node 22 binding metadata
         shell: bash
         run: |
-          node <<'NODE' > round8-node22-authority.log 2>&1
+          node <<'NODE' > round8-node22-binding.log 2>&1
           "use strict";
           const gopd = Object.getOwnPropertyDescriptor;
           const gopn = Object.getOwnPropertyNames;
           const fts = Function.prototype.toString;
-          function describe(label, object, key) {
-            let descriptor;
-            try { descriptor = gopd(object, key); }
-            catch (error) {
-              console.log(label, "descriptor-error", error && error.message);
-              return;
-            }
-            if (!descriptor) {
-              console.log(label, "missing");
-              return;
-            }
-            const value = ("value" in descriptor) ? descriptor.value : undefined;
-            console.log(label, JSON.stringify({
-              enumerable: descriptor.enumerable,
-              configurable: descriptor.configurable,
-              writable: "writable" in descriptor ? descriptor.writable : null,
-              hasGetter: typeof descriptor.get === "function",
-              hasSetter: typeof descriptor.set === "function",
-              type: typeof value,
-              name: typeof value === "function" ? (gopd(value, "name") || {}).value : null,
-              length: typeof value === "function" ? (gopd(value, "length") || {}).value : null,
-              source: typeof value === "function" ? fts.call(value) : null,
-              ownNames: typeof value === "function" ? gopn(value) : null
-            }));
-          }
-          console.log("node", process.version);
           const types = require("node:util/types");
-          describe("util/types.isProxy", types, "isProxy");
-          describe("util/types.isDate", types, "isDate");
-          describe("util/types.isPromise", types, "isPromise");
-          try {
-            const binding = process.binding("util");
-            console.log("binding/util keys", JSON.stringify(gopn(binding).sort()));
-            describe("binding/util.isProxy", binding, "isProxy");
-            describe("binding/util.getProxyDetails", binding, "getProxyDetails");
-          } catch (error) {
-            console.log("binding/util error", error && error.message);
-          }
-          try {
-            const util = require("node:util");
-            console.log("util.types same", util.types === types);
-            describe("util.types.isProxy", util.types, "isProxy");
-          } catch (error) {
-            console.log("util error", error && error.message);
+          const publicDesc = gopd(types, "isProxy");
+          console.log("node", process.version);
+          console.log("public source", fts.call(publicDesc.value));
+          for (const name of ["types", "util", "v8"]) {
+            try {
+              const binding = process.binding(name);
+              console.log("binding", name, "keys", JSON.stringify(gopn(binding).sort()));
+              const d = gopd(binding, "isProxy");
+              console.log("binding", name, "isProxy", d ? JSON.stringify({
+                enumerable:d.enumerable,
+                configurable:d.configurable,
+                writable:d.writable,
+                type:typeof d.value,
+                same:d.value === publicDesc.value,
+                source:typeof d.value === "function" ? fts.call(d.value) : null
+              }) : "missing");
+            } catch (error) {
+              console.log("binding", name, "error", error && error.message);
+            }
           }
           NODE
-
-      - name: Upload Node 22 authority artifact
+      - name: Upload Node 22 binding artifact
         uses: actions/upload-artifact@v4
         with:
-          name: m13-round8-node22-authority
-          path: round8-node22-authority.log
-          if-no-files-found: error
+          name: m13-round8-node22-binding
+          path: round8-node22-binding.log
           retention-days: 1
