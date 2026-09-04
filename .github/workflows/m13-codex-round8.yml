@@ -28,6 +28,7 @@ jobs:
           python3 scripts/qa/m13-codex-round8-followup7.py
           python3 scripts/qa/m13-codex-round8-followup8.py
           python3 scripts/qa/m13-codex-round8-followup9.py
+          python3 scripts/qa/m13-codex-round8-followup10.py
 
       - name: Syntax and diff hygiene
         run: |
