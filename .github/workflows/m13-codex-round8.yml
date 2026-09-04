@@ -1,4 +1,4 @@
-name: M13 Codex round 8 proxy bootstrap diagnostic
+name: M13 Codex round 8 final matrix
 
 on:
   push:
@@ -6,48 +6,121 @@ on:
       - milestone-13-runtime-slice-a
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  diagnose-proxy-bootstrap:
-    strategy:
-      fail-fast: false
-      matrix:
-        node: [22.x, 24.x]
+  validate-and-materialize:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply Round-8 remediation
+        run: |
+          python3 scripts/qa/m13-codex-round8.py
+          python3 scripts/qa/m13-codex-round8-followup.py
+          python3 scripts/qa/m13-codex-round8-followup2.py
+          python3 scripts/qa/m13-codex-round8-followup3.py
+          python3 scripts/qa/m13-codex-round8-followup4.py
+
+      - name: Syntax and diff hygiene
+        run: |
+          git diff --check
+          node --check src/runtime-authority.js
+          node --check src/index.js
+          node --check src/provider-adapter-m13.js
+          node --check test/m13-review-remediation.test.js
+          node --check test/provider-adapter-m13.test.js
+          node --check test/runtime-authority.test.js
+          test -z "$(grep -nE 'getBuiltinModule|pristineObjectToString' src/runtime-authority.js || true)"
+          test -z "$(grep -nE 'new Set|authorityRootModulePaths' src/index.js || true)"
+
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node }}
-      - name: Capture proxy bootstrap metadata
+          node-version: 14.21.3
+      - name: Node 14 compatibility
+        run: |
+          node --check src/runtime-authority.js
+          node --check src/index.js
+          node --check src/provider-adapter-m13.js
+          node -e "const api=require('./src'); if(typeof api.generateContractProtectionProposal!=='function') process.exit(1)"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 16.20.2
+      - name: Node 16 compatibility
+        run: |
+          node --check src/runtime-authority.js
+          node --check src/index.js
+          node --check src/provider-adapter-m13.js
+          node -e "const api=require('./src'); if(typeof api.generateContractProtectionProposal!=='function') process.exit(1)"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18.20.8
+      - name: Node 18 Round-8 focused and full
+        run: |
+          node --test test/m13-review-remediation.test.js
+          node --test test/runtime-authority.test.js
+          npm test
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.20.2
+      - name: Node 20 Round-8 focused and full
+        run: |
+          node --test test/m13-review-remediation.test.js
+          node --test test/runtime-authority.test.js
+          npm test
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+      - name: Node 22 Round-8 focused stress and full
         shell: bash
         run: |
-          node <<'NODE' > "proxy-bootstrap-${{ matrix.node }}.log" 2>&1
-          "use strict";
-          const gopd = Object.getOwnPropertyDescriptor;
-          const fts = Function.prototype.toString;
-          const util = require("node:util");
-          const d = gopd(util.types, "isProxy");
-          console.log("node", process.version);
-          console.log("isProxy-source", typeof d.value === "function" ? fts.call(d.value) : null);
-          console.log("moduleLoadList", JSON.stringify(process.moduleLoadList.filter((x) => /NativeModule (util\/types|buffer|v8|vm)$/.test(x))));
-          const bindingDescriptor = gopd(process, "binding");
-          console.log("process.binding-source", bindingDescriptor && typeof bindingDescriptor.value === "function" ? fts.call(bindingDescriptor.value) : null);
-          const oldNoDeprecation = process.noDeprecation;
-          process.noDeprecation = true;
-          try {
-            const v8Binding = bindingDescriptor.value.call(process, "v8");
-            const setter = gopd(v8Binding, "setFlagsFromString");
-            console.log("binding-v8", "ok", setter && typeof setter.value, setter && typeof setter.value === "function" ? fts.call(setter.value) : null);
-          } catch (error) {
-            console.log("binding-v8", "error", error && error.message);
-          } finally {
-            process.noDeprecation = oldNoDeprecation;
-          }
-          NODE
-      - uses: actions/upload-artifact@v4
+          set -o pipefail
+          node --test test/m13-review-remediation.test.js 2>&1 | tee round8-node22-focused.log
+          node --test test/runtime-authority.test.js 2>&1 | tee round8-node22-runtime.log
+          for i in 1 2 3; do node --test test/m13-review-remediation.test.js; done
+          npm test 2>&1 | tee round8-node22-full.log
+
+      - name: Upload Node 22 final evidence
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          name: proxy-bootstrap-${{ matrix.node }}
-          path: proxy-bootstrap-${{ matrix.node }}.log
+          name: m13-round8-node22-final
+          path: |
+            round8-node22-focused.log
+            round8-node22-runtime.log
+            round8-node22-full.log
+          if-no-files-found: ignore
           retention-days: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+      - name: Node 24 Round-8 focused and full
+        run: |
+          node --test test/m13-review-remediation.test.js
+          node --test test/runtime-authority.test.js
+          npm test
+
+      - name: Materialize tested production state
+        env:
+          BRANCH: milestone-13-runtime-slice-a
+        run: |
+          rm -f .github/workflows/*round8*
+          rm -f scripts/qa/*round8*
+          test -z "$(find .github/workflows scripts/qa -type f -iname '*round8*' -print)"
+          git diff --check
+          git add src/runtime-authority.js src/index.js src/provider-adapter-m13.js test/m13-review-remediation.test.js test/provider-adapter-m13.test.js test/runtime-authority.test.js
+          git add -u .github/workflows scripts/qa
+          git diff --cached --check
+          test -z "$(git diff --cached --name-only | grep -Ei 'round8' || true)"
+          git status --short
+          git config user.name "AidaMichel"
+          git config user.email "126730924+AidaMichel@users.noreply.github.com"
+          git commit -m "fix: close M13 Codex round8 bootstrap findings"
+          git push origin HEAD:${BRANCH}
