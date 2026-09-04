@@ -9,13 +9,26 @@ end = runtime.find(end_marker, start)
 if start < 0 or end < 0:
     raise SystemExit("missing fresh V8 proxy fallback block")
 
-replacement = r'''function inspectorClassifiesProxy(candidate) {
+replacement = r'''const pristineDefineProperty = hasFreshVmAuthority
+  ? runInNewContext("Object.defineProperty")
+  : null;
+const pristineReflectDeleteProperty = hasFreshVmAuthority
+  ? runInNewContext("Reflect.deleteProperty")
+  : null;
+
+function inspectorClassifiesProxy(candidate) {
   // Current Node 22/24 expose the pristine util/types isProxy function as an
   // anonymous native function, which is textually indistinguishable from a
   // callable Proxy wrapper. A fresh local inspector session reports callable
   // Proxies as subtype "proxy" without executing their JS traps. If inspector
-  // was preloaded, fail closed instead of trusting mutable exports.
-  if (bootstrapBuiltinWasLoaded("node:inspector")) return null;
+  // or the fresh-VM mutation primitives are unavailable, fail closed.
+  if (
+    bootstrapBuiltinWasLoaded("node:inspector") ||
+    typeof pristineDefineProperty !== "function" ||
+    typeof pristineReflectDeleteProperty !== "function" ||
+    typeof pristineGetOwnPropertyDescriptor !== "function" ||
+    typeof pristineReflectApply !== "function"
+  ) return null;
 
   let inspectorModule;
   try {
@@ -47,7 +60,11 @@ replacement = r'''function inspectorClassifiesProxy(candidate) {
   const key = "__gotchaRuntimeProxyAuthorityCandidate__";
   let existingDescriptor;
   try {
-    existingDescriptor = bootstrapGetOwnPropertyDescriptor(globalThis, key);
+    existingDescriptor = pristineReflectApply(
+      pristineGetOwnPropertyDescriptor,
+      undefined,
+      [globalThis, key]
+    );
   } catch {
     return null;
   }
@@ -57,12 +74,16 @@ replacement = r'''function inspectorClassifiesProxy(candidate) {
   let installed = false;
   let classified = null;
   try {
-    bootstrapDefineProperty(globalThis, key, {
-      value: candidate,
-      writable: false,
-      enumerable: false,
-      configurable: true
-    });
+    pristineReflectApply(pristineDefineProperty, undefined, [
+      globalThis,
+      key,
+      {
+        value: candidate,
+        writable: false,
+        enumerable: false,
+        configurable: true
+      }
+    ]);
     installed = true;
 
     pristineReflectApply(connect, session, []);
@@ -105,7 +126,13 @@ replacement = r'''function inspectorClassifiesProxy(candidate) {
       try { pristineReflectApply(disconnect, session, []); } catch {}
     }
     if (installed) {
-      try { delete globalThis[key]; } catch {}
+      try {
+        pristineReflectApply(
+          pristineReflectDeleteProperty,
+          undefined,
+          [globalThis, key]
+        );
+      } catch {}
     }
   }
   return classified;
