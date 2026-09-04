@@ -4,12 +4,14 @@ import json
 index_path = Path("src/index.js")
 index = index_path.read_text()
 
-# Materialize a complete fixed source-module reset list at build time. Runtime
-# stays deterministic and does not walk require.cache dynamically, but no
-# Gotcha source wrapper can retain a stale authority generation.
+# Materialize a complete fixed consumer reset list at build time. Preserve the
+# two frozen authority roots if they were already captured by a preloaded Gotcha
+# consumer; recapturing them after VM/Inspector are loaded would create a second
+# fail-closed generation. Every other source module is reloaded around the one
+# preserved authority generation.
 module_paths = []
 for path in sorted(Path("src").glob("*.js")):
-    if path.name == "index.js":
+    if path.name in ("index.js", "package-authority.js", "runtime-authority.js"):
         continue
     module_paths.append("./" + path.stem)
 
@@ -48,4 +50,4 @@ if "packageAuthority.TypeErrorConstructor" in index:
     raise SystemExit("boundary error still dereferences package authority")
 
 index_path.write_text(index)
-print("Materialized complete source cache reset and null-independent boundary error.")
+print("Preserved authority roots, reset every consumer, and hardened boundary errors.")
