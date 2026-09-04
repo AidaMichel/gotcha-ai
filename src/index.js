@@ -1,45 +1,31 @@
 "use strict";
 
-const authorityRootModulePaths = [
-  "./package-authority",
-  "./runtime-authority",
-  "./provider-adapter"
+// Authority-bearing modules must share one capture generation. A caller may
+// preload one of these modules before requiring the package root; invalidate a
+// fixed, explicit list before root capture so lazy public exports cannot mix
+// stale and fresh authority objects. Avoid ambient Set/Object.keys/Array
+// helpers and graph traversal at this pre-authority boundary.
+const authorityConsumerModulePaths = [
+  "./ai-data-core",
+  "./ai-data",
+  "./contract-attacks-core",
+  "./contract-attacks",
+  "./contract-experiment-hook",
+  "./contract-experiment-safe",
+  "./contract-experiment",
+  "./contract-protection-proposal",
+  "./contract-quality-loop",
+  "./contract-remediation",
+  "./engine",
+  "./mutation-pack",
+  "./provider-adapter-m13",
+  "./provider-adapter",
+  "./quality-contract"
 ];
-const authorityRootIds = new Set();
-for (const modulePath of authorityRootModulePaths) {
+for (let index = 0; index < authorityConsumerModulePaths.length; index += 1) {
   try {
-    authorityRootIds.add(require.resolve(modulePath));
+    delete require.cache[require.resolve(authorityConsumerModulePaths[index])];
   } catch {}
-}
-
-function cachedModuleReachesAuthority(moduleRecord, seen) {
-  if (moduleRecord === undefined || moduleRecord === null) return false;
-  if (authorityRootIds.has(moduleRecord.id)) return true;
-  if (seen.has(moduleRecord.id)) return false;
-  seen.add(moduleRecord.id);
-  const children = Array.isArray(moduleRecord.children)
-    ? moduleRecord.children
-    : [];
-  for (let index = 0; index < children.length; index += 1) {
-    if (cachedModuleReachesAuthority(children[index], seen)) return true;
-  }
-  return false;
-}
-
-for (const id of Object.keys(require.cache)) {
-  const moduleRecord = require.cache[id];
-  if (moduleRecord === module) continue;
-  if (
-    id !== __dirname &&
-    !id.startsWith(__dirname + "/") &&
-    !id.startsWith(__dirname + "\\")
-  ) continue;
-  if (cachedModuleReachesAuthority(moduleRecord, new Set())) {
-    delete require.cache[id];
-  }
-}
-for (const id of authorityRootIds) {
-  delete require.cache[id];
 }
 
 const packageAuthority = require("./package-authority");
@@ -105,7 +91,6 @@ function makeBoundaryError() {
   } catch (error) {
     return error;
   }
-  return new Error("Gotcha runtime authority is unavailable.");
 }
 
 function unavailableSyncBoundary() {

@@ -688,10 +688,9 @@ function observeAcceptedPromise(promise, onFulfilled, onRejected) {
     constructorDescriptor !== undefined &&
     constructorDescriptor.configurable !== true
   ) {
-    if (constructorDescriptorIsTrusted(constructorDescriptor)) {
-      reflectApply(trustedPromiseThen, promise, [onFulfilled, onRejected]);
-      return;
-    }
+    // The transport Promise cannot receive the mandatory temporary constructor
+    // shield. Consume a recognized rejection when safe, then reject the
+    // provider boundary regardless of fulfillment state.
     consumeRejectedRecognizedPromise(promise);
     throw boundaryError();
   }
@@ -699,9 +698,10 @@ function observeAcceptedPromise(promise, onFulfilled, onRejected) {
     constructorDescriptor === undefined &&
     isExtensible(promise) !== true
   ) {
-    if (!inheritedConstructorUsesSafeDefaultSpecies(promise)) throw boundaryError();
-    reflectApply(trustedPromiseThen, promise, [onFulfilled, onRejected]);
-    return;
+    // No own constructor can be installed, so this value is unshieldable.
+    // Consume safely if possible and always fail the boundary.
+    consumeRejectedRecognizedPromise(promise);
+    throw boundaryError();
   }
   defineProperty(promise, "constructor", {
     value: safePromiseConstructor,

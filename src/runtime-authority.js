@@ -38,24 +38,11 @@ function bootstrapBuiltinWasLoaded(modulePath) {
   return false;
 }
 
-function bootstrapBuiltinModule(modulePath, rejectIfAlreadyLoaded) {
-  const getBuiltinModule = bootstrapOwnDataValue(process, "getBuiltinModule");
-  if (typeof getBuiltinModule === "function") {
-    try {
-      return getBuiltinModule(modulePath);
-    } catch {
-      return null;
-    }
-  }
-
-  // Node 14/16/18 have no process.getBuiltinModule(). Requiring an already
-  // mutated builtin may synchronize its exports and execute accessors before
-  // we can inspect descriptors. For vm we therefore use a same-realm captured
-  // fallback when it was already loaded. V8 is allowed to re-require because
-  // its candidate is never invoked until exact implementation authentication.
-  if (rejectIfAlreadyLoaded === true && bootstrapBuiltinWasLoaded(modulePath)) {
-    return null;
-  }
+function bootstrapFreshBuiltinModule(modulePath) {
+  // Builtin module exports are mutable. A preloaded builtin cannot be
+  // authenticated without invoking authority that may itself be poisoned, so
+  // use it only when this module is the first code to load it.
+  if (bootstrapBuiltinWasLoaded(modulePath)) return null;
   try {
     return require(modulePath);
   } catch {
@@ -63,33 +50,8 @@ function bootstrapBuiltinModule(modulePath, rejectIfAlreadyLoaded) {
   }
 }
 
-function bootstrapBuiltinDataExportIsSafe(modulePath, key) {
-  const getBuiltinModule = bootstrapOwnDataValue(process, "getBuiltinModule");
-  // Older supported Nodes do not expose getBuiltinModule. Preserve their
-  // already-validated bootstrap path instead of re-requiring a loaded builtin.
-  if (typeof getBuiltinModule !== "function") return true;
-  try {
-    const moduleObject = getBuiltinModule(modulePath);
-    const descriptor = bootstrapGetOwnPropertyDescriptor(moduleObject, key);
-    return (
-      descriptor !== undefined &&
-      !("get" in descriptor) &&
-      !("set" in descriptor)
-    );
-  } catch {
-    return false;
-  }
-}
-
-// On Node 22, loading node:vm can transitively read node:buffer.Buffer.
-// Inspect the export descriptor without invoking it. Only the accessor-backed
-// hostile case skips vm and uses the descriptor-captured fallback authority;
-// a normal already-loaded Buffer still retains fresh vm authority.
-const vmModule = bootstrapBuiltinDataExportIsSafe("node:buffer", "Buffer")
-  ? bootstrapBuiltinModule("node:vm", true)
-  : null;
+const vmModule = bootstrapFreshBuiltinModule("node:vm");
 const runInNewContext = bootstrapOwnDataValue(vmModule, "runInNewContext");
-
 const hasFreshVmAuthority = typeof runInNewContext === "function";
 
 const pristineReflectApply = hasFreshVmAuthority
@@ -148,9 +110,6 @@ const pristinePromiseSpeciesGetterSource = hasFreshVmAuthority
 const pristineFunctionConstructor = hasFreshVmAuthority
   ? runInNewContext("Function")
   : packageAuthority.FunctionConstructor;
-const pristineObjectToString = hasFreshVmAuthority
-  ? runInNewContext("Object.prototype.toString")
-  : packageAuthority.ObjectToString;
 const pristineWeakMapHas = hasFreshVmAuthority
   ? runInNewContext("WeakMap.prototype.has")
   : packageAuthority.WeakMapHas;
@@ -186,57 +145,25 @@ function unavailableProxyProbe() {
   return true;
 }
 
-const supportedSetFlagsFromStringSource =
-  "function setFlagsFromString(flags) {\n" +
-  "  validateString(flags, 'flags');\n" +
-  "  _setFlagsFromString(flags);\n" +
-  "}";
-
-function captureSetFlagsFromString() {
-  // Node 22's node:v8 module imports node:buffer.Buffer during evaluation.
-  // Never load it when that export is accessor-backed: doing so would execute
-  // attacker-controlled bootstrap code before proxy authority exists. In that
-  // hostile state the V8 proxy fallback is unavailable and callers fail closed.
-  if (!bootstrapBuiltinDataExportIsSafe("node:buffer", "Buffer")) {
-    return null;
-  }
-  try {
-    const v8Module = bootstrapBuiltinModule("node:v8", false);
-    if (v8Module === null) return null;
-    const descriptor = pristineReflectApply(
-      pristineGetOwnPropertyDescriptor,
-      undefined,
-      [v8Module, "setFlagsFromString"]
-    );
-    const candidate = (
-      descriptor !== undefined &&
-      !("get" in descriptor) &&
-      !("set" in descriptor)
-    ) ? descriptor.value : null;
-    const source = typeof candidate === "function"
-      ? pristineReflectApply(pristineFunctionToString, candidate, [])
-      : null;
-    if (
-      descriptor !== undefined &&
-      descriptor.writable === true &&
-      descriptor.enumerable === true &&
-      descriptor.configurable === true &&
-      typeof candidate === "function" &&
-      source === supportedSetFlagsFromStringSource
-    ) {
-      return candidate;
-    }
-  } catch {}
-  return null;
-}
+let utilTypesAuthorityLoadedFresh = false;
 
 function loadModuleUtilTypesAuthority() {
+  // Node 22 exposes the pristine public util/types probes as anonymous native
+  // functions. A callable Proxy has the same Function#toString shape, so that
+  // anonymous shape is only authoritative when Gotcha itself is the first
+  // loader of the public builtin. Preloaded authority remains fail-closed.
+  const wasLoaded = bootstrapBuiltinWasLoaded("node:util/types");
   try {
-    return require("node:util/types");
+    const authority = require("node:util/types");
+    utilTypesAuthorityLoadedFresh = wasLoaded === false;
+    return authority;
   } catch {}
   try {
-    return require("util/types");
+    const authority = require("util/types");
+    utilTypesAuthorityLoadedFresh = wasLoaded === false;
+    return authority;
   } catch {
+    utilTypesAuthorityLoadedFresh = false;
     return null;
   }
 }
@@ -276,6 +203,268 @@ function captureNamedNativeIsProxy() {
   return null;
 }
 
+function captureBootstrapNamedNativeDataFunction(object, key, expectedSource) {
+  const candidate = bootstrapOwnDataValue(object, key);
+  if (
+    typeof candidate !== "function" ||
+    typeof pristineFunctionToString !== "function" ||
+    typeof pristineReflectApply !== "function"
+  ) return null;
+  try {
+    const source = pristineReflectApply(
+      pristineFunctionToString,
+      candidate,
+      []
+    );
+    return source === expectedSource ? candidate : null;
+  } catch {
+    return null;
+  }
+}
+
+function captureBootstrapDefineProperty() {
+  let objectPrototype;
+  try {
+    objectPrototype = pristineReflectApply(
+      pristineGetPrototypeOf,
+      undefined,
+      [{}]
+    );
+  } catch {
+    return null;
+  }
+  const objectConstructor = bootstrapOwnDataValue(
+    objectPrototype,
+    "constructor"
+  );
+  return captureBootstrapNamedNativeDataFunction(
+    objectConstructor,
+    "defineProperty",
+    "function defineProperty() { [native code] }"
+  );
+}
+
+function captureBootstrapReflectDeleteProperty() {
+  const reflectObject = bootstrapOwnDataValue(globalThis, "Reflect");
+  return captureBootstrapNamedNativeDataFunction(
+    reflectObject,
+    "deleteProperty",
+    "function deleteProperty() { [native code] }"
+  );
+}
+
+// A benign caller may have loaded node:vm before Gotcha. In that case we still
+// need mutation primitives solely to expose the anonymous util/types candidate
+// to a fresh inspector session for trap-free Proxy classification. Never trust
+// ambient replacements: accept only exact named native primordials. Callable
+// Proxy wrappers stringify anonymously and therefore fail this capture closed.
+const pristineDefineProperty = hasFreshVmAuthority
+  ? runInNewContext("Object.defineProperty")
+  : captureBootstrapDefineProperty();
+const pristineReflectDeleteProperty = hasFreshVmAuthority
+  ? runInNewContext("Reflect.deleteProperty")
+  : captureBootstrapReflectDeleteProperty();
+
+function inspectorClassifiesProxy(candidate) {
+  // Current Node 22/24 expose the pristine util/types isProxy function as an
+  // anonymous native function, which is textually indistinguishable from a
+  // callable Proxy wrapper. A fresh local inspector session reports callable
+  // Proxies as subtype "proxy" without executing their JS traps. If inspector
+  // or the fresh-VM mutation primitives are unavailable, fail closed.
+  if (
+    bootstrapBuiltinWasLoaded("node:inspector") ||
+    typeof pristineDefineProperty !== "function" ||
+    typeof pristineReflectDeleteProperty !== "function" ||
+    typeof pristineGetOwnPropertyDescriptor !== "function" ||
+    typeof pristineReflectApply !== "function"
+  ) return null;
+
+  // Node 22 can read node:buffer.Buffer while evaluating node:inspector.
+  // Never load inspector through an accessor-backed Buffer export: inspect the
+  // cached/fresh module descriptor without invoking it and fail closed.
+  let bufferModule;
+  try {
+    bufferModule = require("node:buffer");
+  } catch {
+    return null;
+  }
+  let bufferDescriptor;
+  try {
+    bufferDescriptor = pristineReflectApply(
+      pristineGetOwnPropertyDescriptor,
+      undefined,
+      [bufferModule, "Buffer"]
+    );
+  } catch {
+    return null;
+  }
+  if (
+    bufferDescriptor === undefined ||
+    "get" in bufferDescriptor ||
+    "set" in bufferDescriptor ||
+    typeof bufferDescriptor.value !== "function"
+  ) return null;
+
+  // Loading node:inspector on Node 22 may repeatedly read node:util.inspect.
+  // The caller can preload node:util and replace inspect with an accessor, so
+  // descriptor-inspect and temporarily neutralize that export before inspector
+  // evaluation. This is restoration-only bootstrap surgery: the candidate
+  // util/types function is still authenticated independently by Inspector.
+  let utilModule;
+  let inspectDescriptor;
+  try {
+    utilModule = require("node:util");
+    inspectDescriptor = pristineReflectApply(
+      pristineGetOwnPropertyDescriptor,
+      undefined,
+      [utilModule, "inspect"]
+    );
+  } catch {
+    return null;
+  }
+  if (
+    inspectDescriptor === undefined ||
+    inspectDescriptor.configurable !== true
+  ) return null;
+
+  let inspectNeutralized = false;
+  try {
+    pristineReflectApply(pristineDefineProperty, undefined, [
+      utilModule,
+      "inspect",
+      {
+        value: function gotchaRuntimeBootstrapInspect() { return ""; },
+        writable: true,
+        enumerable: inspectDescriptor.enumerable,
+        configurable: true
+      }
+    ]);
+    inspectNeutralized = true;
+  } catch {
+    return null;
+  }
+
+  let inspectorModule = null;
+  try {
+    inspectorModule = require("node:inspector");
+  } catch {
+    inspectorModule = null;
+  } finally {
+    if (inspectNeutralized) {
+      try {
+        pristineReflectApply(pristineDefineProperty, undefined, [
+          utilModule,
+          "inspect",
+          inspectDescriptor
+        ]);
+      } catch {
+        inspectorModule = null;
+      }
+    }
+  }
+  if (inspectorModule === null) return null;
+
+  const SessionConstructor = bootstrapOwnDataValue(inspectorModule, "Session");
+  if (typeof SessionConstructor !== "function") return null;
+
+  const sessionPrototype = bootstrapOwnDataValue(SessionConstructor, "prototype");
+  const connect = bootstrapOwnDataValue(sessionPrototype, "connect");
+  const disconnect = bootstrapOwnDataValue(sessionPrototype, "disconnect");
+  const post = bootstrapOwnDataValue(sessionPrototype, "post");
+  if (
+    typeof connect !== "function" ||
+    typeof disconnect !== "function" ||
+    typeof post !== "function"
+  ) return null;
+
+  let session;
+  try {
+    session = new SessionConstructor();
+  } catch {
+    return null;
+  }
+
+  const key = "__gotchaRuntimeProxyAuthorityCandidate__";
+  let existingDescriptor;
+  try {
+    existingDescriptor = pristineReflectApply(
+      pristineGetOwnPropertyDescriptor,
+      undefined,
+      [globalThis, key]
+    );
+  } catch {
+    return null;
+  }
+  if (existingDescriptor !== undefined) return null;
+
+  let connected = false;
+  let installed = false;
+  let classified = null;
+  try {
+    pristineReflectApply(pristineDefineProperty, undefined, [
+      globalThis,
+      key,
+      {
+        value: candidate,
+        writable: false,
+        enumerable: false,
+        configurable: true
+      }
+    ]);
+    installed = true;
+
+    pristineReflectApply(connect, session, []);
+    connected = true;
+
+    let callbackCalled = false;
+    let callbackError = null;
+    let callbackResult = null;
+    pristineReflectApply(post, session, [
+      "Runtime.evaluate",
+      {
+        expression: "globalThis.__gotchaRuntimeProxyAuthorityCandidate__",
+        generatePreview: false,
+        returnByValue: false
+      },
+      function gotchaInspectorCallback(error, result) {
+        callbackCalled = true;
+        callbackError = error;
+        callbackResult = result;
+      }
+    ]);
+
+    if (
+      callbackCalled !== true ||
+      callbackError !== null ||
+      callbackResult === null ||
+      typeof callbackResult !== "object" ||
+      callbackResult.result === null ||
+      typeof callbackResult.result !== "object"
+    ) return null;
+
+    const remote = callbackResult.result;
+    if (remote.subtype === "proxy") classified = true;
+    else if (remote.type === "function" && remote.subtype === undefined) classified = false;
+    else classified = null;
+  } catch {
+    classified = null;
+  } finally {
+    if (connected) {
+      try { pristineReflectApply(disconnect, session, []); } catch {}
+    }
+    if (installed) {
+      try {
+        pristineReflectApply(
+          pristineReflectDeleteProperty,
+          undefined,
+          [globalThis, key]
+        );
+      } catch {}
+    }
+  }
+  return classified;
+}
+
 let isProxy = unavailableProxyProbe;
 const namedNativeIsProxy = captureNamedNativeIsProxy();
 if (typeof namedNativeIsProxy === "function") {
@@ -287,42 +476,30 @@ if (typeof namedNativeIsProxy === "function") {
     }
   };
 } else {
-  try {
-    const setFlagsFromString = captureSetFlagsFromString();
-    if (typeof setFlagsFromString === "function") {
-      let compiled = null;
-      try {
-        pristineReflectApply(
-          setFlagsFromString,
-          undefined,
-          ["--allow_natives_syntax"]
-        );
-        compiled = pristineReflectApply(
-          pristineFunctionConstructor,
-          undefined,
-          ["value", "return %IsJSProxy(value);"]
-        );
-      } finally {
-        try {
-          pristineReflectApply(
-            setFlagsFromString,
-            undefined,
-            ["--no-allow-natives-syntax"]
-          );
-        } catch {}
-      }
-      if (typeof compiled === "function") {
-        isProxy = function isProxy(value) {
-          try {
-            return pristineReflectApply(compiled, undefined, [value]) === true;
-          } catch {
-            return true;
-          }
-        };
-      }
+  const candidate = bootstrapOwnDataValue(utilTypesAuthority, "isProxy");
+  let candidateSource = null;
+  if (
+    typeof candidate === "function" &&
+    typeof pristineFunctionToString === "function" &&
+    typeof pristineReflectApply === "function"
+  ) {
+    try {
+      candidateSource = pristineReflectApply(pristineFunctionToString, candidate, []);
+    } catch {
+      candidateSource = null;
     }
-  } catch {
-    isProxy = unavailableProxyProbe;
+  }
+  if (
+    candidateSource === "function () { [native code] }" &&
+    inspectorClassifiesProxy(candidate) === false
+  ) {
+    isProxy = function isProxy(value) {
+      try {
+        return pristineReflectApply(candidate, undefined, [value]) === true;
+      } catch {
+        return true;
+      }
+    };
   }
 }
 
@@ -397,18 +574,11 @@ function retainedProbe(name, fallback) {
   return typeof fallback === "function" ? fallback : unavailableBrandProbe;
 }
 
-function tagProbe(tag) {
-  return function tagBrandProbe(value) {
-    if (value === null || (typeof value !== "object" && typeof value !== "function")) {
-      return false;
-    }
-    if (isProxy(value)) return false;
-    try {
-      return pristineReflectApply(pristineObjectToString, value, []) === tag;
-    } catch {
-      return false;
-    }
-  };
+function tagProbe() {
+  // Object.prototype.toString reads Symbol.toStringTag and can execute an
+  // attacker-controlled getter. If the authenticated native brand probe is
+  // unavailable, fail closed without touching the boundary value.
+  return unavailableBrandProbe;
 }
 
 const weakMapKey = {};

@@ -58,7 +58,9 @@ test("runtime authority does not execute a poisoned Proxy util.types.isProxy", (
       util.types.isProxy = original;
     }
     if (poisonCalls !== 0) process.exit(21);
-    if (authority.isProxy({}) !== false) process.exit(22);
+    // Inspector rejects the callable Proxy without executing its traps, so the
+    // poisoned public probe is never retained or invoked.
+    if (authority.isProxy({}) !== true) process.exit(22);
     if (authority.isProxy(new Proxy({}, {})) !== true) process.exit(23);
   `;
   const run = spawnSync(process.execPath, ["-e", code], {
@@ -97,6 +99,59 @@ test("runtime authority does not depend on mutable util.types.isDataView", () =>
     if (authority.hasForbiddenRuntimeBrand({}) !== false) process.exit(12);
     if (authority.hasForbiddenRuntimeBrand(new DataView(new ArrayBuffer(4))) !== true) process.exit(13);
     if (authority.isTypedArray(new Uint8Array(4)) !== true) process.exit(14);
+  `;
+  const run = spawnSync(process.execPath, ["-e", code], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  assert.equal(run.status, 0, run.stderr || run.stdout);
+});
+
+
+test("round8 preloaded inspector replacement is never executed", () => {
+  const modulePath = path.join(repoRoot, "src", "runtime-authority.js");
+  const code = `
+    "use strict";
+    const inspector = require("node:inspector");
+    const original = Object.getOwnPropertyDescriptor(inspector, "Session");
+    let calls = 0;
+    Object.defineProperty(inspector, "Session", {
+      value: function Session() { calls += 1; throw new Error("poison inspector"); },
+      writable: true,
+      enumerable: original.enumerable,
+      configurable: true
+    });
+    let authority;
+    try { authority = require(${JSON.stringify(modulePath)}); }
+    finally { Object.defineProperty(inspector, "Session", original); }
+    if (calls !== 0) process.exit(31);
+    if (!authority || typeof authority.isProxy !== "function") process.exit(32);
+  `;
+  const run = spawnSync(process.execPath, ["-e", code], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  assert.equal(run.status, 0, run.stderr || run.stdout);
+});
+
+
+test("round8 benign util and vm preload preserves runtime authority", () => {
+  const modulePath = path.join(repoRoot, "src", "runtime-authority.js");
+  const code = `
+    "use strict";
+    require("node:util");
+    require("node:vm");
+    const authority = require(${JSON.stringify(modulePath)});
+    let trapCalls = 0;
+    const proxy = new Proxy({}, {
+      get() { trapCalls += 1; return undefined; },
+      getPrototypeOf() { trapCalls += 1; return null; },
+      ownKeys() { trapCalls += 1; return []; }
+    });
+    if (authority.isProxy({}) !== false) process.exit(41);
+    if (authority.isProxy(proxy) !== true) process.exit(42);
+    if (trapCalls !== 0) process.exit(43);
+    if (authority.promiseAuthorityAvailable !== true) process.exit(44);
   `;
   const run = spawnSync(process.execPath, ["-e", code], {
     cwd: repoRoot,

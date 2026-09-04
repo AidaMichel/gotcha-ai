@@ -155,7 +155,7 @@ test("M13 adapter extension does not remove the two existing M11 modes", () => {
   }), TypeError);
 });
 
-test("contract-protection adapter consumes rejected non-extensible trusted Promises", async () => {
+test("contract-protection adapter consumes then rejects non-extensible trusted Promises", async () => {
   const reason = { code: "transport-rejected" };
   const generator = createStructuredProviderAdapter({
     model: "fake-model",
@@ -166,6 +166,9 @@ test("contract-protection adapter consumes rejected non-extensible trusted Promi
       return promise;
     }
   });
+  let unhandled = null;
+  const listener = (value) => { unhandled = value; };
+  process.once("unhandledRejection", listener);
 
   await assert.rejects(
     generator({
@@ -179,8 +182,11 @@ test("contract-protection adapter consumes rejected non-extensible trusted Promi
       },
       instructions: INSTRUCTIONS
     }),
-    (error) => error === reason
+    TypeError
   );
+  await new Promise((resolve) => setImmediate(resolve));
+  process.removeListener("unhandledRejection", listener);
+  assert.equal(unhandled, null);
 });
 
 

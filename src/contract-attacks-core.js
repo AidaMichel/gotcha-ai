@@ -1,5 +1,10 @@
 "use strict";
 
+// Capture Gotcha's frozen runtime authority before this legacy M8 core loads
+// VM or other builtin helpers. Preloading the core must not make authority
+// bootstrap observe VM as already loaded and fail closed before the package
+// root has a chance to bind all consumers to the same generation.
+const runtimeAuthority = require("./runtime-authority");
 const {
   types: utilTypes
 } = require("node:util");
@@ -9,7 +14,6 @@ const {
 const {
   runInNewContext
 } = require("node:vm");
-const runtimeAuthority = require("./runtime-authority");
 
 const promiseCaptureGetOwnPropertyDescriptor =
   Object.getOwnPropertyDescriptor;
