@@ -19,6 +19,29 @@ function run(label, code) {
 const runtimePath = path.join(repoRoot, "src", "runtime-authority.js");
 const indexPath = path.join(repoRoot, "src", "index.js");
 
+run("util probe sources", `
+  "use strict";
+  let types;
+  try { types = require("node:util/types"); }
+  catch { try { types = require("util/types"); } catch { process.exit(0); } }
+  const names = [
+    "isProxy", "isAsyncFunction", "isGeneratorFunction", "isCryptoKey",
+    "isKeyObject", "isDate", "isRegExp", "isMap", "isSet", "isWeakMap",
+    "isWeakSet", "isPromise", "isNativeError", "isAnyArrayBuffer",
+    "isBoxedPrimitive", "isArgumentsObject", "isGeneratorObject",
+    "isModuleNamespaceObject", "isMapIterator", "isSetIterator", "isExternal"
+  ];
+  for (const name of names) {
+    const descriptor = Object.getOwnPropertyDescriptor(types, name);
+    const value = descriptor && descriptor.value;
+    if (typeof value === "function") {
+      process.stdout.write(name + " => " + Function.prototype.toString.call(value) + "\\n");
+    } else {
+      process.stdout.write(name + " => missing\\n");
+    }
+  }
+`);
+
 run("util.inspect getter trace", `
   "use strict";
   const util = require("node:util");
