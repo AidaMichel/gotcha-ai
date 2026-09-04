@@ -1,0 +1,66 @@
+name: M13 lazy VM authority reproduction
+
+on:
+  push:
+    branches:
+      - milestone-13-runtime-slice-a
+
+permissions:
+  contents: read
+
+jobs:
+  reproduce:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Reproduce preloaded VM lazy-load seam
+        shell: bash
+        run: |
+          node <<'NODE'
+          "use strict";
+          const vm = require("node:vm");
+          const original = Object.getOwnPropertyDescriptor(vm, "runInNewContext");
+          let poisonCalls = 0;
+          Object.defineProperty(vm, "runInNewContext", {
+            value: function runInNewContext() {
+              poisonCalls += 1;
+              throw new Error("poisoned lazy vm authority executed");
+            },
+            writable: true,
+            enumerable: original.enumerable,
+            configurable: true
+          });
+
+          try {
+            const api = require("./src");
+            if (poisonCalls !== 0) {
+              console.error("poison executed during package bootstrap", poisonCalls);
+              process.exitCode = 90;
+            } else {
+              let publicFn;
+              try {
+                publicFn = api.runContractAttacks;
+              } catch (error) {
+                console.error("public getter threw", error && error.stack || error);
+              }
+              if (poisonCalls !== 0) {
+                console.error("REPRODUCED: poison executed during lazy runContractAttacks load", poisonCalls);
+                process.exitCode = 91;
+              } else if (typeof publicFn !== "function") {
+                console.error("runContractAttacks public surface is not callable");
+                process.exitCode = 92;
+              } else {
+                console.log("SAFE: lazy public surface did not execute poisoned runInNewContext");
+              }
+            }
+          } finally {
+            Object.defineProperty(vm, "runInNewContext", original);
+          }
+          NODE
