@@ -19,30 +19,34 @@ function run(label, code) {
 const runtimePath = path.join(repoRoot, "src", "runtime-authority.js");
 const indexPath = path.join(repoRoot, "src", "index.js");
 
-run("util probe sources", `
+run("util.types lazy stack trace", `
   "use strict";
-  let types;
-  try { types = require("node:util/types"); }
-  catch { try { types = require("util/types"); } catch { process.exit(0); } }
-  const names = [
-    "isProxy", "isAsyncFunction", "isGeneratorFunction", "isCryptoKey",
-    "isKeyObject", "isDate", "isRegExp", "isMap", "isSet", "isWeakMap",
-    "isWeakSet", "isPromise", "isNativeError", "isAnyArrayBuffer",
-    "isBoxedPrimitive", "isArgumentsObject", "isGeneratorObject",
-    "isModuleNamespaceObject", "isMapIterator", "isSetIterator", "isExternal"
-  ];
-  for (const name of names) {
-    const descriptor = Object.getOwnPropertyDescriptor(types, name);
-    const value = descriptor && descriptor.value;
-    if (typeof value === "function") {
-      process.stdout.write(name + " => " + Function.prototype.toString.call(value) + "\\n");
-    } else {
-      process.stdout.write(name + " => missing\\n");
+  const util = require("node:util");
+  const descriptor = Object.getOwnPropertyDescriptor(util, "types");
+  if (!descriptor || descriptor.configurable !== true) process.exit(0);
+  let calls = 0;
+  Object.defineProperty(util, "types", {
+    configurable: true,
+    enumerable: descriptor.enumerable,
+    get() {
+      calls += 1;
+      try { process.stderr.write("UTIL_TYPES_GET\\n" + new Error("util.types access").stack + "\\n"); } catch {}
+      throw new Error("types getter executed");
     }
+  });
+  try {
+    const api = require(${JSON.stringify(indexPath)});
+    void api.createStructuredProviderAdapter;
+    void api.runContractAttacks;
+  } catch (error) {
+    try { process.stderr.write("LAZY_ERROR\\n" + (error && error.stack || error) + "\\n"); } catch {}
+  } finally {
+    Object.defineProperty(util, "types", descriptor);
   }
+  process.stdout.write("typesCalls=" + calls + "\\n");
 `);
 
-run("util.inspect getter trace", `
+run("util.inspect runtime trace", `
   "use strict";
   const util = require("node:util");
   require("node:buffer");
@@ -54,6 +58,7 @@ run("util.inspect getter trace", `
     enumerable: descriptor.enumerable,
     get() {
       calls += 1;
+      try { process.stderr.write("UTIL_INSPECT_GET\\n" + new Error("util.inspect access").stack + "\\n"); } catch {}
       throw new Error("inspect getter executed");
     }
   });
@@ -61,60 +66,4 @@ run("util.inspect getter trace", `
   catch {}
   finally { Object.defineProperty(util, "inspect", descriptor); }
   process.stdout.write("inspectCalls=" + calls + "\\n");
-`);
-
-run("util.types getter trace", `
-  "use strict";
-  const util = require("node:util");
-  const descriptor = Object.getOwnPropertyDescriptor(util, "types");
-  if (!descriptor || descriptor.configurable !== true) {
-    process.stdout.write("types descriptor not configurable\\n");
-    process.exit(0);
-  }
-  let calls = 0;
-  Object.defineProperty(util, "types", {
-    configurable: true,
-    enumerable: descriptor.enumerable,
-    get() {
-      calls += 1;
-      throw new Error("types getter executed");
-    }
-  });
-  try {
-    const api = require(${JSON.stringify(indexPath)});
-    void api.createStructuredProviderAdapter;
-    void api.runContractAttacks;
-  } catch {}
-  finally {
-    Object.defineProperty(util, "types", descriptor);
-  }
-  process.stdout.write("typesCalls=" + calls + "\\n");
-`);
-
-run("direct node:util/types under poisoned util.types", `
-  "use strict";
-  const util = require("node:util");
-  const descriptor = Object.getOwnPropertyDescriptor(util, "types");
-  if (!descriptor || descriptor.configurable !== true) {
-    process.stdout.write("directTypes descriptor not configurable\\n");
-    process.exit(0);
-  }
-  let calls = 0;
-  Object.defineProperty(util, "types", {
-    configurable: true,
-    enumerable: descriptor.enumerable,
-    get() {
-      calls += 1;
-      throw new Error("types getter executed");
-    }
-  });
-  let loaded = false;
-  try {
-    const types = require("node:util/types");
-    loaded = types !== null && typeof types === "object";
-  } catch {}
-  finally {
-    Object.defineProperty(util, "types", descriptor);
-  }
-  process.stdout.write("directTypesCalls=" + calls + " loaded=" + loaded + "\\n");
 `);
