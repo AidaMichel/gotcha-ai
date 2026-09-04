@@ -25,6 +25,7 @@ jobs:
           python3 scripts/qa/m13-lazy-vm-remediation.py
           python3 scripts/qa/m13-lazy-vm-followup.py
           python3 scripts/qa/m13-lazy-vm-followup2.py
+          python3 scripts/qa/m13-lazy-vm-followup3.py
       - name: Static executable-VM authority check
         run: |
           offenders=$(grep -R -l -F 'runInNewContext' src --include='*.js' | grep -v '^src/runtime-authority.js$' || true)
@@ -66,6 +67,7 @@ jobs:
           python3 scripts/qa/m13-lazy-vm-remediation.py
           python3 scripts/qa/m13-lazy-vm-followup.py
           python3 scripts/qa/m13-lazy-vm-followup2.py
+          python3 scripts/qa/m13-lazy-vm-followup3.py
       - name: Static authority and diff hygiene
         run: |
           offenders=$(grep -R -l -F 'runInNewContext' src --include='*.js' | grep -v '^src/runtime-authority.js$' || true)
@@ -99,6 +101,7 @@ jobs:
           python3 scripts/qa/m13-lazy-vm-remediation.py
           python3 scripts/qa/m13-lazy-vm-followup.py
           python3 scripts/qa/m13-lazy-vm-followup2.py
+          python3 scripts/qa/m13-lazy-vm-followup3.py
       - name: Verify tested state
         run: |
           offenders=$(grep -R -l -F 'runInNewContext' src --include='*.js' | grep -v '^src/runtime-authority.js$' || true)
@@ -110,7 +113,7 @@ jobs:
       - name: Remove temporary remediation harness
         run: |
           rm -f .github/workflows/m13-lazy-vm-remediation.yml
-          rm -f scripts/qa/m13-lazy-vm-remediation.py scripts/qa/m13-lazy-vm-followup.py scripts/qa/m13-lazy-vm-followup2.py
+          rm -f scripts/qa/m13-lazy-vm-remediation.py scripts/qa/m13-lazy-vm-followup.py scripts/qa/m13-lazy-vm-followup2.py scripts/qa/m13-lazy-vm-followup3.py
           if find .github scripts/qa -type f \( -iname '*lazy-vm*' -o -iname '*vm-inventory*' -o -iname '*primordial*diag*' \) -print 2>/dev/null | grep -q .; then
             echo 'Temporary VM remediation harness remains:'
             find .github scripts/qa -type f \( -iname '*lazy-vm*' -o -iname '*vm-inventory*' -o -iname '*primordial*diag*' \) -print 2>/dev/null
