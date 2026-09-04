@@ -26,6 +26,7 @@ jobs:
           python3 scripts/qa/m13-codex-round8-followup5.py
           python3 scripts/qa/m13-codex-round8-followup6.py
           python3 scripts/qa/m13-codex-round8-followup7.py
+          python3 scripts/qa/m13-codex-round8-followup8.py
 
       - name: Syntax and diff hygiene
         run: |
@@ -37,7 +38,7 @@ jobs:
           node --check test/provider-adapter-m13.test.js
           node --check test/runtime-authority.test.js
           test -z "$(grep -nE 'getBuiltinModule|pristineObjectToString|node:v8|setFlagsFromString|%IsJSProxy' src/runtime-authority.js || true)"
-          test -z "$(grep -nE 'new Set|authorityRootModulePaths|Object\.keys\(require\.cache\)' src/index.js || true)"
+          test -z "$(grep -nE 'new Set|authorityRootModulePaths|Object\.keys\(require\.cache\)|packageAuthority\.TypeErrorConstructor' src/index.js || true)"
 
       - uses: actions/setup-node@v4
         with:
