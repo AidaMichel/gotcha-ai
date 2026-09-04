@@ -1,4 +1,4 @@
-name: M13 Node22 runtime-authority diagnostic
+name: M13 Node22 authority-generation diagnostic
 
 on:
   push:
@@ -25,33 +25,79 @@ jobs:
           python3 scripts/qa/m13-codex-round8-followup4.py
           python3 scripts/qa/m13-codex-round8-followup5.py
           python3 scripts/qa/m13-codex-round8-followup6.py
-      - name: Expose runtime-authority under node test
+          python3 scripts/qa/m13-codex-round8-followup7.py
+          python3 scripts/qa/m13-codex-round8-followup8.py
+      - name: Compare authority generation before and after package root
         shell: bash
         run: |
-          cat > .round8-runtime-diag.test.js <<'NODE'
+          node <<'NODE' 2>&1 | tee round8-authority-generation.log
           "use strict";
-          const test = require("node:test");
-          const assert = require("node:assert/strict");
-          test("diagnose runtime authority", () => {
-            console.log("preloads", process.moduleLoadList.filter((x) => /NativeModule (inspector|v8|vm|util|util\/types|buffer)$/.test(x)));
-            let authority;
-            try {
-              authority = require("./src/runtime-authority");
-              console.log("authority-loaded", true);
-              console.log("promiseAuthorityAvailable", authority.promiseAuthorityAvailable);
-              console.log("plain", authority.isProxy({}));
-              console.log("proxy", authority.isProxy(new Proxy({}, {})));
-            } catch (error) {
-              console.error("RUNTIME_AUTHORITY_ERROR", error && error.stack || error);
-              throw error;
-            }
-            assert.ok(authority);
+          const coreId = require.resolve("./src/contract-attacks-core");
+          const runtimeId = require.resolve("./src/runtime-authority");
+          const packageId = require.resolve("./src/package-authority");
+          const indexId = require.resolve("./src/index");
+
+          console.log("initial-builtins", process.moduleLoadList.filter((x) => /NativeModule (inspector|v8|vm|util|util\/types|buffer)$/.test(x)));
+          require(coreId);
+          const runtimeBefore = require(runtimeId);
+          const packageBefore = require(packageId);
+          console.log("after-core-builtins", process.moduleLoadList.filter((x) => /NativeModule (inspector|v8|vm|util|util\/types|buffer)$/.test(x)));
+          console.log("before-root", {
+            promise: runtimeBefore.promiseAuthorityAvailable,
+            array: typeof runtimeBefore.arrayIsArray,
+            plainProxy: runtimeBefore.isProxy({}),
+            realProxy: runtimeBefore.isProxy(new Proxy({}, {})),
+            runtimeFrozen: Object.isFrozen(runtimeBefore),
+            packageFrozen: Object.isFrozen(packageBefore),
+            runtimeCached: require.cache[runtimeId] && require.cache[runtimeId].exports === runtimeBefore,
+            packageCached: require.cache[packageId] && require.cache[packageId].exports === packageBefore
           });
+
+          const api = require(indexId);
+          const runtimeAfter = require(runtimeId);
+          const packageAfter = require(packageId);
+          console.log("after-root", {
+            sameRuntime: runtimeBefore === runtimeAfter,
+            samePackage: packageBefore === packageAfter,
+            promise: runtimeAfter.promiseAuthorityAvailable,
+            array: typeof runtimeAfter.arrayIsArray,
+            plainProxy: runtimeAfter.isProxy({}),
+            realProxy: runtimeAfter.isProxy(new Proxy({}, {})),
+            runContractAttacksType: typeof api.runContractAttacks,
+            proposalType: typeof api.generateContractProtectionProposal
+          });
+
+          const contract = {
+            version: 1,
+            status: "confirmed",
+            task: "Return the approved time.",
+            rules: [{ id: "time-rule", statement: "Time must be 3 PM.", kind: "required", severity: "major" }]
+          };
+          Promise.resolve(api.runContractAttacks({
+            contract,
+            input: { request: "Schedule it." },
+            expectedOutput: { time: "3 PM" },
+            evaluator() { return true; },
+            generator() {
+              return {
+                version: 1,
+                task: contract.task,
+                attacks: [{
+                  id: "wrong-time", ruleId: "time-rule", type: "wrong-time",
+                  description: "Changes the time.", rationale: "Violates the rule.",
+                  mutatedOutput: { time: "4 PM" },
+                  scores: { realism: 0.9, subtlety: 0.8, novelty: 0.7, fixability: 0.9 }
+                }]
+              };
+            }
+          })).then(
+            (value) => console.log("runContractAttacks-result", value && value.experiment && value.experiment.replayable),
+            (error) => console.log("runContractAttacks-error", error && error.stack || error)
+          );
           NODE
-          node --test .round8-runtime-diag.test.js 2>&1 | tee round8-runtime-diag.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: round8-runtime-diag
-          path: round8-runtime-diag.log
+          name: round8-authority-generation
+          path: round8-authority-generation.log
           retention-days: 1
