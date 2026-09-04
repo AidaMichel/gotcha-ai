@@ -26,6 +26,7 @@ jobs:
           python3 scripts/qa/m13-lazy-vm-followup.py
           python3 scripts/qa/m13-lazy-vm-followup2.py
           python3 scripts/qa/m13-lazy-vm-followup3.py
+          python3 scripts/qa/m13-lazy-vm-followup4.py
       - name: Static executable-VM authority check
         run: |
           offenders=$(grep -R -l -F 'runInNewContext' src --include='*.js' | grep -v '^src/runtime-authority.js$' || true)
@@ -68,6 +69,7 @@ jobs:
           python3 scripts/qa/m13-lazy-vm-followup.py
           python3 scripts/qa/m13-lazy-vm-followup2.py
           python3 scripts/qa/m13-lazy-vm-followup3.py
+          python3 scripts/qa/m13-lazy-vm-followup4.py
       - name: Static authority and diff hygiene
         run: |
           offenders=$(grep -R -l -F 'runInNewContext' src --include='*.js' | grep -v '^src/runtime-authority.js$' || true)
@@ -76,6 +78,8 @@ jobs:
             exit 1
           fi
           git diff --check
+      - name: M8 runtime-brand loadability regressions
+        run: node --test test/m8-runtime-brand-authority.test.js
       - name: Focused security regressions
         run: node --test test/m13-review-remediation.test.js test/runtime-authority.test.js test/provider-adapter-m13.test.js
       - name: Node 22 focused stress
@@ -102,6 +106,7 @@ jobs:
           python3 scripts/qa/m13-lazy-vm-followup.py
           python3 scripts/qa/m13-lazy-vm-followup2.py
           python3 scripts/qa/m13-lazy-vm-followup3.py
+          python3 scripts/qa/m13-lazy-vm-followup4.py
       - name: Verify tested state
         run: |
           offenders=$(grep -R -l -F 'runInNewContext' src --include='*.js' | grep -v '^src/runtime-authority.js$' || true)
@@ -113,7 +118,7 @@ jobs:
       - name: Remove temporary remediation harness
         run: |
           rm -f .github/workflows/m13-lazy-vm-remediation.yml
-          rm -f scripts/qa/m13-lazy-vm-remediation.py scripts/qa/m13-lazy-vm-followup.py scripts/qa/m13-lazy-vm-followup2.py scripts/qa/m13-lazy-vm-followup3.py
+          rm -f scripts/qa/m13-lazy-vm-remediation.py scripts/qa/m13-lazy-vm-followup.py scripts/qa/m13-lazy-vm-followup2.py scripts/qa/m13-lazy-vm-followup3.py scripts/qa/m13-lazy-vm-followup4.py
           if find .github scripts/qa -type f \( -iname '*lazy-vm*' -o -iname '*vm-inventory*' -o -iname '*primordial*diag*' \) -print 2>/dev/null | grep -q .; then
             echo 'Temporary VM remediation harness remains:'
             find .github scripts/qa -type f \( -iname '*lazy-vm*' -o -iname '*vm-inventory*' -o -iname '*primordial*diag*' \) -print 2>/dev/null
