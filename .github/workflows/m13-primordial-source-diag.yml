@@ -1,0 +1,52 @@
+name: M13 primordial source diagnostic
+
+on:
+  push:
+    branches:
+      - milestone-13-runtime-slice-a
+
+permissions:
+  contents: read
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [14.21.3, 18.20.8, 22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Print clean intrinsic sources
+        run: |
+          node <<'NODE'
+          "use strict";
+          const entries = [
+            ["Object.getOwnPropertyDescriptors", Object.getOwnPropertyDescriptors],
+            ["Object.isExtensible", Object.isExtensible],
+            ["Object.is", Object.is],
+            ["Object.defineProperty", Object.defineProperty],
+            ["Object.prototype.hasOwnProperty", Object.prototype.hasOwnProperty],
+            ["Reflect.ownKeys", Reflect.ownKeys],
+            ["Number.isFinite", Number.isFinite],
+            ["String.prototype.trim", String.prototype.trim],
+            ["String.prototype.includes", String.prototype.includes],
+            ["Set", Set], ["Map", Map],
+            ["Set.prototype.has", Set.prototype.has],
+            ["Set.prototype.add", Set.prototype.add],
+            ["Map.prototype.get", Map.prototype.get],
+            ["Map.prototype.set", Map.prototype.set],
+            ["Array.prototype.push", Array.prototype.push],
+            ["Array.prototype.pop", Array.prototype.pop],
+            ["Array.prototype.join", Array.prototype.join],
+            ["TypeError", TypeError],
+            ["WeakRef", typeof WeakRef === "function" ? WeakRef : null],
+            ["FinalizationRegistry", typeof FinalizationRegistry === "function" ? FinalizationRegistry : null],
+          ];
+          for (const [name, fn] of entries) {
+            console.log(name + " => " + (typeof fn === "function" ? Function.prototype.toString.call(fn).replace(/\n/g, "\\n") : String(fn)));
+          }
+          NODE
