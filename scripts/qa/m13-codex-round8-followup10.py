@@ -75,6 +75,76 @@ const pristineReflectDeleteProperty = hasFreshVmAuthority
 if old not in runtime:
     raise SystemExit("missing inspector mutation primitive block")
 runtime = runtime.replace(old, new, 1)
+
+old_inspector = '''  let inspectorModule;
+  try {
+    inspectorModule = require("node:inspector");
+  } catch {
+    return null;
+  }
+'''
+new_inspector = '''  // Loading node:inspector on Node 22 may repeatedly read node:util.inspect.
+  // The caller can preload node:util and replace inspect with an accessor, so
+  // descriptor-inspect and temporarily neutralize that export before inspector
+  // evaluation. This is restoration-only bootstrap surgery: the candidate
+  // util/types function is still authenticated independently by Inspector.
+  let utilModule;
+  let inspectDescriptor;
+  try {
+    utilModule = require("node:util");
+    inspectDescriptor = pristineReflectApply(
+      pristineGetOwnPropertyDescriptor,
+      undefined,
+      [utilModule, "inspect"]
+    );
+  } catch {
+    return null;
+  }
+  if (
+    inspectDescriptor === undefined ||
+    inspectDescriptor.configurable !== true
+  ) return null;
+
+  let inspectNeutralized = false;
+  try {
+    pristineReflectApply(pristineDefineProperty, undefined, [
+      utilModule,
+      "inspect",
+      {
+        value: function gotchaRuntimeBootstrapInspect() { return ""; },
+        writable: true,
+        enumerable: inspectDescriptor.enumerable,
+        configurable: true
+      }
+    ]);
+    inspectNeutralized = true;
+  } catch {
+    return null;
+  }
+
+  let inspectorModule = null;
+  try {
+    inspectorModule = require("node:inspector");
+  } catch {
+    inspectorModule = null;
+  } finally {
+    if (inspectNeutralized) {
+      try {
+        pristineReflectApply(pristineDefineProperty, undefined, [
+          utilModule,
+          "inspect",
+          inspectDescriptor
+        ]);
+      } catch {
+        inspectorModule = null;
+      }
+    }
+  }
+  if (inspectorModule === null) return null;
+'''
+if old_inspector not in runtime:
+    raise SystemExit("missing inspector load block for inspect shielding")
+runtime = runtime.replace(old_inspector, new_inspector, 1)
 runtime_path.write_text(runtime)
 
 runtime_test_path = Path("test/runtime-authority.test.js")
@@ -110,4 +180,4 @@ test("round8 benign util and vm preload preserves runtime authority", () => {
 '''
 runtime_test_path.write_text(runtime_test)
 
-print("Recovered benign preloaded-vm Proxy authority through authenticated bootstrap primordials.")
+print("Recovered benign preloaded-vm Proxy authority with descriptor-safe inspect shielding.")
