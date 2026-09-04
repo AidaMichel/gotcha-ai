@@ -3,6 +3,9 @@
 const runtimeAuthority =
   require("./runtime-authority");
 
+const vm =
+  require("node:vm");
+
 const {
   PerformanceObserver
 } = require("node:perf_hooks");
@@ -28,9 +31,6 @@ const nodeCrypto =
 
 const nodeProcess =
   require("node:process");
-
-const vm =
-  require("node:vm");
 
 const {
   AsyncLocalStorage
@@ -101,14 +101,10 @@ const symbolHasInstance =
   Symbol.hasInstance;
 
 const functionToString =
-  vm.runInNewContext(
-    "Function.prototype.toString"
-  );
+  runtimeAuthority.consumerPrimordials.functionToString;
 
 const stringIncludes =
-  vm.runInNewContext(
-    "String.prototype.includes"
-  );
+  runtimeAuthority.consumerPrimordials.stringIncludes;
 
 const objectConstructorSource =
   reflectApply(
@@ -2210,14 +2206,10 @@ const additionalHostBrandMethodProbes =
   );
 
 const pristineWeakRefConstructor =
-  vm.runInNewContext(
-    "typeof WeakRef === 'function' ? WeakRef : null"
-  );
+  runtimeAuthority.weakRefConstructor;
 
 const pristineFinalizationRegistryConstructor =
-  vm.runInNewContext(
-    "typeof FinalizationRegistry === 'function' ? FinalizationRegistry : null"
-  );
+  runtimeAuthority.finalizationRegistryConstructor;
 
 const weakRefDeref =
   capturePrototypeMethod(

@@ -1,7 +1,7 @@
-const { runInNewContext } = require("node:vm");
 const runtimeAuthority = require("./runtime-authority");
 
-const functionToString = runInNewContext("Function.prototype.toString");
+const functionToString =
+  runtimeAuthority.consumerPrimordials.functionToString;
 const getOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
 const getOwnPropertyDescriptors = Object.getOwnPropertyDescriptors;
 const getPrototypeOf = Object.getPrototypeOf;

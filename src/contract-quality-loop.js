@@ -2,8 +2,6 @@
 
 const { types: utilTypes } = require("node:util");
 const runtimeAuthority = require("./runtime-authority");
-const { runInNewContext } = require("node:vm");
-
 const remediation = require("./contract-remediation");
 
 const isProxy = runtimeAuthority.isProxy;

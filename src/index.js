@@ -110,6 +110,7 @@ function unavailableAdapterBoundary() {
 function promiseAuthorityAvailable() {
   return (
     runtimeAuthority !== null &&
+    runtimeAuthority.consumerPrimordialsAvailable === true &&
     runtimeAuthority.promiseAuthorityAvailable === true &&
     typeof runtimeAuthority.promiseConstructor === "function" &&
     runtimeAuthority.promisePrototype !== null &&
@@ -119,6 +120,10 @@ function promiseAuthorityAvailable() {
 }
 
 function runGotcha({ evaluator, expectedOutput, mutationPack }) {
+  if (
+    runtimeAuthority === null ||
+    runtimeAuthority.consumerPrimordialsAvailable !== true
+  ) throw makeBoundaryError();
   const { compileMutationPack } = require("./mutation-pack");
   const { runImprovementLoop } = require("./engine");
   const mutations = compileMutationPack({

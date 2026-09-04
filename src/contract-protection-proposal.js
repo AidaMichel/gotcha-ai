@@ -1,7 +1,7 @@
 "use strict";
 
-const { runInNewContext } = require("node:vm");
 const runtimeAuthority = require("./runtime-authority");
+const consumerPrimordials = runtimeAuthority.consumerPrimordials;
 
 const {
   experimentIntrinsics: authority
@@ -120,18 +120,14 @@ if (
 let promiseAuthorityVerified = false;
 let trustedPromiseConstructor = null;
 try {
-  const pristineReflectApply = runInNewContext("Reflect.apply");
-  const pristineFunctionToString = runInNewContext("Function.prototype.toString");
-  const pristineGetOwnPropertyDescriptor = runInNewContext(
-    "Object.getOwnPropertyDescriptor"
-  );
-  const pristineGetPrototypeOf = runInNewContext("Object.getPrototypeOf");
-  const pristinePromiseConstructorSource = runInNewContext(
-    "Function.prototype.toString.call(Promise)"
-  );
-  const pristinePromiseThenSource = runInNewContext(
-    "Function.prototype.toString.call(Promise.prototype.then)"
-  );
+  const pristineReflectApply = consumerPrimordials.reflectApply;
+  const pristineFunctionToString = consumerPrimordials.functionToString;
+  const pristineGetOwnPropertyDescriptor =
+    consumerPrimordials.getOwnPropertyDescriptor;
+  const pristineGetPrototypeOf = consumerPrimordials.getPrototypeOf;
+  const pristinePromiseConstructorSource =
+    consumerPrimordials.promiseConstructorSource;
+  const pristinePromiseThenSource = consumerPrimordials.promiseThenSource;
   const localPromiseProbe = (async function m13LocalPromiseProbe() {})();
   const intrinsicPromisePrototype = pristineReflectApply(
     pristineGetPrototypeOf,

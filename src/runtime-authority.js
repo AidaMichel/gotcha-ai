@@ -929,7 +929,319 @@ function hasForbiddenRuntimeBrand(value) {
   return false;
 }
 
+
+function captureLocalNativeDataFunction(object, key, expectedSource) {
+  if (object === null || (typeof object !== "object" && typeof object !== "function")) {
+    return null;
+  }
+  try {
+    const descriptor = pristineReflectApply(
+      pristineGetOwnPropertyDescriptor,
+      undefined,
+      [object, key]
+    );
+    const candidate = (
+      descriptor !== undefined &&
+      !("get" in descriptor) &&
+      !("set" in descriptor)
+    ) ? descriptor.value : null;
+    if (
+      typeof candidate !== "function" ||
+      isProxy(candidate) ||
+      pristineReflectApply(
+        pristineGetPrototypeOf,
+        undefined,
+        [candidate]
+      ) !== localFunctionPrototype
+    ) return null;
+    return pristineReflectApply(
+      pristineFunctionToString,
+      candidate,
+      []
+    ) === expectedSource ? candidate : null;
+  } catch {
+    return null;
+  }
+}
+
+function captureLocalNativeConstructor(name) {
+  const candidate = bootstrapOwnDataValue(globalThis, name);
+  if (
+    typeof candidate !== "function" ||
+    isProxy(candidate)
+  ) return null;
+  try {
+    if (
+      pristineReflectApply(
+        pristineGetPrototypeOf,
+        undefined,
+        [candidate]
+      ) !== localFunctionPrototype
+    ) return null;
+    return pristineReflectApply(
+      pristineFunctionToString,
+      candidate,
+      []
+    ) === "function " + name + "() { [native code] }"
+      ? candidate
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+const consumerObjectConstructor = captureLocalNativeConstructor("Object");
+const consumerArrayConstructor = captureLocalNativeConstructor("Array");
+const consumerSetConstructor = captureLocalNativeConstructor("Set");
+const consumerMapConstructor = captureLocalNativeConstructor("Map");
+const consumerNumberConstructor = captureLocalNativeConstructor("Number");
+const consumerStringConstructor = captureLocalNativeConstructor("String");
+const consumerTypeErrorConstructorCandidate =
+  bootstrapOwnDataValue(globalThis, "TypeError");
+let consumerTypeErrorConstructor = null;
+try {
+  if (
+    typeof consumerTypeErrorConstructorCandidate === "function" &&
+    !isProxy(consumerTypeErrorConstructorCandidate) &&
+    pristineReflectApply(
+      pristineFunctionToString,
+      consumerTypeErrorConstructorCandidate,
+      []
+    ) === "function TypeError() { [native code] }"
+  ) {
+    consumerTypeErrorConstructor = consumerTypeErrorConstructorCandidate;
+  }
+} catch {
+  consumerTypeErrorConstructor = null;
+}
+const consumerReflectObject = bootstrapOwnDataValue(globalThis, "Reflect");
+
+const consumerObjectPrototype = bootstrapOwnDataValue(
+  consumerObjectConstructor,
+  "prototype"
+);
+const consumerArrayPrototype = bootstrapOwnDataValue(
+  consumerArrayConstructor,
+  "prototype"
+);
+const consumerSetPrototype = bootstrapOwnDataValue(
+  consumerSetConstructor,
+  "prototype"
+);
+const consumerMapPrototype = bootstrapOwnDataValue(
+  consumerMapConstructor,
+  "prototype"
+);
+const consumerStringPrototype = bootstrapOwnDataValue(
+  consumerStringConstructor,
+  "prototype"
+);
+
+const consumerGetOwnPropertyDescriptors = captureLocalNativeDataFunction(
+  consumerObjectConstructor,
+  "getOwnPropertyDescriptors",
+  "function getOwnPropertyDescriptors() { [native code] }"
+);
+const consumerIsExtensible = captureLocalNativeDataFunction(
+  consumerObjectConstructor,
+  "isExtensible",
+  "function isExtensible() { [native code] }"
+);
+const consumerObjectIs = captureLocalNativeDataFunction(
+  consumerObjectConstructor,
+  "is",
+  "function is() { [native code] }"
+);
+const consumerDefineProperty = captureLocalNativeDataFunction(
+  consumerObjectConstructor,
+  "defineProperty",
+  "function defineProperty() { [native code] }"
+);
+const consumerHasOwnProperty = captureLocalNativeDataFunction(
+  consumerObjectPrototype,
+  "hasOwnProperty",
+  "function hasOwnProperty() { [native code] }"
+);
+const consumerOwnKeys = captureLocalNativeDataFunction(
+  consumerReflectObject,
+  "ownKeys",
+  "function ownKeys() { [native code] }"
+);
+const consumerNumberIsFinite = captureLocalNativeDataFunction(
+  consumerNumberConstructor,
+  "isFinite",
+  "function isFinite() { [native code] }"
+);
+const consumerStringTrim = captureLocalNativeDataFunction(
+  consumerStringPrototype,
+  "trim",
+  "function trim() { [native code] }"
+);
+const consumerStringIncludes = hasFreshVmAuthority
+  ? runInNewContext("String.prototype.includes")
+  : captureLocalNativeDataFunction(
+      consumerStringPrototype,
+      "includes",
+      "function includes() { [native code] }"
+    );
+const consumerSetHas = captureLocalNativeDataFunction(
+  consumerSetPrototype,
+  "has",
+  "function has() { [native code] }"
+);
+const consumerSetAdd = captureLocalNativeDataFunction(
+  consumerSetPrototype,
+  "add",
+  "function add() { [native code] }"
+);
+const consumerMapGet = captureLocalNativeDataFunction(
+  consumerMapPrototype,
+  "get",
+  "function get() { [native code] }"
+);
+const consumerMapSet = captureLocalNativeDataFunction(
+  consumerMapPrototype,
+  "set",
+  "function set() { [native code] }"
+);
+const consumerArrayPush = captureLocalNativeDataFunction(
+  consumerArrayPrototype,
+  "push",
+  "function push() { [native code] }"
+);
+const consumerArrayPop = captureLocalNativeDataFunction(
+  consumerArrayPrototype,
+  "pop",
+  "function pop() { [native code] }"
+);
+const consumerArrayJoin = captureLocalNativeDataFunction(
+  consumerArrayPrototype,
+  "join",
+  "function join() { [native code] }"
+);
+
+function captureOptionalNativeConstructor(name) {
+  const candidate = bootstrapOwnDataValue(globalThis, name);
+  if (candidate === null || candidate === undefined) return null;
+  if (
+    typeof candidate !== "function" ||
+    isProxy(candidate)
+  ) return null;
+  try {
+    return (
+      pristineReflectApply(
+        pristineGetPrototypeOf,
+        undefined,
+        [candidate]
+      ) === localFunctionPrototype &&
+      pristineReflectApply(
+        pristineFunctionToString,
+        candidate,
+        []
+      ) === "function " + name + "() { [native code] }"
+    ) ? candidate : null;
+  } catch {
+    return null;
+  }
+}
+
+const consumerWeakRefConstructor = captureOptionalNativeConstructor("WeakRef");
+const consumerFinalizationRegistryConstructor =
+  captureOptionalNativeConstructor("FinalizationRegistry");
+
+const freshVmIsContext = hasFreshVmAuthority
+  ? bootstrapOwnDataValue(vmModule, "isContext")
+  : null;
+function isVmContext(value) {
+  if (typeof freshVmIsContext !== "function") return false;
+  try {
+    return pristineReflectApply(freshVmIsContext, vmModule, [value]) === true;
+  } catch {
+    return true;
+  }
+}
+
+const consumerTypeErrorConstructorSource =
+  bootstrapFunctionSource(consumerTypeErrorConstructor);
+
+const consumerPrimordialsBundleAvailable = (
+  typeof pristineReflectApply === "function" &&
+  typeof pristineGetPrototypeOf === "function" &&
+  typeof pristineGetOwnPropertyDescriptor === "function" &&
+  typeof pristineFunctionToString === "function" &&
+  typeof pristineObjectFreeze === "function"
+);
+
+const consumerPrimordialsAvailable = (
+  consumerPrimordialsBundleAvailable === true &&
+  typeof arrayIsArray === "function" &&
+  typeof consumerGetOwnPropertyDescriptors === "function" &&
+  typeof consumerIsExtensible === "function" &&
+  typeof consumerObjectIs === "function" &&
+  typeof consumerDefineProperty === "function" &&
+  typeof consumerHasOwnProperty === "function" &&
+  typeof consumerOwnKeys === "function" &&
+  typeof consumerNumberIsFinite === "function" &&
+  typeof consumerStringTrim === "function" &&
+  typeof consumerStringIncludes === "function" &&
+  typeof consumerSetConstructor === "function" &&
+  typeof consumerMapConstructor === "function" &&
+  typeof consumerSetHas === "function" &&
+  typeof consumerSetAdd === "function" &&
+  typeof consumerMapGet === "function" &&
+  typeof consumerMapSet === "function" &&
+  typeof consumerArrayPush === "function" &&
+  typeof consumerArrayPop === "function" &&
+  typeof consumerArrayJoin === "function" &&
+  consumerTypeErrorConstructorSource ===
+    "function TypeError() { [native code] }"
+);
+
+// Keep the module graph loadable when one higher-level authority (notably the
+// ambient TypeError constructor) is poisoned. Safe core primordials remain
+// available for module initialization, while consumerPrimordialsAvailable stays
+// false and public execution fails closed until the complete authority set is
+// authenticated.
+const consumerPrimordials = consumerPrimordialsBundleAvailable
+  ? pristineReflectApply(pristineObjectFreeze, undefined, [{
+      reflectApply: pristineReflectApply,
+      getPrototypeOf: pristineGetPrototypeOf,
+      getOwnPropertyDescriptor: pristineGetOwnPropertyDescriptor,
+      getOwnPropertyDescriptors: consumerGetOwnPropertyDescriptors,
+      functionToString: pristineFunctionToString,
+      objectFreeze: pristineObjectFreeze,
+      isExtensible: consumerIsExtensible,
+      objectIs: consumerObjectIs,
+      defineProperty: consumerDefineProperty,
+      hasOwnProperty: consumerHasOwnProperty,
+      ownKeys: consumerOwnKeys,
+      arrayIsArray,
+      numberIsFinite: consumerNumberIsFinite,
+      stringTrim: consumerStringTrim,
+      stringIncludes: consumerStringIncludes,
+      SetConstructor: consumerSetConstructor,
+      MapConstructor: consumerMapConstructor,
+      setHas: consumerSetHas,
+      setAdd: consumerSetAdd,
+      mapGet: consumerMapGet,
+      mapSet: consumerMapSet,
+      arrayPush: consumerArrayPush,
+      arrayPop: consumerArrayPop,
+      arrayJoin: consumerArrayJoin,
+      promiseConstructorSource: pristinePromiseConstructorSource,
+      promiseThenSource: pristinePromiseThenSource,
+      typeErrorConstructorSource: consumerTypeErrorConstructorSource
+    }])
+  : null;
+
 const exported = {
+  objectFreeze: pristineObjectFreeze,
+  functionToString: pristineFunctionToString,
+  consumerPrimordialsAvailable,
+  consumerPrimordials,
+  weakRefConstructor: consumerWeakRefConstructor,
+  finalizationRegistryConstructor: consumerFinalizationRegistryConstructor,
+  isVmContext,
   isProxy,
   isPromise,
   isAsyncFunction,

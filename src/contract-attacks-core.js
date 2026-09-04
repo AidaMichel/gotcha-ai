@@ -11,10 +11,6 @@ const {
 const {
   Buffer: BufferConstructor
 } = require("node:buffer");
-const {
-  runInNewContext
-} = require("node:vm");
-
 const promiseCaptureGetOwnPropertyDescriptor =
   Object.getOwnPropertyDescriptor;
 const promiseCaptureGetPrototypeOf =
@@ -44,11 +40,11 @@ const capturedAmbientPromiseThen =
   intrinsicPromiseThen;
 
 // The M8 core owns the experiment authority. It is created from the same
-// util.types instance observed by this core plus pristine VM operations at
-// core initialization, then retained on the cached core export. No separately
-// cacheable dependency can predate or outlive this authority.
+// authenticated runtime generation used by the package root and retained on
+// the cached core export. No separately mutable builtin authority is invoked
+// when this legacy core is loaded lazily.
 const experimentFreeze =
-  runInNewContext("Object.freeze");
+  runtimeAuthority.objectFreeze;
 
 const experimentPromiseBrandProbe =
   runtimeAuthority.isPromise;
@@ -133,6 +129,7 @@ const utilIsProxy =
 
 const m8DependencyAuthorityAvailable = (
   promiseAuthorityAvailable === true &&
+  runtimeAuthority.consumerPrimordialsAvailable === true &&
   typeof runtimeAuthority.arrayIsArray === "function" &&
   typeof runtimeAuthority.isProxy === "function" &&
   typeof runtimeAuthority.isPromise === "function"

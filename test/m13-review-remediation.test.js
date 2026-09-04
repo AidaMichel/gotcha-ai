@@ -1699,3 +1699,59 @@ test("round8 provider consumes then rejects unshieldable fulfilled transport Pro
     await assert.rejects(adapter(request), TypeError, mode);
   }
 });
+
+
+
+test("round9 preloaded vm replacement never executes through lazy runContractAttacks load", () => {
+  const indexPath = path.join(repoRoot, "src", "index.js");
+  const code = `
+    "use strict";
+    const vm = require("node:vm");
+    const original = Object.getOwnPropertyDescriptor(vm, "runInNewContext");
+    let poisonCalls = 0;
+    Object.defineProperty(vm, "runInNewContext", {
+      value: function runInNewContext() {
+        poisonCalls += 1;
+        throw new Error("poisoned lazy vm authority executed");
+      },
+      writable: true,
+      enumerable: original.enumerable,
+      configurable: true
+    });
+    let api;
+    let publicFn;
+    try {
+      api = require(${JSON.stringify(indexPath)});
+      if (poisonCalls !== 0) process.exitCode = 81;
+      try { publicFn = api.runContractAttacks; }
+      catch (error) {
+        console.error(error && error.stack || error);
+        process.exitCode = 82;
+      }
+      if (poisonCalls !== 0) process.exitCode = 83;
+      if (typeof publicFn !== "function") process.exitCode = 84;
+    } finally {
+      Object.defineProperty(vm, "runInNewContext", original);
+    }
+  `;
+  const run = spawnSync(process.execPath, ["-e", code], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  assert.equal(run.status, 0, run.stderr || run.stdout);
+});
+
+test("round9 runtime-authority is the sole runInNewContext authority consumer", () => {
+  const fs = require("node:fs");
+  const sourceDir = path.join(repoRoot, "src");
+  const allowed = "runtime-authority.js";
+  const offenders = [];
+  for (const name of fs.readdirSync(sourceDir)) {
+    if (!name.endsWith(".js") || name === allowed) continue;
+    const source = fs.readFileSync(path.join(sourceDir, name), "utf8");
+    if (source.includes("runInNewContext")) {
+      offenders.push(name);
+    }
+  }
+  assert.deepEqual(offenders, []);
+});

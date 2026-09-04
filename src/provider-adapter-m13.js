@@ -1,8 +1,8 @@
 "use strict";
 
 const { types: utilTypes } = require("node:util");
-const { runInNewContext } = require("node:vm");
 const runtimeAuthority = require("./runtime-authority");
+const consumerPrimordials = runtimeAuthority.consumerPrimordials;
 const packageAuthority = require("./package-authority");
 const ArrayConstructor = Array;
 const WeakSetConstructor = WeakSet;
@@ -56,18 +56,14 @@ let trustedPromisePrototype = null;
 let trustedPromiseThen = null;
 let promiseAuthorityAvailable = false;
 try {
-  const pristineReflectApply = runInNewContext("Reflect.apply");
-  const pristineGetPrototypeOf = runInNewContext("Object.getPrototypeOf");
-  const pristineGetOwnPropertyDescriptor = runInNewContext(
-    "Object.getOwnPropertyDescriptor"
-  );
-  const pristineFunctionToString = runInNewContext("Function.prototype.toString");
-  const pristinePromiseConstructorSource = runInNewContext(
-    "Function.prototype.toString.call(Promise)"
-  );
-  const pristinePromiseThenSource = runInNewContext(
-    "Function.prototype.toString.call(Promise.prototype.then)"
-  );
+  const pristineReflectApply = consumerPrimordials.reflectApply;
+  const pristineGetPrototypeOf = consumerPrimordials.getPrototypeOf;
+  const pristineGetOwnPropertyDescriptor =
+    consumerPrimordials.getOwnPropertyDescriptor;
+  const pristineFunctionToString = consumerPrimordials.functionToString;
+  const pristinePromiseConstructorSource =
+    consumerPrimordials.promiseConstructorSource;
+  const pristinePromiseThenSource = consumerPrimordials.promiseThenSource;
   const localPromiseProbe =
     (async function m13AdapterLocalPromiseProbe() {})();
   const intrinsicPrototype = pristineReflectApply(
@@ -191,12 +187,9 @@ try {
     typeof localTypeErrorConstructorDescriptor.value === "function"
       ? localTypeErrorConstructorDescriptor.value
       : null;
-  const pristineTypeErrorSource = runInNewContext(
-    "Function.prototype.toString.call(TypeError)"
-  );
-  const pristineFunctionToString = runInNewContext(
-    "Function.prototype.toString"
-  );
+  const pristineTypeErrorSource =
+    consumerPrimordials.typeErrorConstructorSource;
+  const pristineFunctionToString = consumerPrimordials.functionToString;
   const ambientTypeErrorSource =
     typeof ambientTypeErrorCandidate === "function"
       ? reflectApply(pristineFunctionToString, ambientTypeErrorCandidate, [])

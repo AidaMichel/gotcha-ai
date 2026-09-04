@@ -1,8 +1,6 @@
 "use strict";
 
-const {
-  runInNewContext
-} = require("node:vm");
+const runtimeAuthority = require("./runtime-authority");
 const {
   experimentIntrinsics
 } = require("./contract-attacks-core");
@@ -28,14 +26,7 @@ const experimentCaptureGeneratorOutput =
   experiment.captureGeneratorOutputForActiveExperiment;
 
 const pristineIntrinsics =
-  runInNewContext(`({
-    getOwnPropertyDescriptors: Object.getOwnPropertyDescriptors,
-    hasOwnProperty: Object.prototype.hasOwnProperty,
-    reflectApply: Reflect.apply,
-    arrayIsArray: Array.isArray,
-    numberIsFinite: Number.isFinite,
-    objectIs: Object.is
-  })`);
+  runtimeAuthority.consumerPrimordials;
 
 const getOwnPropertyDescriptors =
   pristineIntrinsics.getOwnPropertyDescriptors;
