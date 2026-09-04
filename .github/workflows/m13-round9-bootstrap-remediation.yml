@@ -1,0 +1,72 @@
+name: M13 Round9 bootstrap remediation
+
+on:
+  push:
+    branches:
+      - milestone-13-runtime-slice-a
+
+permissions:
+  contents: read
+
+jobs:
+  compatibility:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [14.21.3, 16.20.2]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Apply Round9 remediation
+        run: python3 scripts/qa/m13-round9-bootstrap-remediation.py
+      - name: Syntax and compatibility smoke
+        run: |
+          for f in src/package-authority.js src/runtime-authority.js src/provider-adapter-m13.js src/index.js test/m13-review-remediation.test.js; do
+            node --check "$f"
+          done
+          git diff --check
+          node - <<'NODE'
+          const api = require('./src');
+          for (const name of ['runContractAttacks','generateContractProtectionProposal','createStructuredProviderAdapter']) {
+            if (typeof api[name] !== 'function') throw new Error(name + ' is not callable');
+          }
+          NODE
+
+  supported-runtime:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [18.20.8, 20.20.2, 22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Apply Round9 remediation
+        run: python3 scripts/qa/m13-round9-bootstrap-remediation.py
+      - name: Static bootstrap authority checks
+        run: |
+          if grep -n -F 'moduleLoadList' src/runtime-authority.js; then
+            echo 'runtime-authority still consults moduleLoadList'
+            exit 1
+          fi
+          if grep -n -F 'const { types: utilTypes } = require("node:util")' src/provider-adapter-m13.js; then
+            echo 'provider adapter still reads node:util.types directly'
+            exit 1
+          fi
+          git diff --check
+      - name: Focused Round9 and authority regressions
+        run: node --test test/m13-review-remediation.test.js test/runtime-authority.test.js test/provider-adapter-m13.test.js test/m8-runtime-brand-authority.test.js
+      - name: Node 22 focused stress
+        if: startsWith(matrix.node, '22')
+        run: |
+          for i in 1 2 3; do
+            echo "Round9 focused stress pass $i"
+            node --test test/m13-review-remediation.test.js test/runtime-authority.test.js test/provider-adapter-m13.test.js test/m8-runtime-brand-authority.test.js
+          done
+      - name: Full repository suite
+        run: npm test
