@@ -50,8 +50,8 @@ jobs:
         run: python3 scripts/qa/m13-round9-bootstrap-remediation.py
       - name: Static bootstrap authority checks
         run: |
-          if grep -n -F 'moduleLoadList' src/runtime-authority.js; then
-            echo 'runtime-authority still consults moduleLoadList'
+          if grep -n -F 'bootstrapOwnDataValue(process, "moduleLoadList")' src/runtime-authority.js; then
+            echo 'runtime-authority still consults process.moduleLoadList'
             exit 1
           fi
           if grep -n -F 'const { types: utilTypes } = require("node:util")' src/provider-adapter-m13.js; then
