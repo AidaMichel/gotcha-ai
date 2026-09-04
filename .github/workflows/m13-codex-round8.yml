@@ -1,4 +1,4 @@
-name: M13 Codex round 8 Node22 fix validation
+name: M13 Codex round 8 proxy bootstrap diagnostic
 
 on:
   push:
@@ -9,88 +9,45 @@ permissions:
   contents: read
 
 jobs:
-  validate-node22-fix:
+  diagnose-proxy-bootstrap:
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22.x, 24.x]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Apply Round-8 remediation
-        run: |
-          python3 scripts/qa/m13-codex-round8.py
-          python3 scripts/qa/m13-codex-round8-followup.py
-          python3 scripts/qa/m13-codex-round8-followup2.py
-          python3 scripts/qa/m13-codex-round8-followup3.py
-
-      - name: Syntax and diff hygiene
-        run: |
-          git diff --check
-          node --check src/runtime-authority.js
-          node --check src/index.js
-          node --check src/provider-adapter-m13.js
-          node --check test/m13-review-remediation.test.js
-          node --check test/provider-adapter-m13.test.js
-          node --check test/runtime-authority.test.js
-          test -z "$(grep -nE 'getBuiltinModule|setFlagsFromString|node:v8|pristineObjectToString' src/runtime-authority.js || true)"
-          test -z "$(grep -nE 'new Set|authorityRootModulePaths' src/index.js || true)"
-
       - uses: actions/setup-node@v4
         with:
-          node-version: 22.x
-
-      - name: Capture Node 22 focused output
+          node-version: ${{ matrix.node }}
+      - name: Capture proxy bootstrap metadata
         shell: bash
         run: |
-          set +e
-          node --version > round8-node22-focused.log 2>&1
-          node --test test/m13-review-remediation.test.js >> round8-node22-focused.log 2>&1
-          status=$?
-          printf '%s\n' "$status" > round8-node22-focused.status
-          set -e
-          exit 0
-
-      - name: Capture Node 22 runtime-authority output
-        shell: bash
-        run: |
-          set +e
-          node --test test/runtime-authority.test.js > round8-node22-runtime.log 2>&1
-          status=$?
-          printf '%s\n' "$status" > round8-node22-runtime.status
-          set -e
-          exit 0
-
-      - name: Capture Node 22 full-suite output
-        shell: bash
-        run: |
-          set +e
-          npm test > round8-node22-full.log 2>&1
-          status=$?
-          printf '%s\n' "$status" > round8-node22-full.status
-          set -e
-          exit 0
-
-      - name: Upload Node 22 validation artifact
-        uses: actions/upload-artifact@v4
+          node <<'NODE' > "proxy-bootstrap-${{ matrix.node }}.log" 2>&1
+          "use strict";
+          const gopd = Object.getOwnPropertyDescriptor;
+          const fts = Function.prototype.toString;
+          const util = require("node:util");
+          const d = gopd(util.types, "isProxy");
+          console.log("node", process.version);
+          console.log("isProxy-source", typeof d.value === "function" ? fts.call(d.value) : null);
+          console.log("moduleLoadList", JSON.stringify(process.moduleLoadList.filter((x) => /NativeModule (util\/types|buffer|v8|vm)$/.test(x))));
+          const bindingDescriptor = gopd(process, "binding");
+          console.log("process.binding-source", bindingDescriptor && typeof bindingDescriptor.value === "function" ? fts.call(bindingDescriptor.value) : null);
+          const oldNoDeprecation = process.noDeprecation;
+          process.noDeprecation = true;
+          try {
+            const v8Binding = bindingDescriptor.value.call(process, "v8");
+            const setter = gopd(v8Binding, "setFlagsFromString");
+            console.log("binding-v8", "ok", setter && typeof setter.value, setter && typeof setter.value === "function" ? fts.call(setter.value) : null);
+          } catch (error) {
+            console.log("binding-v8", "error", error && error.message);
+          } finally {
+            process.noDeprecation = oldNoDeprecation;
+          }
+          NODE
+      - uses: actions/upload-artifact@v4
         with:
-          name: m13-round8-node22-fix-validation
-          path: |
-            round8-node22-focused.log
-            round8-node22-focused.status
-            round8-node22-runtime.log
-            round8-node22-runtime.status
-            round8-node22-full.log
-            round8-node22-full.status
-          if-no-files-found: error
+          name: proxy-bootstrap-${{ matrix.node }}
+          path: proxy-bootstrap-${{ matrix.node }}.log
           retention-days: 1
-
-      - name: Preserve validation gate
-        shell: bash
-        run: |
-          focused="$(cat round8-node22-focused.status)"
-          runtime="$(cat round8-node22-runtime.status)"
-          full="$(cat round8-node22-full.status)"
-          echo "focused=$focused runtime=$runtime full=$full"
-          test "$focused" -eq 0
-          test "$runtime" -eq 0
-          test "$full" -eq 0
