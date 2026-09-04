@@ -128,7 +128,7 @@ jobs:
           git add src/runtime-authority.js src/index.js src/provider-adapter-m13.js src/contract-attacks-core.js test/m13-review-remediation.test.js test/provider-adapter-m13.test.js test/runtime-authority.test.js
           git add -u .github/workflows scripts/qa
           git diff --cached --check
-          test -z "$(git diff --cached --name-only | grep -Ei 'round8|m13-proxy-surface-diag' || true)"
+          test -z "$(git diff --cached --diff-filter=ACMRTUXB --name-only | grep -Ei 'round8|m13-proxy-surface-diag' || true)"
           git status --short
           git config user.name "AidaMichel"
           git config user.email "126730924+AidaMichel@users.noreply.github.com"
