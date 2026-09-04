@@ -56,6 +56,9 @@ jobs:
           python3 scripts/qa/m13-round9-bootstrap-remediation-v2.py
           python3 scripts/qa/m13-round9-bootstrap-remediation-v3.py
           python3 scripts/qa/m13-round9-bootstrap-remediation-v4.py
+      - name: Node 18 getter trace
+        if: startsWith(matrix.node, '18')
+        run: node scripts/qa/m13-round9-node18-diagnostic.js
       - name: Static bootstrap authority checks
         run: |
           if grep -n -F 'bootstrapOwnDataValue(process, "moduleLoadList")' src/runtime-authority.js; then
