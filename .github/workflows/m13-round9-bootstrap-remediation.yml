@@ -24,6 +24,7 @@ jobs:
         run: |
           python3 scripts/qa/m13-round9-bootstrap-remediation.py
           python3 scripts/qa/m13-round9-bootstrap-remediation-v2.py
+          python3 scripts/qa/m13-round9-bootstrap-remediation-v3.py
       - name: Syntax and compatibility smoke
         run: |
           for f in src/package-authority.js src/runtime-authority.js src/provider-adapter-m13.js src/index.js test/m13-review-remediation.test.js; do
@@ -52,6 +53,7 @@ jobs:
         run: |
           python3 scripts/qa/m13-round9-bootstrap-remediation.py
           python3 scripts/qa/m13-round9-bootstrap-remediation-v2.py
+          python3 scripts/qa/m13-round9-bootstrap-remediation-v3.py
       - name: Static bootstrap authority checks
         run: |
           if grep -n -F 'bootstrapOwnDataValue(process, "moduleLoadList")' src/runtime-authority.js; then
