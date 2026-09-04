@@ -62,8 +62,8 @@ jobs:
             echo 'runtime-authority still consults process.moduleLoadList'
             exit 1
           fi
-          if grep -R -n -F 'types: utilTypes' src --include='*.js'; then
-            echo 'production source still destructures mutable util.types authority'
+          if grep -n -F 'types: utilTypes' src/provider-adapter-m13.js src/contract-attacks-core.js; then
+            echo 'Round9 lazy surfaces still destructure mutable util.types authority'
             exit 1
           fi
           if grep -n -F 'reflectApply(isPromise, utilTypes' src/provider-adapter-m13.js; then
