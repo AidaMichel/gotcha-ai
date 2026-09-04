@@ -25,9 +25,10 @@ jobs:
           python3 scripts/qa/m13-round9-bootstrap-remediation.py
           python3 scripts/qa/m13-round9-bootstrap-remediation-v2.py
           python3 scripts/qa/m13-round9-bootstrap-remediation-v3.py
+          python3 scripts/qa/m13-round9-bootstrap-remediation-v4.py
       - name: Syntax and compatibility smoke
         run: |
-          for f in src/package-authority.js src/runtime-authority.js src/provider-adapter-m13.js src/index.js test/m13-review-remediation.test.js; do
+          for f in src/package-authority.js src/runtime-authority.js src/provider-adapter-m13.js src/contract-attacks-core.js src/index.js test/m13-review-remediation.test.js; do
             node --check "$f"
           done
           git diff --check
@@ -54,14 +55,15 @@ jobs:
           python3 scripts/qa/m13-round9-bootstrap-remediation.py
           python3 scripts/qa/m13-round9-bootstrap-remediation-v2.py
           python3 scripts/qa/m13-round9-bootstrap-remediation-v3.py
+          python3 scripts/qa/m13-round9-bootstrap-remediation-v4.py
       - name: Static bootstrap authority checks
         run: |
           if grep -n -F 'bootstrapOwnDataValue(process, "moduleLoadList")' src/runtime-authority.js; then
             echo 'runtime-authority still consults process.moduleLoadList'
             exit 1
           fi
-          if grep -n -F 'const { types: utilTypes } = require("node:util")' src/provider-adapter-m13.js; then
-            echo 'provider adapter still reads node:util.types directly'
+          if grep -R -n -F 'types: utilTypes' src --include='*.js'; then
+            echo 'production source still destructures mutable util.types authority'
             exit 1
           fi
           if grep -n -F 'reflectApply(isPromise, utilTypes' src/provider-adapter-m13.js; then
