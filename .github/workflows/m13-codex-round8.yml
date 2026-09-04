@@ -23,6 +23,7 @@ jobs:
           python3 scripts/qa/m13-codex-round8-followup2.py
           python3 scripts/qa/m13-codex-round8-followup3.py
           python3 scripts/qa/m13-codex-round8-followup4.py
+          python3 scripts/qa/m13-codex-round8-followup5.py
 
       - name: Syntax and diff hygiene
         run: |
