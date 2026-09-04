@@ -1,4 +1,4 @@
-name: M13 Codex round 8
+name: M13 Codex round 8 Node22 diagnostic
 
 on:
   push:
@@ -6,10 +6,10 @@ on:
       - milestone-13-runtime-slice-a
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  validate-and-materialize:
+  diagnose-node22:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -36,70 +36,46 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 14.21.3
-      - name: Node 14 compatibility
-        run: |
-          node --check src/runtime-authority.js
-          node --check src/index.js
-          node --check src/provider-adapter-m13.js
-          node -e "const api=require('./src'); if(typeof api.generateContractProtectionProposal!=='function') process.exit(1)"
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 16.20.2
-      - name: Node 16 compatibility
-        run: |
-          node --check src/runtime-authority.js
-          node --check src/index.js
-          node --check src/provider-adapter-m13.js
-          node -e "const api=require('./src'); if(typeof api.generateContractProtectionProposal!=='function') process.exit(1)"
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 18.20.8
-      - name: Node 18 Round-8 focused and full
-        run: |
-          node --test test/m13-review-remediation.test.js
-          npm test
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20.20.2
-      - name: Node 20 Round-8 focused and full
-        run: |
-          node --test test/m13-review-remediation.test.js
-          npm test
-
-      - uses: actions/setup-node@v4
-        with:
           node-version: 22.x
-      - name: Node 22 Round-8 focused stress and full
-        run: |
-          node --test test/m13-review-remediation.test.js
-          for i in 1 2 3; do node --test test/m13-review-remediation.test.js; done
-          npm test
 
-      - uses: actions/setup-node@v4
+      - name: Capture Node 22 focused output
+        shell: bash
+        run: |
+          set +e
+          node --version > round8-node22-focused.log 2>&1
+          node --test test/m13-review-remediation.test.js >> round8-node22-focused.log 2>&1
+          status=$?
+          printf '%s\n' "$status" > round8-node22-focused.status
+          set -e
+          exit 0
+
+      - name: Capture Node 22 full-suite output
+        shell: bash
+        run: |
+          set +e
+          npm test > round8-node22-full.log 2>&1
+          status=$?
+          printf '%s\n' "$status" > round8-node22-full.status
+          set -e
+          exit 0
+
+      - name: Upload Node 22 diagnostic artifact
+        uses: actions/upload-artifact@v4
         with:
-          node-version: 24.x
-      - name: Node 24 Round-8 focused and full
-        run: |
-          node --test test/m13-review-remediation.test.js
-          npm test
+          name: m13-round8-node22-diagnostic
+          path: |
+            round8-node22-focused.log
+            round8-node22-focused.status
+            round8-node22-full.log
+            round8-node22-full.status
+          if-no-files-found: error
+          retention-days: 1
 
-      - name: Materialize tested production state
-        env:
-          BRANCH: milestone-13-runtime-slice-a
+      - name: Preserve diagnostic gate
+        shell: bash
         run: |
-          rm -f .github/workflows/*round8*
-          rm -f scripts/qa/*round8*
-          test -z "$(find .github/workflows scripts/qa -type f -iname '*round8*' -print)"
-          git diff --check
-          git add src/runtime-authority.js src/index.js src/provider-adapter-m13.js test/m13-review-remediation.test.js test/provider-adapter-m13.test.js test/runtime-authority.test.js
-          git add -u .github/workflows scripts/qa
-          git diff --cached --check
-          git status --short
-          git config user.name "AidaMichel"
-          git config user.email "126730924+AidaMichel@users.noreply.github.com"
-          git commit -m "fix: close M13 Codex round8 bootstrap findings"
-          git push origin HEAD:${BRANCH}
+          focused="$(cat round8-node22-focused.status)"
+          full="$(cat round8-node22-full.status)"
+          echo "focused=$focused full=$full"
+          test "$focused" -eq 0
+          test "$full" -eq 0
