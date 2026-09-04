@@ -27,6 +27,7 @@ jobs:
           python3 scripts/qa/m13-codex-round8-followup6.py
           python3 scripts/qa/m13-codex-round8-followup7.py
           python3 scripts/qa/m13-codex-round8-followup8.py
+          python3 scripts/qa/m13-codex-round8-followup9.py
       - name: Compare authority generation before and after package root
         shell: bash
         run: |
