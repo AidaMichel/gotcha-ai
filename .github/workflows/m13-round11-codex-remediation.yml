@@ -6,6 +6,7 @@ on:
       - milestone-13-runtime-slice-a
     paths:
       - scripts/qa/m13-round11-codex-remediation.py
+      - scripts/qa/m13-round11-codex-remediation-v2.py
       - .github/workflows/m13-round11-codex-remediation.yml
   workflow_dispatch:
 
@@ -25,7 +26,9 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       - name: Apply Round11 patch
-        run: python3 scripts/qa/m13-round11-codex-remediation.py
+        run: |
+          python3 scripts/qa/m13-round11-codex-remediation.py
+          python3 scripts/qa/m13-round11-codex-remediation-v2.py
       - name: Syntax and diff hygiene
         run: |
           node --check src/runtime-authority.js
@@ -49,7 +52,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ["18.20.8", "20.0.0", "20.15.1", "20.20.2", "22.0.0", "22.2.0", "22", "24"]
+        node: ["18.20.8", "20.0.0", "20.11.1", "20.12.0", "20.15.1", "20.20.2", "22.0.0", "22.2.0", "22", "24"]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -57,7 +60,9 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       - name: Apply Round11 patch
-        run: python3 scripts/qa/m13-round11-codex-remediation.py
+        run: |
+          python3 scripts/qa/m13-round11-codex-remediation.py
+          python3 scripts/qa/m13-round11-codex-remediation-v2.py
       - name: Static guards
         run: |
           node --check src/runtime-authority.js
@@ -81,7 +86,9 @@ jobs:
         with:
           node-version: "22"
       - name: Apply Round11 patch
-        run: python3 scripts/qa/m13-round11-codex-remediation.py
+        run: |
+          python3 scripts/qa/m13-round11-codex-remediation.py
+          python3 scripts/qa/m13-round11-codex-remediation-v2.py
       - name: Repeat focused authority suite
         run: |
           for i in 1 2 3; do
