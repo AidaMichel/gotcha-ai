@@ -22,6 +22,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
+      - name: Inspect embedded Undici source layout
+        run: |
+          node - <<'NODE'
+          const natives = process.binding('natives');
+          const keys = Object.keys(natives).filter((key) => key.includes('undici'));
+          console.log('UNDICI_KEYS', JSON.stringify(keys));
+          for (const key of keys) {
+            const source = natives[key];
+            console.log('UNDICI_SOURCE', key, typeof source, typeof source === 'string' ? source.length : -1);
+          }
+          NODE
       - name: Apply Round11 candidate
         run: |
           python3 scripts/qa/m13-round11-codex-remediation.py
