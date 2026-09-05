@@ -1,4 +1,4 @@
-name: M13 Round9 root primitive audit
+name: M13 Round10 bootstrap trust validation
 
 on:
   push:
@@ -9,7 +9,32 @@ permissions:
   contents: read
 
 jobs:
-  audit:
+  compatibility:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [14.21.3, 16.20.2]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Syntax and compatibility proof
+        run: |
+          node --check src/package-authority.js
+          node --check src/index.js
+          node --check test/m13-bootstrap-root-authority.test.js
+          git diff --check
+          node --test test/m13-bootstrap-root-authority.test.js
+          node - <<'NODE'
+          const api = require('./src');
+          for (const name of ['runContractAttacks','generateContractProtectionProposal','createStructuredProviderAdapter']) {
+            if (typeof api[name] !== 'function') throw new Error(name + ' is not callable');
+          }
+          NODE
+
+  supported-runtime:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -20,121 +45,22 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-      - name: Prove bootstrap root primitives do not execute hostile hooks
+      - name: Syntax and diff hygiene
         run: |
-          node - <<'NODE'
-          'use strict';
-          const { spawnSync } = require('node:child_process');
-
-          const cases = [
-            {
-              name: 'Reflect.getOwnPropertyDescriptor',
-              code: `
-                'use strict';
-                const original = Object.getOwnPropertyDescriptor(Reflect, 'getOwnPropertyDescriptor');
-                const nativeApply = Reflect.apply;
-                let calls = 0;
-                const poison = new Proxy(original.value, {
-                  apply(target, thisArg, args) {
-                    calls += 1;
-                    return nativeApply(target, thisArg, args);
-                  }
-                });
-                Object.defineProperty(Reflect, 'getOwnPropertyDescriptor', {
-                  value: poison,
-                  writable: original.writable,
-                  enumerable: original.enumerable,
-                  configurable: original.configurable
-                });
-                try { require('./src'); } catch {}
-                finally { Object.defineProperty(Reflect, 'getOwnPropertyDescriptor', original); }
-                console.log('calls=' + calls);
-                if (calls !== 0) process.exitCode = 91;
-              `
-            },
-            {
-              name: 'Reflect.apply',
-              code: `
-                'use strict';
-                const original = Object.getOwnPropertyDescriptor(Reflect, 'apply');
-                const nativeApply = original.value;
-                let calls = 0;
-                const poison = new Proxy(nativeApply, {
-                  apply(target, thisArg, args) {
-                    calls += 1;
-                    return nativeApply(target, thisArg, args);
-                  }
-                });
-                Object.defineProperty(Reflect, 'apply', {
-                  value: poison,
-                  writable: original.writable,
-                  enumerable: original.enumerable,
-                  configurable: original.configurable
-                });
-                try { require('./src'); } catch {}
-                finally { Object.defineProperty(Reflect, 'apply', original); }
-                console.log('calls=' + calls);
-                if (calls !== 0) process.exitCode = 92;
-              `
-            },
-            {
-              name: 'Function.prototype.toString',
-              code: `
-                'use strict';
-                const original = Object.getOwnPropertyDescriptor(Function.prototype, 'toString');
-                const nativeApply = Reflect.apply;
-                let calls = 0;
-                const poison = new Proxy(original.value, {
-                  apply(target, thisArg, args) {
-                    calls += 1;
-                    return nativeApply(target, thisArg, args);
-                  }
-                });
-                Object.defineProperty(Function.prototype, 'toString', {
-                  value: poison,
-                  writable: original.writable,
-                  enumerable: original.enumerable,
-                  configurable: original.configurable
-                });
-                try { require('./src'); } catch {}
-                finally { Object.defineProperty(Function.prototype, 'toString', original); }
-                console.log('calls=' + calls);
-                if (calls !== 0) process.exitCode = 93;
-              `
-            },
-            {
-              name: 'global Reflect accessor',
-              code: `
-                'use strict';
-                const original = Object.getOwnPropertyDescriptor(globalThis, 'Reflect');
-                let calls = 0;
-                Object.defineProperty(globalThis, 'Reflect', {
-                  configurable: true,
-                  enumerable: original.enumerable,
-                  get() {
-                    calls += 1;
-                    return original.value;
-                  }
-                });
-                try { require('./src'); } catch {}
-                finally { Object.defineProperty(globalThis, 'Reflect', original); }
-                console.log('calls=' + calls);
-                if (calls !== 0) process.exitCode = 94;
-              `
-            }
-          ];
-
-          let failed = false;
-          for (const testCase of cases) {
-            const result = spawnSync(process.execPath, ['-e', testCase.code], {
-              cwd: process.cwd(),
-              encoding: 'utf8'
-            });
-            console.log('\n=== ' + testCase.name + ' ===');
-            if (result.stdout) process.stdout.write(result.stdout);
-            if (result.stderr) process.stderr.write(result.stderr);
-            console.log('status=' + result.status);
-            if (result.status !== 0) failed = true;
-          }
-          if (failed) process.exit(1);
-          NODE
+          node --check src/package-authority.js
+          node --check src/index.js
+          node --check test/m13-bootstrap-root-authority.test.js
+          git diff --check
+      - name: Round10 non-root authority regressions
+        run: node --test test/m13-bootstrap-root-authority.test.js
+      - name: Focused authority and M13 regressions
+        run: node --test test/m13-bootstrap-root-authority.test.js test/m13-review-remediation.test.js test/runtime-authority.test.js test/provider-adapter-m13.test.js test/m8-runtime-brand-authority.test.js
+      - name: Node 22 focused stress
+        if: startsWith(matrix.node, '22')
+        run: |
+          for i in 1 2 3; do
+            echo "Round10 focused stress pass $i"
+            node --test test/m13-bootstrap-root-authority.test.js test/m13-review-remediation.test.js test/runtime-authority.test.js test/provider-adapter-m13.test.js test/m8-runtime-brand-authority.test.js
+          done
+      - name: Full repository suite
+        run: npm test
