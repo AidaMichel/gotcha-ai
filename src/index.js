@@ -28,11 +28,25 @@ for (let index = 0; index < authorityConsumerModulePaths.length; index += 1) {
   } catch {}
 }
 
-let runtimeAuthority = null;
+let packageAuthority = null;
 try {
-  runtimeAuthority = require("./runtime-authority");
+  packageAuthority = require("./package-authority");
 } catch {
-  runtimeAuthority = null;
+  packageAuthority = null;
+}
+const bootstrapDefineProperty = (
+  packageAuthority !== null &&
+  typeof packageAuthority === "object" &&
+  typeof packageAuthority.ObjectDefineProperty === "function"
+) ? packageAuthority.ObjectDefineProperty : null;
+
+let runtimeAuthority = null;
+if (packageAuthority !== null) {
+  try {
+    runtimeAuthority = require("./runtime-authority");
+  } catch {
+    runtimeAuthority = null;
+  }
 }
 
 function makeBoundaryError() {
@@ -87,22 +101,42 @@ function runGotcha({ evaluator, expectedOutput, mutationPack }) {
   });
 }
 
-const exported = { runGotcha };
+// Start from a complete fail-closed data surface. Object-literal property
+// creation does not consult inherited setters. Only authenticated
+// Object.defineProperty authority may replace these slots with lazy getters.
+const exported = {
+  runGotcha,
+  draftQualityContract: unavailableSyncBoundary,
+  confirmQualityContract: unavailableSyncBoundary,
+  runContractAttacks: unavailableAsyncBoundary,
+  draftContractProtection: unavailableAsyncBoundary,
+  confirmContractProtection: unavailableAsyncBoundary,
+  verifyContractProtection: unavailableAsyncBoundary,
+  generateContractProtectionProposal: unavailableAsyncBoundary,
+  createStructuredProviderAdapter: unavailableAdapterBoundary,
+  prepareContractQualityLoop: unavailableAsyncBoundary,
+  completeContractQualityLoop: unavailableAsyncBoundary
+};
 
 function defineLazyExport(name, modulePath, unavailable) {
-  Object.defineProperty(exported, name, {
-    enumerable: true,
-    configurable: false,
-    get() {
-      if (!promiseAuthorityAvailable()) return unavailable;
-      return require(modulePath)[name];
-    }
-  });
+  if (typeof bootstrapDefineProperty !== "function") return;
+  try {
+    bootstrapDefineProperty(exported, name, {
+      enumerable: true,
+      configurable: false,
+      get() {
+        if (!promiseAuthorityAvailable()) return unavailable;
+        return require(modulePath)[name];
+      }
+    });
+  } catch {
+    // The predeclared own data property remains the fail-closed boundary.
+  }
 }
 
 // These public surfaces all participate in modules that can transitively load
-// host runtime code. Under hostile Promise authority, returning a tiny local
-// fail-closed boundary prevents Node internals from touching attacker hooks.
+// host runtime code. Under unavailable authority, the predeclared local
+// boundaries prevent Node internals from touching rejected caller hooks.
 defineLazyExport(
   "draftQualityContract",
   "./quality-contract",
