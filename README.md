@@ -39,7 +39,8 @@ Today, Gotcha supports both sides of that flow:
 - generate attacks from confirmed Quality Contracts through an injected AI generator
 - attack an evaluator with meaningful mutations
 - rank the failures that survive
-- propose a protection
+- generate a declarative protection proposal for a caller-selected replayable survivor
+- require explicit human confirmation before remediation verification
 - re-attack to see whether quality improved
 
 **Quality should be teachable, testable, attackable, and improvable.**
@@ -358,6 +359,7 @@ const {
   draftContractProtection,
   confirmContractProtection,
   verifyContractProtection,
+  generateContractProtectionProposal,
   createStructuredProviderAdapter,
   prepareContractQualityLoop,
   completeContractQualityLoop
@@ -442,7 +444,7 @@ The generator proposes declarative mutated outputs; it does **not** provide exec
 
 A contract-attack survivor means an **AI-proposed rule violation passed the evaluator**. For arbitrary natural-language rules, Gotcha does not independently prove that the candidate semantically violates the referenced rule or that a production model produced the same failure.
 
-`runContractAttacks()` ends at ranked survivors and `topFinding` (`GOTCHA`). The M10 remediation APIs can then bind one replayable survivor to a declarative protection, require explicit human confirmation, and verify a caller-supplied improved evaluator against the exact bound experiment. Gotcha never generates executable evaluator code and never applies a draft automatically.
+`runContractAttacks()` ends at ranked survivors and `topFinding` (`GOTCHA`). M13 can turn one caller-selected replayable survivor into an untrusted declarative protection proposal; M10/M12 then keep drafting, human confirmation, evaluator changes, and verification separate. Gotcha never generates executable evaluator code and never applies a draft automatically.
 
 If you cloned the repository, run the deterministic end-to-end example with:
 
@@ -451,6 +453,58 @@ node examples/contract-attacks.js
 ```
 
 The repository command above is not a package-level executable. Installed consumers call the public `runContractAttacks()` API directly.
+
+## Generate a protection proposal for a confirmed survivor
+
+M13 closes the proposal-authoring gap without making the model remediation authority.
+
+The caller must explicitly choose a replayable survivor. Gotcha does not silently choose `topFinding`, auto-confirm the result, or generate executable evaluator changes.
+
+```text
+SURVIVOR
+  ↓
+generateContractProtectionProposal()
+  ↓
+proposal-ready
+  ↓
+prepareContractQualityLoop()
+  ↓
+HUMAN INSPECT / ACCEPT | EDIT | REJECT
+  ↓
+completeContractQualityLoop()
+  ↓
+VERIFY / RE-ATTACK
+```
+
+You can inject your own generator directly:
+
+```js
+const generated = await generateContractProtectionProposal({
+  experiment: result.experiment,
+  sourceAttackId: result.topFinding.id,
+  generator
+});
+```
+
+The successful result contains a fresh declarative M10-compatible `generated.proposal`. It is still only a proposal; `state: "proposal-ready"` is not human confirmation.
+
+For a provider-neutral structured-output boundary, use the adapter's `contract-protection` mode:
+
+```js
+const proposalGenerator = createStructuredProviderAdapter({
+  transport,
+  model: "your-model",
+  mode: "contract-protection"
+});
+
+const generated = await generateContractProtectionProposal({
+  experiment: result.experiment,
+  sourceAttackId: result.topFinding.id,
+  generator: proposalGenerator
+});
+```
+
+Gotcha owns the detached request shape, fixed generation instructions, structured proposal schema, task/source/rule binding, and safe result normalization. The caller still owns provider credentials, transport, model choice, the survivor choice, the later human decision, and all executable evaluator changes.
 
 ## Remediate and verify a confirmed survivor
 
@@ -474,7 +528,7 @@ The protection proposal is declarative data. A human must explicitly accept or e
 const draft = await draftContractProtection({
   experiment: result.experiment,
   sourceAttackId: result.topFinding.id,
-  proposal
+  proposal: generated.proposal
 });
 
 const protection = await confirmContractProtection({
@@ -499,10 +553,14 @@ node examples/contract-remediation.js
 
 ## Orchestrate the confirmed-contract quality loop
 
-M12 provides a two-stage convenience layer around the existing M10 remediation APIs without removing the human checkpoint:
+M12 provides a two-stage convenience layer around the existing M10 remediation APIs without removing the human checkpoint. M13 can now generate the declarative proposal immediately before that M12 boundary, but it does not change M12's human-confirmation authority:
 
 ```text
-GOTCHA
+SURVIVOR
+  ↓
+generateContractProtectionProposal()
+  ↓
+proposal-ready
   ↓
 prepareContractQualityLoop()
   ↓
@@ -515,13 +573,19 @@ CONFIRM / REJECT
 VERIFY / RE-ATTACK
 ```
 
-Preparation still requires the caller to choose the replayable survivor and supply the declarative protection proposal:
+The caller explicitly chooses the replayable survivor and can either supply a proposal manually or generate one through M13:
 
 ```js
+const generated = await generateContractProtectionProposal({
+  experiment: result.experiment,
+  sourceAttackId: result.topFinding.id,
+  generator
+});
+
 const checkpoint = await prepareContractQualityLoop({
   experiment: result.experiment,
   sourceAttackId: result.topFinding.id,
-  proposal
+  proposal: generated.proposal
 });
 ```
 
@@ -536,7 +600,7 @@ const loopResult = await completeContractQualityLoop({
 });
 ```
 
-M12 does not choose a survivor, generate the proposal, auto-confirm a draft, call a model/provider, or generate executable evaluator changes. If a checkpoint or decision crosses mutable/untrusted storage, the current draft must be shown again and a fresh human decision obtained before completion.
+M13 does not choose a survivor, auto-confirm a proposal, call M12 completion, or generate executable evaluator changes. M12 still does not call a model/provider or make the human decision. If a checkpoint or decision crosses mutable/untrusted storage, the current draft must be shown again and a fresh human decision obtained before completion.
 
 ## Bring your own business idea
 
@@ -757,6 +821,8 @@ RANK
   ↓
 GOTCHA
   ↓
+PROPOSE PROTECTION
+  ↓
 DRAFT PROTECTION
   ↓
 HUMAN CONFIRM
@@ -764,7 +830,7 @@ HUMAN CONFIRM
 VERIFY / RE-ATTACK
 ```
 
-Confirmed Quality Contracts can drive provider-independent AI-assisted attack generation through `runContractAttacks()`. M10 binds a replayable survivor to human-authorized declarative protection data and verifies a caller-supplied improved evaluator against that exact historical experiment. M12 adds an explicit two-stage orchestration layer around those M10 steps while preserving caller-owned survivor/proposal choices and the human confirmation boundary.
+Confirmed Quality Contracts can drive provider-independent AI-assisted attack generation through `runContractAttacks()`. M13 can generate a bound declarative proposal for one explicitly selected replayable survivor, including through the provider-neutral `contract-protection` adapter mode. M10 remains remediation authority, and M12 adds the explicit two-stage orchestration around drafting, human confirmation, and verification. Survivor choice, the human decision, and executable evaluator changes remain caller-owned.
 
 ### Deterministic Mutation Pack improvement path
 
@@ -776,7 +842,7 @@ CATCH THIS
 RE-ATTACK
 ```
 
-The separate Mutation Pack path can continue from a finding into deterministic protection and remediation verification. For the confirmed-contract path, M12 now provides explicit orchestration from a replayable finding into M10 drafting/confirmation/verification; it intentionally does not automate survivor selection, proposal generation, the human decision, or evaluator changes.
+The separate Mutation Pack path can continue from a finding into deterministic protection and remediation verification. For the confirmed-contract path, M13 can now generate the declarative proposal while M10/M12 preserve drafting, explicit human confirmation, and verification authority; none of these layers silently select a survivor or generate executable evaluator code.
 
 ## Current scope
 
@@ -789,6 +855,8 @@ Gotcha currently supports:
 - injected AI generators
 - explicit human confirmation
 - confirmed-contract AI-assisted attack generation through an injected provider-independent generator
+- caller-selected AI-assisted declarative protection proposal generation for replayable survivors
+- provider-neutral structured `contract-protection` proposal generation
 - deterministic attacks
 - survivor ranking
 - concrete protections
@@ -813,11 +881,9 @@ Those are separate product layers.
 
 ## What comes next
 
-The confirmed-contract attack bridge is implemented.
+The confirmed-contract path now covers human-confirmed quality rules, provider-independent AI-assisted attack proposals, caller-selected declarative protection proposals, explicit human remediation confirmation, and deterministic re-attack verification.
 
-The current loop can now move from human-confirmed quality rules to provider-independent AI-assisted attack proposals, then hand those validated proposals back to Gotcha's deterministic engine for execution and ranking.
-
-Future layers can focus on product integrations around that core — for example hosted provider adapters, production workflows, richer remediation, and collaboration — without moving model credentials or provider-specific logic into the deterministic engine.
+Future layers can focus on product integrations around that core — for example hosted provider adapters, production workflows, richer remediation history, and collaboration — without moving model credentials, survivor choice, human confirmation, or executable evaluator authority into the AI proposal seam.
 
 The aim remains a system that keeps asking:
 
@@ -848,8 +914,11 @@ Current implemented milestones include:
 - AI-assisted Quality Contract drafting
 - human Quality Contract confirmation
 - confirmed Quality Contracts connected to provider-independent AI-assisted attack generation via `runContractAttacks()`
+- caller-selected AI-assisted declarative protection proposal generation via `generateContractProtectionProposal()`
+- provider-neutral `contract-protection` structured adapter mode
+- explicit M12 human-confirmed remediation orchestration and re-attack verification
 
-The contract-to-attack bridge is implemented; future milestones can build integrations and workflows around this stable core.
+The confirmed-contract path is implemented through proposal generation and explicit human-confirmed verification; future milestones can build integrations and workflows around this stable core.
 
 ## License
 

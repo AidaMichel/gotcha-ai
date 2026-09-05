@@ -81,7 +81,10 @@ for (let index = 0; index < requiredFunctions.length; index += 1) {
   }
 }
 
-if (!arrayIsArray(forbiddenProbes)) {
+if (
+  typeof arrayIsArray !== "function" ||
+  !arrayIsArray(forbiddenProbes)
+) {
   wireAuthorityAvailable = false;
 } else {
   for (let index = 0; index < forbiddenProbes.length; index += 1) {

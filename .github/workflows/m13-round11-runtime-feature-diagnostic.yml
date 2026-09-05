@@ -1,0 +1,51 @@
+name: M13 Round11 runtime feature diagnostic
+
+on:
+  push:
+    branches: [milestone-13-runtime-slice-a]
+    paths:
+      - .github/workflows/m13-round11-runtime-feature-diagnostic.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostic:
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["14.21.3", "16.20.2", "18.20.8", "20.0.0", "20.15.1", "20.20.2", "22.0.0", "22.2.0", "22", "24"]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Print host feature facts
+        run: |
+          node - <<'NODE'
+          function canRequire(id) {
+            try { require(id); return true; } catch { return false; }
+          }
+          let utilTypes = null;
+          try { utilTypes = require('node:util/types'); } catch {}
+          let isProxySource = null;
+          if (utilTypes && typeof utilTypes.isProxy === 'function') {
+            try { isProxySource = Function.prototype.toString.call(utilTypes.isProxy); } catch {}
+          }
+          const arrayToSorted = Object.getOwnPropertyDescriptor(Array.prototype, 'toSorted');
+          const regexpV = (() => {
+            try { new RegExp('', 'v'); return true; } catch { return false; }
+          })();
+          console.log(JSON.stringify({
+            node: process.version,
+            sea: canRequire('node:sea'),
+            testReporters: canRequire('node:test/reporters'),
+            moduleRegister: (() => { try { return typeof require('node:module').register === 'function'; } catch { return false; } })(),
+            utilTypes: !!utilTypes,
+            isProxySource,
+            arrayToSorted: !!arrayToSorted,
+            regexpV
+          }));
+          NODE

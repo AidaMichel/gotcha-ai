@@ -1,48 +1,53 @@
 "use strict";
 
-const {
-  types: utilTypes
-} = require("node:util");
-const {
-  Buffer: BufferConstructor
-} = require("node:buffer");
-const {
-  runInNewContext
-} = require("node:vm");
+// Capture Gotcha's frozen runtime authority before this legacy M8 core loads
+// VM or other builtin helpers. Preloading the core must not make authority
+// bootstrap observe VM as already loaded and fail closed before the package
+// root has a chance to bind all consumers to the same generation.
+const runtimeAuthority = require("./runtime-authority");
+const promiseCaptureGetOwnPropertyDescriptor =
+  Object.getOwnPropertyDescriptor;
+const promiseCaptureGetPrototypeOf =
+  Object.getPrototypeOf;
+
+const intrinsicPromiseProbe =
+  (async function gotchaIntrinsicPromiseProbe() {})();
+const intrinsicPromisePrototype =
+  promiseCaptureGetPrototypeOf(intrinsicPromiseProbe);
+const promiseAuthorityAvailable =
+  runtimeAuthority.promiseAuthorityAvailable === true;
+const intrinsicPromiseConstructor =
+  promiseAuthorityAvailable
+    ? runtimeAuthority.promiseConstructor
+    : null;
+const intrinsicPromiseThen =
+  promiseAuthorityAvailable
+    ? runtimeAuthority.promiseThen
+    : null;
+const capturedAmbientPromiseConstructor =
+  intrinsicPromiseConstructor;
+const capturedAmbientPromisePrototype =
+  promiseAuthorityAvailable
+    ? runtimeAuthority.promisePrototype
+    : intrinsicPromisePrototype;
+const capturedAmbientPromiseThen =
+  intrinsicPromiseThen;
 
 // The M8 core owns the experiment authority. It is created from the same
-// util.types instance observed by this core plus pristine VM operations at
-// core initialization, then retained on the cached core export. No separately
-// cacheable dependency can predate or outlive this authority.
+// authenticated runtime generation used by the package root and retained on
+// the cached core export. No separately mutable builtin authority is invoked
+// when this legacy core is loaded lazily.
 const experimentFreeze =
-  runInNewContext("Object.freeze");
+  runtimeAuthority.objectFreeze;
 
+const experimentPromiseBrandProbe =
+  runtimeAuthority.isPromise;
 const experimentForbiddenProbes =
-  experimentFreeze([
-    utilTypes.isDate,
-    utilTypes.isRegExp,
-    utilTypes.isMap,
-    utilTypes.isSet,
-    utilTypes.isWeakMap,
-    utilTypes.isWeakSet,
-    utilTypes.isPromise,
-    utilTypes.isNativeError,
-    utilTypes.isAnyArrayBuffer,
-    utilTypes.isDataView,
-    utilTypes.isTypedArray,
-    utilTypes.isBoxedPrimitive,
-    utilTypes.isArgumentsObject,
-    utilTypes.isGeneratorObject,
-    utilTypes.isModuleNamespaceObject,
-    utilTypes.isMapIterator,
-    utilTypes.isSetIterator,
-    utilTypes.isExternal,
-    BufferConstructor.isBuffer
-  ]);
+  runtimeAuthority.forbiddenProbes;
 
 const experimentIntrinsics =
   experimentFreeze({
-    isProxy: utilTypes.isProxy,
+    isProxy: runtimeAuthority.isProxy,
     forbiddenProbes: experimentForbiddenProbes,
     stringConstructor:
       String,
@@ -60,8 +65,12 @@ const experimentIntrinsics =
       Object.prototype,
     ObjectPrototypeParent:
       Object.getPrototypeOf(Object.prototype),
+    FunctionPrototype:
+      runtimeAuthority.localFunctionPrototype,
     PromiseConstructor:
-      Promise,
+      capturedAmbientPromiseConstructor,
+    PromisePrototype:
+      capturedAmbientPromisePrototype,
     TypeErrorConstructor:
       TypeError,
     getOwnPropertyDescriptors:
@@ -81,7 +90,7 @@ const experimentIntrinsics =
     deleteProperty:
       Reflect.deleteProperty,
     arrayIsArray:
-      Array.isArray,
+      runtimeAuthority.arrayIsArray,
     stringTrim:
       String.prototype.trim,
     numberIsFinite:
@@ -101,25 +110,49 @@ const experimentIntrinsics =
     mapSet:
       Map.prototype.set,
     PromiseThen:
-      Promise.prototype.then,
+      capturedAmbientPromiseThen,
     PromiseSpecies:
-      Symbol.species
+      runtimeAuthority.promiseSpecies
   });
 
 const utilIsPromise =
-  utilTypes["isPromise"];
+  experimentPromiseBrandProbe;
 
 const utilIsProxy =
-  utilTypes["isProxy"];
+  runtimeAuthority.isProxy;
 
-const {
-  attack
-} = require("./engine");
+const m8DependencyAuthorityAvailable = (
+  promiseAuthorityAvailable === true &&
+  runtimeAuthority.consumerPrimordialsAvailable === true &&
+  typeof runtimeAuthority.arrayIsArray === "function" &&
+  typeof runtimeAuthority.isProxy === "function" &&
+  typeof runtimeAuthority.isPromise === "function"
+);
 
-const {
-  cloneAiData,
-  snapshotAiData
-} = require("./ai-data");
+let attack = null;
+let cloneAiData = null;
+let snapshotAiData = null;
+let m8DependenciesLoadAttempted = false;
+
+function loadM8ExecutionDependencies() {
+  if (m8DependenciesLoadAttempted) return;
+  m8DependenciesLoadAttempted = true;
+
+  if (
+    !m8DependencyAuthorityAvailable ||
+    typeof runtimeAuthority.canLoadMutableBuiltinGraph !== "function" ||
+    runtimeAuthority.canLoadMutableBuiltinGraph() !== true
+  ) return;
+
+  try {
+    ({ attack } = require("./engine"));
+    ({ cloneAiData, snapshotAiData } = require("./ai-data"));
+  } catch {
+    attack = null;
+    cloneAiData = null;
+    snapshotAiData = null;
+  }
+}
 
 const getOwnPropertyDescriptors =
   Object.getOwnPropertyDescriptors;
@@ -154,7 +187,7 @@ const arrayPrototypeDescriptors =
   );
 
 const arrayIsArray =
-  Array.isArray;
+  runtimeAuthority.arrayIsArray;
 
 const ArrayConstructor =
   Array;
@@ -328,13 +361,13 @@ const sharedIteratorPrototype =
   );
 
 const promisePrototype =
-  Promise.prototype;
+  intrinsicPromisePrototype;
 
 const promiseConstructor =
-  Promise;
+  intrinsicPromiseConstructor;
 
 const promiseThen =
-  Promise.prototype.then;
+  intrinsicPromiseThen;
 
 const promiseThenDescriptor =
   getOwnPropertyDescriptor(
@@ -343,7 +376,7 @@ const promiseThenDescriptor =
   );
 
 const promiseSpecies =
-  Symbol.species;
+  runtimeAuthority.promiseSpecies;
 
 const promisePrototypeConstructorDescriptor =
   getOwnPropertyDescriptor(
@@ -352,17 +385,21 @@ const promisePrototypeConstructorDescriptor =
   );
 
 const promiseSpeciesDescriptor =
-  getOwnPropertyDescriptor(
-    promiseConstructor,
-    promiseSpecies
-  );
+  promiseConstructor !== null
+    ? getOwnPropertyDescriptor(
+        promiseConstructor,
+        promiseSpecies
+      )
+    : undefined;
 
 const promiseConstructorSource =
-  reflectApply(
-    functionToString,
-    promiseConstructor,
-    []
-  );
+  promiseConstructor !== null
+    ? reflectApply(
+        functionToString,
+        promiseConstructor,
+        []
+      )
+    : null;
 
 const promiseSpeciesGetterSource =
   promiseSpeciesDescriptor !== undefined &&
@@ -2652,6 +2689,25 @@ function withRestoredCallbackIntrinsicSurfaces(
 }
 
 function requirePromiseIntrinsicIntegrity() {
+  if (
+    !m8DependencyAuthorityAvailable ||
+    typeof attack !== "function" ||
+    typeof cloneAiData !== "function" ||
+    typeof snapshotAiData !== "function" ||
+    !promiseAuthorityAvailable ||
+    typeof promiseConstructor !== "function" ||
+    typeof promiseThen !== "function" ||
+    promisePrototype === null ||
+    !runtimeAuthority.hasTrustedLocalPromiseSpecies(
+      promiseConstructor,
+      promiseSpecies
+    )
+  ) {
+    throw new Error(
+      "Promise intrinsic integrity check failed."
+    );
+  }
+
   const currentPrototypeConstructor =
     getOwnPropertyDescriptor(
       promisePrototype,
@@ -4413,6 +4469,8 @@ async function runContractAttacks(
   options = {},
   experimentEvidenceRecorder = null
 ) {
+  loadM8ExecutionDependencies();
+
   const runScope =
     enterCallbackIntrinsicScope();
 

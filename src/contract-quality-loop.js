@@ -1,13 +1,12 @@
 "use strict";
 
-const utilTypes = require("node:util").types;
-const { Buffer } = require("node:buffer");
-
+const { types: utilTypes } = require("node:util");
+const runtimeAuthority = require("./runtime-authority");
 const remediation = require("./contract-remediation");
 
-const isProxy = utilTypes.isProxy;
-const isPromise = utilTypes.isPromise;
-const bufferIsBuffer = Buffer.isBuffer;
+const isProxy = runtimeAuthority.isProxy;
+const isPromise = runtimeAuthority.isPromise;
+const bufferIsBuffer = runtimeAuthority.bufferIsBuffer;
 
 const getOwnPropertyDescriptors = Object.getOwnPropertyDescriptors;
 const getOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
@@ -17,40 +16,26 @@ const defineProperty = Object.defineProperty;
 const ownKeys = Reflect.ownKeys;
 const reflectApply = Reflect.apply;
 const deleteProperty = Reflect.deleteProperty;
-const arrayIsArray = Array.isArray;
+const functionToString = Function.prototype.toString;
+const arrayIsArray = runtimeAuthority.arrayIsArray;
 
 const ObjectPrototype = Object.prototype;
-const PromiseConstructor = Promise;
-const PromisePrototype = Promise.prototype;
-const PromiseThen = Promise.prototype.then;
-const PromiseSpecies = Symbol.species;
-const TypeErrorConstructor = TypeError;
+const PromisePrototype = runtimeAuthority.promisePrototype;
+const PromiseConstructor =
+  runtimeAuthority.promiseAuthorityAvailable === true
+    ? runtimeAuthority.promiseConstructor
+    : null;
+const PromiseThen =
+  runtimeAuthority.promiseAuthorityAvailable === true
+    ? runtimeAuthority.promiseThen
+    : null;
+const PromiseSpecies = runtimeAuthority.promiseSpecies;
 
 const draftContractProtection = remediation.draftContractProtection;
 const confirmContractProtection = remediation.confirmContractProtection;
 const verifyContractProtection = remediation.verifyContractProtection;
 
-const forbiddenProbes = [
-  utilTypes.isDate,
-  utilTypes.isRegExp,
-  utilTypes.isMap,
-  utilTypes.isSet,
-  utilTypes.isWeakMap,
-  utilTypes.isWeakSet,
-  utilTypes.isPromise,
-  utilTypes.isNativeError,
-  utilTypes.isAnyArrayBuffer,
-  utilTypes.isDataView,
-  utilTypes.isTypedArray,
-  utilTypes.isBoxedPrimitive,
-  utilTypes.isArgumentsObject,
-  utilTypes.isGeneratorObject,
-  utilTypes.isModuleNamespaceObject,
-  utilTypes.isMapIterator,
-  utilTypes.isSetIterator,
-  utilTypes.isExternal,
-  bufferIsBuffer
-];
+const forbiddenProbes = runtimeAuthority.forbiddenProbes;
 
 let authorityAvailable = true;
 
@@ -69,7 +54,6 @@ const requiredFunctions = [
   arrayIsArray,
   PromiseConstructor,
   PromiseThen,
-  TypeErrorConstructor,
   draftContractProtection,
   confirmContractProtection,
   verifyContractProtection
@@ -80,6 +64,18 @@ for (let index = 0; index < requiredFunctions.length; index += 1) {
     authorityAvailable = false;
     break;
   }
+}
+
+if (
+  runtimeAuthority.promiseAuthorityAvailable !== true ||
+  typeof PromiseConstructor !== "function" ||
+  typeof PromiseThen !== "function" ||
+  !runtimeAuthority.hasTrustedLocalPromiseSpecies(
+    PromiseConstructor,
+    PromiseSpecies
+  )
+) {
+  authorityAvailable = false;
 }
 
 if (authorityAvailable) {
@@ -122,7 +118,16 @@ if (typeof defineProperty === "function") {
 }
 
 function boundaryError() {
-  return new TypeErrorConstructor("Invalid M12 contract-quality-loop boundary.");
+  try {
+    null.m12QualityLoopBoundary;
+  } catch (error) {
+    return error;
+  }
+  return null;
+}
+
+async function rejectQualityLoopBoundary(error) {
+  throw error;
 }
 
 function call(method, receiver, args) {
@@ -389,6 +394,9 @@ function observeDelegatedPromise(promise, onFulfilled, onRejected) {
 }
 
 function createPublicPromise(start) {
+  if (typeof PromiseConstructor !== "function") {
+    return rejectQualityLoopBoundary(boundaryError());
+  }
   return new PromiseConstructor((resolve, reject) => {
     try {
       start(resolve, reject);
