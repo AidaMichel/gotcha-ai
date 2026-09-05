@@ -7,6 +7,7 @@ on:
     paths:
       - scripts/qa/m13-round11-codex-remediation.py
       - scripts/qa/m13-round11-codex-remediation-v2.py
+      - scripts/qa/m13-round11-codex-remediation-v3.py
       - .github/workflows/m13-round11-codex-remediation.yml
   workflow_dispatch:
 
@@ -29,15 +30,19 @@ jobs:
         run: |
           python3 scripts/qa/m13-round11-codex-remediation.py
           python3 scripts/qa/m13-round11-codex-remediation-v2.py
+          python3 scripts/qa/m13-round11-codex-remediation-v3.py
       - name: Syntax and diff hygiene
         run: |
           node --check src/runtime-authority.js
+          node --check src/quality-contract.js
+          node --check src/contract-quality-loop.js
           node --check test/m13-review-remediation.test.js
           git diff --check
           ! grep -q 'inspectorHasNodeInternalFunctionOrigin' src/runtime-authority.js
           ! grep -q 'nodeMajorVersion' src/runtime-authority.js
           ! grep -q 'getAuthenticatedBuiltinModule' src/runtime-authority.js
           ! grep -q 'bootstrapOwnDataValue(process,' src/runtime-authority.js
+          ! grep -q 'types: utilTypes' src/quality-contract.js src/contract-quality-loop.js
       - name: Compatibility smoke
         run: |
           node - <<'NODE'
@@ -63,9 +68,12 @@ jobs:
         run: |
           python3 scripts/qa/m13-round11-codex-remediation.py
           python3 scripts/qa/m13-round11-codex-remediation-v2.py
+          python3 scripts/qa/m13-round11-codex-remediation-v3.py
       - name: Static guards
         run: |
           node --check src/runtime-authority.js
+          node --check src/quality-contract.js
+          node --check src/contract-quality-loop.js
           node --check test/m13-review-remediation.test.js
           git diff --check
           ! grep -q 'inspectorHasNodeInternalFunctionOrigin' src/runtime-authority.js
@@ -73,6 +81,7 @@ jobs:
           ! grep -q 'getAuthenticatedBuiltinModule' src/runtime-authority.js
           ! grep -q 'authenticatedGetBuiltinModule' src/runtime-authority.js
           ! grep -q 'bootstrapOwnDataValue(process,' src/runtime-authority.js
+          ! grep -q 'types: utilTypes' src/quality-contract.js src/contract-quality-loop.js
       - name: Focused authority and M13 regressions
         run: node --test test/m13-review-remediation.test.js test/runtime-authority.test.js test/provider-adapter-m13.test.js test/m8-runtime-brand-authority.test.js
       - name: Full repository suite
@@ -89,6 +98,7 @@ jobs:
         run: |
           python3 scripts/qa/m13-round11-codex-remediation.py
           python3 scripts/qa/m13-round11-codex-remediation-v2.py
+          python3 scripts/qa/m13-round11-codex-remediation-v3.py
       - name: Repeat focused authority suite
         run: |
           for i in 1 2 3; do
