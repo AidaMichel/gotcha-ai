@@ -22,37 +22,13 @@ function bootstrapOwnDataValue(object, key) {
   }
 }
 
-function bootstrapBuiltinWasLoaded(modulePath) {
-  const list = bootstrapOwnDataValue(process, "moduleLoadList");
-  if (list === null || typeof list !== "object") return true;
-  const bareName = modulePath.slice(0, 5) === "node:"
-    ? modulePath.slice(5)
-    : modulePath;
-  try {
-    for (let index = 0; index < list.length; index += 1) {
-      if (list[index] === "NativeModule " + bareName) return true;
-    }
-  } catch {
-    return true;
-  }
-  return false;
-}
-
-function bootstrapFreshBuiltinModule(modulePath) {
-  // Builtin module exports are mutable. A preloaded builtin cannot be
-  // authenticated without invoking authority that may itself be poisoned, so
-  // use it only when this module is the first code to load it.
-  if (bootstrapBuiltinWasLoaded(modulePath)) return null;
-  try {
-    return require(modulePath);
-  } catch {
-    return null;
-  }
-}
-
-const vmModule = bootstrapFreshBuiltinModule("node:vm");
-const runInNewContext = bootstrapOwnDataValue(vmModule, "runInNewContext");
-const hasFreshVmAuthority = typeof runInNewContext === "function";
+// process.moduleLoadList is configurable caller-controlled state and cannot
+// establish builtin freshness without executing Proxy traps. Treat VM export
+// authority as unavailable at bootstrap and use the descriptor-captured package
+// primordials plus trap-free Inspector classification instead.
+const vmModule = null;
+const runInNewContext = null;
+const hasFreshVmAuthority = false;
 
 const pristineReflectApply = hasFreshVmAuthority
   ? runInNewContext("Reflect.apply")
@@ -91,22 +67,22 @@ function bootstrapFunctionSource(value) {
 
 const pristineArrayConstructorSource = hasFreshVmAuthority
   ? runInNewContext("Function.prototype.toString.call(Array)")
-  : bootstrapFunctionSource(packageAuthority.ArrayConstructor);
+  : "function Array() { [native code] }";
 const pristineArrayIsArraySource = hasFreshVmAuthority
   ? runInNewContext("Function.prototype.toString.call(Array.isArray)")
-  : bootstrapFunctionSource(packageAuthority.ArrayIsArray);
+  : "function isArray() { [native code] }";
 const pristinePromiseConstructorSource = hasFreshVmAuthority
   ? runInNewContext("Function.prototype.toString.call(Promise)")
-  : bootstrapFunctionSource(packageAuthority.PromiseConstructor);
+  : "function Promise() { [native code] }";
 const pristinePromiseThenSource = hasFreshVmAuthority
   ? runInNewContext("Function.prototype.toString.call(Promise.prototype.then)")
-  : bootstrapFunctionSource(packageAuthority.PromiseThen);
+  : "function then() { [native code] }";
 const pristinePromiseSpecies = hasFreshVmAuthority
   ? runInNewContext("Symbol.species")
   : packageAuthority.SymbolSpecies;
 const pristinePromiseSpeciesGetterSource = hasFreshVmAuthority
   ? runInNewContext("Function.prototype.toString.call(Object.getOwnPropertyDescriptor(Promise, Symbol.species).get)")
-  : bootstrapFunctionSource(packageAuthority.PromiseSpeciesGetter);
+  : "function get [Symbol.species]() { [native code] }";
 const pristineFunctionConstructor = hasFreshVmAuthority
   ? runInNewContext("Function")
   : packageAuthority.FunctionConstructor;
@@ -145,25 +121,13 @@ function unavailableProxyProbe() {
   return true;
 }
 
-let utilTypesAuthorityLoadedFresh = false;
-
 function loadModuleUtilTypesAuthority() {
-  // Node 22 exposes the pristine public util/types probes as anonymous native
-  // functions. A callable Proxy has the same Function#toString shape, so that
-  // anonymous shape is only authoritative when Gotcha itself is the first
-  // loader of the public builtin. Preloaded authority remains fail-closed.
-  const wasLoaded = bootstrapBuiltinWasLoaded("node:util/types");
   try {
-    const authority = require("node:util/types");
-    utilTypesAuthorityLoadedFresh = wasLoaded === false;
-    return authority;
+    return require("node:util/types");
   } catch {}
   try {
-    const authority = require("util/types");
-    utilTypesAuthorityLoadedFresh = wasLoaded === false;
-    return authority;
+    return require("util/types");
   } catch {
-    utilTypesAuthorityLoadedFresh = false;
     return null;
   }
 }
@@ -272,7 +236,6 @@ function inspectorClassifiesProxy(candidate) {
   // Proxies as subtype "proxy" without executing their JS traps. If inspector
   // or the fresh-VM mutation primitives are unavailable, fail closed.
   if (
-    bootstrapBuiltinWasLoaded("node:inspector") ||
     typeof pristineDefineProperty !== "function" ||
     typeof pristineReflectDeleteProperty !== "function" ||
     typeof pristineGetOwnPropertyDescriptor !== "function" ||
@@ -443,9 +406,65 @@ function inspectorClassifiesProxy(candidate) {
     ) return null;
 
     const remote = callbackResult.result;
-    if (remote.subtype === "proxy") classified = true;
-    else if (remote.type === "function" && remote.subtype === undefined) classified = false;
-    else classified = null;
+    if (remote.subtype === "proxy") {
+      classified = true;
+    } else if (
+      remote.type === "function" &&
+      remote.subtype === undefined &&
+      typeof remote.objectId === "string"
+    ) {
+      let propertiesCalled = false;
+      let propertiesError = null;
+      let propertiesResult = null;
+      pristineReflectApply(post, session, [
+        "Runtime.getProperties",
+        {
+          objectId: remote.objectId,
+          ownProperties: true,
+          generatePreview: false
+        },
+        function gotchaInspectorPropertiesCallback(error, result) {
+          propertiesCalled = true;
+          propertiesError = error;
+          propertiesResult = result;
+        }
+      ]);
+      if (
+        propertiesCalled !== true ||
+        propertiesError !== null ||
+        propertiesResult === null ||
+        typeof propertiesResult !== "object" ||
+        propertiesResult.internalProperties === null ||
+        typeof propertiesResult.internalProperties !== "object" ||
+        typeof propertiesResult.internalProperties.length !== "number"
+      ) {
+        classified = null;
+      } else {
+        let bound = false;
+        for (
+          let index = 0;
+          index < propertiesResult.internalProperties.length;
+          index += 1
+        ) {
+          const entry = propertiesResult.internalProperties[index];
+          if (
+            entry !== null &&
+            typeof entry === "object" &&
+            (
+              entry.name === "[[TargetFunction]]" ||
+              entry.name === "[[BoundThis]]" ||
+              entry.name === "[[BoundArgs]]"
+            )
+          ) {
+            bound = true;
+            break;
+          }
+        }
+        classified = bound;
+      }
+    } else {
+      classified = null;
+    }
   } catch {
     classified = null;
   } finally {
@@ -554,11 +573,12 @@ function nativeProbe(name) {
     );
     const namedNativeSource =
       "function " + name + "() { [native code] }";
+    if (source === namedNativeSource) return candidate;
     if (
-      source !== namedNativeSource &&
-      source !== "function () { [native code] }"
-    ) return null;
-    return candidate;
+      source === "function () { [native code] }" &&
+      inspectorClassifiesProxy(candidate) === false
+    ) return candidate;
+    return null;
   } catch {
     return null;
   }
@@ -1077,13 +1097,39 @@ const consumerStringTrim = captureLocalNativeDataFunction(
   "trim",
   "function trim() { [native code] }"
 );
-const consumerStringIncludes = hasFreshVmAuthority
+const capturedConsumerStringIncludes = hasFreshVmAuthority
   ? runInNewContext("String.prototype.includes")
   : captureLocalNativeDataFunction(
       consumerStringPrototype,
       "includes",
       "function includes() { [native code] }"
     );
+
+function localPrimitiveStringIncludes(search) {
+  const source = this;
+  if (typeof source !== "string" || typeof search !== "string") return false;
+  const sourceLength = source.length;
+  const searchLength = search.length;
+  if (searchLength === 0) return true;
+  if (searchLength > sourceLength) return false;
+  const lastStart = sourceLength - searchLength;
+  for (let start = 0; start <= lastStart; start += 1) {
+    let matched = true;
+    for (let offset = 0; offset < searchLength; offset += 1) {
+      if (source[start + offset] !== search[offset]) {
+        matched = false;
+        break;
+      }
+    }
+    if (matched) return true;
+  }
+  return false;
+}
+
+const consumerStringIncludes =
+  typeof capturedConsumerStringIncludes === "function"
+    ? capturedConsumerStringIncludes
+    : localPrimitiveStringIncludes;
 const consumerSetHas = captureLocalNativeDataFunction(
   consumerSetPrototype,
   "has",

@@ -1,9 +1,49 @@
 "use strict";
 
-const getOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
+const bootstrapReflectGetOwnPropertyDescriptor =
+  Reflect.getOwnPropertyDescriptor;
+const bootstrapReflectApply = Reflect.apply;
+const bootstrapFunctionToString = Function.prototype.toString;
+
+function captureNamedNativeDataFunction(object, key, expectedSource) {
+  let descriptor;
+  try {
+    descriptor = bootstrapReflectGetOwnPropertyDescriptor(object, key);
+  } catch {
+    return null;
+  }
+  if (
+    descriptor === undefined ||
+    "get" in descriptor ||
+    "set" in descriptor ||
+    typeof descriptor.value !== "function"
+  ) return null;
+
+  let source;
+  try {
+    source = bootstrapReflectApply(
+      bootstrapFunctionToString,
+      descriptor.value,
+      []
+    );
+  } catch {
+    return null;
+  }
+  return source === expectedSource ? descriptor.value : null;
+}
+
+const getOwnPropertyDescriptor = captureNamedNativeDataFunction(
+  Object,
+  "getOwnPropertyDescriptor",
+  "function getOwnPropertyDescriptor() { [native code] }"
+);
 
 function dataValue(object, key) {
-  if (object === null || (typeof object !== "object" && typeof object !== "function")) {
+  if (
+    typeof getOwnPropertyDescriptor !== "function" ||
+    object === null ||
+    (typeof object !== "object" && typeof object !== "function")
+  ) {
     return null;
   }
   try {
@@ -19,7 +59,11 @@ function dataValue(object, key) {
 }
 
 function accessorGetter(object, key) {
-  if (object === null || (typeof object !== "object" && typeof object !== "function")) {
+  if (
+    typeof getOwnPropertyDescriptor !== "function" ||
+    object === null ||
+    (typeof object !== "object" && typeof object !== "function")
+  ) {
     return null;
   }
   try {

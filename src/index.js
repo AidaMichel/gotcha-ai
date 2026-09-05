@@ -28,61 +28,11 @@ for (let index = 0; index < authorityConsumerModulePaths.length; index += 1) {
   } catch {}
 }
 
-const packageAuthority = require("./package-authority");
-const bootstrapGetOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
-const bootstrapDefineProperty = Object.defineProperty;
-
 let runtimeAuthority = null;
-let bootstrapInspectModule = null;
-let bootstrapInspectDescriptor = null;
-let bootstrapInspectNeutralized = false;
-let bootstrapRuntimeLoadAllowed = true;
-
 try {
-  bootstrapInspectModule = require("node:util");
-  const descriptor = bootstrapGetOwnPropertyDescriptor(
-    bootstrapInspectModule,
-    "inspect"
-  );
-  if (
-    descriptor !== undefined &&
-    ("get" in descriptor || "set" in descriptor)
-  ) {
-    if (descriptor.configurable !== true) {
-      bootstrapRuntimeLoadAllowed = false;
-    } else {
-      bootstrapInspectDescriptor = descriptor;
-      bootstrapDefineProperty(bootstrapInspectModule, "inspect", {
-        value: function gotchaBootstrapInspect() { return ""; },
-        writable: true,
-        enumerable: descriptor.enumerable,
-        configurable: true
-      });
-      bootstrapInspectNeutralized = true;
-    }
-  }
+  runtimeAuthority = require("./runtime-authority");
 } catch {
-  bootstrapRuntimeLoadAllowed = false;
-}
-
-if (bootstrapRuntimeLoadAllowed) {
-  try {
-    runtimeAuthority = require("./runtime-authority");
-  } catch {
-    runtimeAuthority = null;
-  }
-}
-
-if (bootstrapInspectNeutralized) {
-  try {
-    bootstrapDefineProperty(
-      bootstrapInspectModule,
-      "inspect",
-      bootstrapInspectDescriptor
-    );
-  } catch {
-    runtimeAuthority = null;
-  }
+  runtimeAuthority = null;
 }
 
 function makeBoundaryError() {

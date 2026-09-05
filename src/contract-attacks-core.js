@@ -5,12 +5,6 @@
 // bootstrap observe VM as already loaded and fail closed before the package
 // root has a chance to bind all consumers to the same generation.
 const runtimeAuthority = require("./runtime-authority");
-const {
-  types: utilTypes
-} = require("node:util");
-const {
-  Buffer: BufferConstructor
-} = require("node:buffer");
 const promiseCaptureGetOwnPropertyDescriptor =
   Object.getOwnPropertyDescriptor;
 const promiseCaptureGetPrototypeOf =
@@ -138,10 +132,22 @@ const m8DependencyAuthorityAvailable = (
 let attack = null;
 let cloneAiData = null;
 let snapshotAiData = null;
+let m8DependenciesLoadAttempted = false;
 
-if (m8DependencyAuthorityAvailable) {
-  ({ attack } = require("./engine"));
-  ({ cloneAiData, snapshotAiData } = require("./ai-data"));
+function loadM8ExecutionDependencies() {
+  if (m8DependenciesLoadAttempted) return;
+  m8DependenciesLoadAttempted = true;
+
+  if (!m8DependencyAuthorityAvailable) return;
+
+  try {
+    ({ attack } = require("./engine"));
+    ({ cloneAiData, snapshotAiData } = require("./ai-data"));
+  } catch {
+    attack = null;
+    cloneAiData = null;
+    snapshotAiData = null;
+  }
 }
 
 const getOwnPropertyDescriptors =
@@ -4459,6 +4465,8 @@ async function runContractAttacks(
   options = {},
   experimentEvidenceRecorder = null
 ) {
+  loadM8ExecutionDependencies();
+
   const runScope =
     enterCallbackIntrinsicScope();
 

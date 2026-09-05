@@ -1,6 +1,5 @@
 "use strict";
 
-const { types: utilTypes } = require("node:util");
 const runtimeAuthority = require("./runtime-authority");
 const consumerPrimordials = runtimeAuthority.consumerPrimordials;
 const packageAuthority = require("./package-authority");
@@ -215,18 +214,33 @@ try {
 }
 
 let createLegacyStructuredProviderAdapter = null;
-if (promiseAuthorityAvailable && legacyTypeErrorAuthorityAvailable) {
-  const legacyAdapterPath = require.resolve("./provider-adapter");
-  delete require.cache[legacyAdapterPath];
-  const legacyAdapter = require(legacyAdapterPath);
-  if (
-    legacyAdapter !== null &&
-    typeof legacyAdapter === "object" &&
-    typeof legacyAdapter.createStructuredProviderAdapter === "function"
-  ) {
-    createLegacyStructuredProviderAdapter =
-      legacyAdapter.createStructuredProviderAdapter;
+let legacyAdapterLoadAttempted = false;
+
+function getLegacyStructuredProviderAdapter() {
+  if (legacyAdapterLoadAttempted) return createLegacyStructuredProviderAdapter;
+  legacyAdapterLoadAttempted = true;
+
+  if (!promiseAuthorityAvailable || !legacyTypeErrorAuthorityAvailable) {
+    return null;
   }
+
+  try {
+    const legacyAdapterPath = require.resolve("./provider-adapter");
+    delete require.cache[legacyAdapterPath];
+    const legacyAdapter = require(legacyAdapterPath);
+    if (
+      legacyAdapter !== null &&
+      typeof legacyAdapter === "object" &&
+      typeof legacyAdapter.createStructuredProviderAdapter === "function"
+    ) {
+      createLegacyStructuredProviderAdapter =
+        legacyAdapter.createStructuredProviderAdapter;
+    }
+  } catch {
+    createLegacyStructuredProviderAdapter = null;
+  }
+
+  return createLegacyStructuredProviderAdapter;
 }
 
 let safePromiseConstructor = null;
@@ -812,7 +826,7 @@ function createContractProtectionAdapter(options, descriptors) {
         transportResult !== null &&
         typeof transportResult === "object" &&
         !isProxy(transportResult) &&
-        reflectApply(isPromise, utilTypes, [transportResult])
+        reflectApply(isPromise, undefined, [transportResult])
       ) {
         try {
           if (getPrototypeOf(transportResult) !== trustedPromisePrototype) {
@@ -847,10 +861,11 @@ function createStructuredProviderAdapter(options) {
     true
   );
   if (descriptors.mode.value !== "contract-protection") {
-    if (typeof createLegacyStructuredProviderAdapter !== "function") {
+    const legacyAdapter = getLegacyStructuredProviderAdapter();
+    if (typeof legacyAdapter !== "function") {
       throw boundaryError("legacy provider adapter authority is unavailable.");
     }
-    return createLegacyStructuredProviderAdapter(options);
+    return legacyAdapter(options);
   }
   return createContractProtectionAdapter(options, descriptors);
 }

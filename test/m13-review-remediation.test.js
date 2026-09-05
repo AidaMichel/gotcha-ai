@@ -1755,3 +1755,167 @@ test("round9 runtime-authority is the sole runInNewContext authority consumer", 
   }
   assert.deepEqual(offenders, []);
 });
+
+
+
+test("round9 descriptor primitive poisoning never executes", () => {
+  const indexPath = path.join(repoRoot, "src", "index.js");
+  const code = `
+    "use strict";
+    const original = Reflect.getOwnPropertyDescriptor(Object, "getOwnPropertyDescriptor");
+    let calls = 0;
+    const poisoned = new Proxy(original.value, {
+      apply(target, thisArg, args) {
+        calls += 1;
+        return Reflect.apply(target, thisArg, args);
+      }
+    });
+    Object.defineProperty(Object, "getOwnPropertyDescriptor", {
+      value: poisoned,
+      writable: original.writable,
+      enumerable: original.enumerable,
+      configurable: original.configurable
+    });
+    let api;
+    try { api = require(${JSON.stringify(indexPath)}); }
+    finally { Reflect.defineProperty(Object, "getOwnPropertyDescriptor", original); }
+    if (!api || typeof api.generateContractProtectionProposal !== "function") process.exitCode = 90;
+    if (calls !== 0) process.exitCode = 91;
+  `;
+  const run = spawnSync(process.execPath, ["-e", code], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  assert.equal(run.status, 0, run.stderr || run.stdout);
+});
+
+test("round9 bootstrap never invokes ambient String.prototype.slice", () => {
+  const indexPath = path.join(repoRoot, "src", "index.js");
+  const code = `
+    "use strict";
+    const original = Object.getOwnPropertyDescriptor(String.prototype, "slice");
+    let calls = 0;
+    Object.defineProperty(String.prototype, "slice", {
+      value: function poisonedSlice() { calls += 1; return Reflect.apply(original.value, this, arguments); },
+      writable: original.writable,
+      enumerable: original.enumerable,
+      configurable: original.configurable
+    });
+    let api;
+    try { api = require(${JSON.stringify(indexPath)}); }
+    finally { Object.defineProperty(String.prototype, "slice", original); }
+    if (!api || typeof api.generateContractProtectionProposal !== "function") process.exitCode = 92;
+    if (calls !== 0) process.exitCode = 93;
+  `;
+  const run = spawnSync(process.execPath, ["-e", code], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  assert.equal(run.status, 0, run.stderr || run.stdout);
+});
+
+test("round9 lazy provider never reads accessor-backed node util types", () => {
+  const indexPath = path.join(repoRoot, "src", "index.js");
+  const code = `
+    "use strict";
+    const util = require("node:util");
+    const original = Object.getOwnPropertyDescriptor(util, "types");
+    if (!original || original.configurable !== true) process.exit(0);
+    let calls = 0;
+    Object.defineProperty(util, "types", {
+      get() { calls += 1; throw new Error("poisoned util.types getter executed"); },
+      set: undefined,
+      enumerable: original.enumerable,
+      configurable: true
+    });
+    let api;
+    try {
+      api = require(${JSON.stringify(indexPath)});
+      const factory = api.createStructuredProviderAdapter;
+      if (typeof factory !== "function") process.exitCode = 94;
+      factory({
+        model: "round9-safe-model",
+        mode: "contract-protection",
+        transport() {
+          return { version: 1, kind: "gotcha-provider-response", output: {} };
+        }
+      });
+      void api.runContractAttacks;
+    } catch (error) {
+      console.error(error && error.stack || error);
+      process.exitCode = 94;
+    } finally {
+      Object.defineProperty(util, "types", original);
+    }
+    if (calls !== 0) process.exitCode = 95;
+  `;
+  const run = spawnSync(process.execPath, ["-e", code], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  assert.equal(run.status, 0, run.stderr || run.stdout);
+});
+
+test("round9 bound util types probes are rejected without execution", () => {
+  const indexPath = path.join(repoRoot, "src", "index.js");
+  const code = `
+    "use strict";
+    let types;
+    try { types = require("node:util/types"); }
+    catch { process.exit(0); }
+    const original = Object.getOwnPropertyDescriptor(types, "isDate");
+    if (!original || original.configurable !== true) process.exit(0);
+    let calls = 0;
+    function attacker() { calls += 1; return false; }
+    const poisoned = attacker.bind(null);
+    Object.defineProperty(types, "isDate", {
+      value: poisoned,
+      writable: original.writable,
+      enumerable: original.enumerable,
+      configurable: true
+    });
+    let api;
+    try { api = require(${JSON.stringify(indexPath)}); }
+    finally { Object.defineProperty(types, "isDate", original); }
+    Promise.resolve(api.generateContractProtectionProposal({})).catch(() => {}).then(() => {
+      if (calls !== 0) process.exitCode = 96;
+    });
+  `;
+  const run = spawnSync(process.execPath, ["-e", code], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  assert.equal(run.status, 0, run.stderr || run.stdout);
+});
+
+test("round9 process moduleLoadList Proxy is never inspected", () => {
+  const indexPath = path.join(repoRoot, "src", "index.js");
+  const code = `
+    "use strict";
+    const original = Object.getOwnPropertyDescriptor(process, "moduleLoadList");
+    if (!original || original.configurable !== true || !Array.isArray(original.value)) process.exit(0);
+    let calls = 0;
+    const poisoned = new Proxy(original.value, {
+      get(target, property, receiver) {
+        calls += 1;
+        return Reflect.get(target, property, receiver);
+      }
+    });
+    Object.defineProperty(process, "moduleLoadList", {
+      value: poisoned,
+      writable: original.writable,
+      enumerable: original.enumerable,
+      configurable: true
+    });
+    let api;
+    try { api = require(${JSON.stringify(indexPath)}); }
+    finally { Object.defineProperty(process, "moduleLoadList", original); }
+    if (!api || typeof api.generateContractProtectionProposal !== "function") process.exitCode = 97;
+    if (calls !== 0) process.exitCode = 98;
+  `;
+  const run = spawnSync(process.execPath, ["-e", code], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  assert.equal(run.status, 0, run.stderr || run.stdout);
+});
