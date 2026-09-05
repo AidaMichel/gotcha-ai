@@ -27,6 +27,7 @@ jobs:
           python3 scripts/qa/m13-round9-bootstrap-remediation-v3.py
           python3 scripts/qa/m13-round9-bootstrap-remediation-v4.py
           python3 scripts/qa/m13-round9-bootstrap-remediation-v5.py
+          python3 scripts/qa/m13-round9-bootstrap-remediation-v6.py
       - name: Syntax and compatibility smoke
         run: |
           for f in src/package-authority.js src/runtime-authority.js src/provider-adapter-m13.js src/contract-attacks-core.js src/index.js test/m13-review-remediation.test.js; do
@@ -58,9 +59,7 @@ jobs:
           python3 scripts/qa/m13-round9-bootstrap-remediation-v3.py
           python3 scripts/qa/m13-round9-bootstrap-remediation-v4.py
           python3 scripts/qa/m13-round9-bootstrap-remediation-v5.py
-      - name: Node 24 lazy util trace
-        if: startsWith(matrix.node, '24')
-        run: node scripts/qa/m13-round9-node18-diagnostic.js
+          python3 scripts/qa/m13-round9-bootstrap-remediation-v6.py
       - name: Static bootstrap authority checks
         run: |
           if grep -n -F 'bootstrapOwnDataValue(process, "moduleLoadList")' src/runtime-authority.js; then
