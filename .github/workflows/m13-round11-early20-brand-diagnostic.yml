@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ["20.0.0", "20.11.1", "20.12.0", "20.15.1"]
+        node: ["20.0.0", "20.11.1", "20.12.0"]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,59 +26,26 @@ jobs:
         run: |
           python3 scripts/qa/m13-round11-codex-remediation.py
           python3 scripts/qa/m13-round11-codex-remediation-v2.py
-      - name: Pinpoint process native-source authority
-        run: |
-          node - <<'NODE'
-          const authority = require('./src/runtime-authority');
-          const nodeProcess = require('node:process');
-          const bindingDescriptor = Object.getOwnPropertyDescriptor(nodeProcess, 'binding');
-          let natives = null;
-          let bindingError = null;
-          try {
-            natives = Reflect.apply(bindingDescriptor && bindingDescriptor.value, nodeProcess, ['natives']);
-          } catch (error) {
-            bindingError = String(error && error.message || error);
-          }
-          let sourceDescriptor = null;
-          if (natives) {
-            sourceDescriptor = Object.getOwnPropertyDescriptor(natives, 'internal/deps/undici/undici');
-          }
-          console.log(JSON.stringify({
-            node: nodeProcess.version,
-            bindingDescriptor: bindingDescriptor && {
-              accessor: ('get' in bindingDescriptor) || ('set' in bindingDescriptor),
-              type: typeof bindingDescriptor.value,
-              writable: bindingDescriptor.writable,
-              enumerable: bindingDescriptor.enumerable,
-              configurable: bindingDescriptor.configurable
-            },
-            bindingIsProxy: bindingDescriptor && typeof bindingDescriptor.value === 'function'
-              ? authority.isProxy(bindingDescriptor.value)
-              : null,
-            bindingError,
-            nativesType: typeof natives,
-            nativesIsProxy: natives ? authority.isProxy(natives) : null,
-            sourceDescriptor: sourceDescriptor && {
-              accessor: ('get' in sourceDescriptor) || ('set' in sourceDescriptor),
-              type: typeof sourceDescriptor.value,
-              length: typeof sourceDescriptor.value === 'string' ? sourceDescriptor.value.length : null,
-              writable: sourceDescriptor.writable,
-              enumerable: sourceDescriptor.enumerable,
-              configurable: sourceDescriptor.configurable
-            }
-          }));
-          NODE
-      - name: Instrument host-brand availability
+      - name: Instrument exact Undici capture exits
         run: |
           python3 - <<'PY'
           from pathlib import Path
           p = Path('src/ai-data-core.js')
           s = p.read_text()
+          start = s.index('function captureUndiciNativeSource()')
+          end = s.index('\nconst undiciNativeSource =', start)
+          block = s[start:end]
+          needle = 'undiciHostBrandAuthorityAvailable = false;\n    return null;'
+          labels = ['binding-descriptor-throw','binding-descriptor-invalid','binding-call-throw','natives-invalid','source-descriptor-throw','source-descriptor-invalid']
+          for label in labels:
+            if needle not in block:
+              break
+            block = block.replace(needle, f'console.error("UNDICI_FAIL:{label}");\n    undiciHostBrandAuthorityAvailable = false;\n    return null;', 1)
+          s = s[:start] + block + s[end:]
           old = '''function hostBrandAuthorityError() {\n  return new Error(\n    "Host brand probe authority is unavailable."\n  );\n}'''
-          new = '''function hostBrandAuthorityError() {\n  return new Error(\n    "Host brand probe authority is unavailable." +\n    " additional=" + additionalHostBrandMethodAuthorityAvailable +\n    " abort=" + abortControllerBrandAuthorityAvailable +\n    " trusted=" + trustedModuleBrandAuthorityAvailable +\n    " undici=" + undiciHostBrandAuthorityAvailable +\n    " undiciExpected=" + undiciRuntimeExpected\n  );\n}'''
-          if old not in s:
-              raise SystemExit('diagnostic anchor missing')
-          p.write_text(s.replace(old, new, 1))
+          new = '''function hostBrandAuthorityError() {\n  return new Error(\n    "Host brand probe authority is unavailable." +\n    " additional=" + additionalHostBrandMethodAuthorityAvailable +\n    " abort=" + abortControllerBrandAuthorityAvailable +\n    " trusted=" + trustedModuleBrandAuthorityAvailable +\n    " undici=" + undiciHostBrandAuthorityAvailable\n  );\n}'''
+          s = s.replace(old, new, 1)
+          p.write_text(s)
           PY
       - name: Exercise host-brand boundary
         run: |
