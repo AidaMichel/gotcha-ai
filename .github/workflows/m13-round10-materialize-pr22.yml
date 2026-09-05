@@ -1,0 +1,98 @@
+name: M13 Round10 materialize PR22
+
+on:
+  push:
+    branches:
+      - qa/m13-round9-root-audit
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Stage validated Round10 production tree
+        run: |
+          python3 scripts/qa/m13-round10-run.py
+          python3 scripts/qa/m13-round10-compat-fix.py
+          node --check src/package-authority.js
+          node --check src/runtime-authority.js
+          node --check src/contract-attacks-core.js
+          node --check src/provider-adapter.js
+          node --check src/provider-adapter-m13.js
+          node --check src/index.js
+          node --check test/m13-bootstrap-root-authority.test.js
+          node --check test/m13-review-remediation.test.js
+          git diff --check
+          tar -cf /tmp/round10-pr22.tar \
+            docs/BOOTSTRAP_TRUST_MODEL.md \
+            docs/M13_PROTECTION_PROPOSALS_SPEC.md \
+            src/index.js \
+            src/package-authority.js \
+            src/runtime-authority.js \
+            src/contract-attacks-core.js \
+            src/provider-adapter.js \
+            src/provider-adapter-m13.js \
+            test/m13-bootstrap-root-authority.test.js \
+            test/m13-review-remediation.test.js
+      - name: Apply only permanent files to exact PR22 base
+        run: |
+          git fetch origin milestone-13-runtime-slice-a
+          test "$(git rev-parse origin/milestone-13-runtime-slice-a)" = "2c2d03c2f4429ee1fcfe22cd1e62410f8460a4d7"
+          git checkout -B milestone-13-runtime-slice-a origin/milestone-13-runtime-slice-a
+          tar -xf /tmp/round10-pr22.tar
+          test ! -e .github/workflows/m13-round9-root-audit.yml
+          test ! -e .github/workflows/m13-round10-builtin-diagnostic.yml
+          test ! -e .github/workflows/m13-round10-materialize-pr22.yml
+          test ! -e scripts/qa/m13-round10-run.py
+          test ! -e scripts/qa/m13-round10-remediation.py
+          test ! -e scripts/qa/m13-round10-compat-fix.py
+          git diff --check
+          python3 - <<'PY'
+          import subprocess
+          expected = {
+              'docs/BOOTSTRAP_TRUST_MODEL.md',
+              'docs/M13_PROTECTION_PROPOSALS_SPEC.md',
+              'src/index.js',
+              'src/package-authority.js',
+              'src/runtime-authority.js',
+              'src/contract-attacks-core.js',
+              'src/provider-adapter.js',
+              'src/provider-adapter-m13.js',
+              'test/m13-bootstrap-root-authority.test.js',
+              'test/m13-review-remediation.test.js',
+          }
+          actual = set(subprocess.check_output(['git','diff','--name-only'], text=True).splitlines())
+          if actual != expected:
+              raise SystemExit(f'unexpected materialized diff: {sorted(actual)}')
+          PY
+      - name: Validate exact cleaned PR22 tree
+        run: |
+          node --check src/package-authority.js
+          node --check src/runtime-authority.js
+          node --check src/contract-attacks-core.js
+          node --check src/provider-adapter.js
+          node --check src/provider-adapter-m13.js
+          node --check src/index.js
+          node --test test/m13-bootstrap-root-authority.test.js test/m13-review-remediation.test.js test/runtime-authority.test.js test/provider-adapter-m13.test.js test/m8-runtime-brand-authority.test.js
+          for i in 1 2 3; do
+            echo "PR22 exact-tree stress pass $i"
+            node --test test/m13-bootstrap-root-authority.test.js test/m13-review-remediation.test.js test/runtime-authority.test.js test/provider-adapter-m13.test.js test/m8-runtime-brand-authority.test.js
+          done
+          npm test
+          git diff --check
+      - name: Commit exact validated production bytes
+        run: |
+          git config user.name "AidaMichel"
+          git config user.email "126730924+AidaMichel@users.noreply.github.com"
+          git add docs/BOOTSTRAP_TRUST_MODEL.md docs/M13_PROTECTION_PROPOSALS_SPEC.md src/index.js src/package-authority.js src/runtime-authority.js src/contract-attacks-core.js src/provider-adapter.js src/provider-adapter-m13.js test/m13-bootstrap-root-authority.test.js test/m13-review-remediation.test.js
+          git commit -m "fix: harden Round10 bootstrap and lazy authority"
+          git push origin HEAD:milestone-13-runtime-slice-a
+          git rev-parse HEAD
