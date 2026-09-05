@@ -21,7 +21,7 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       - name: Apply Round10 remediation
-        run: python3 scripts/qa/m13-round10-remediation.py
+        run: python3 scripts/qa/m13-round10-run.py
       - name: Syntax and compatibility proof
         run: |
           node --check src/package-authority.js
@@ -52,7 +52,7 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       - name: Apply Round10 remediation
-        run: python3 scripts/qa/m13-round10-remediation.py
+        run: python3 scripts/qa/m13-round10-run.py
       - name: Syntax and diff hygiene
         run: |
           node --check src/package-authority.js
