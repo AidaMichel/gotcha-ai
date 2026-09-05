@@ -20,7 +20,7 @@ const bootstrapRootAvailable = (
   typeof bootstrapReflectApply === "function" &&
   typeof bootstrapFunctionConstructor === "function" &&
   bootstrapFunctionPrototype !== null &&
-  typeof bootstrapFunctionPrototype === "object" &&
+  typeof bootstrapFunctionPrototype === "function" &&
   typeof bootstrapFunctionToString === "function"
 );
 
