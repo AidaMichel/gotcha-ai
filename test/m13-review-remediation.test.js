@@ -1919,3 +1919,87 @@ test("round9 process moduleLoadList Proxy is never inspected", () => {
   });
   assert.equal(run.status, 0, run.stderr || run.stdout);
 });
+
+
+test("round10 lazy M8 and legacy graphs never execute poisoned util.types", () => {
+  const script = String.raw`
+    const util = require("node:util");
+    const original = Object.getOwnPropertyDescriptor(util, "types");
+    if (!original || original.configurable !== true) process.exit(0);
+    let getterCalls = 0;
+    Object.defineProperty(util, "types", {
+      configurable: true,
+      enumerable: original.enumerable,
+      get() {
+        getterCalls += 1;
+        throw new Error("poison util.types executed");
+      }
+    });
+
+    const api = require("./src");
+
+    Promise.resolve(api.runContractAttacks({})).catch(() => undefined).then(() => {
+      for (const mode of ["quality-contract", "contract-attacks"]) {
+        try {
+          api.createStructuredProviderAdapter({
+            mode,
+            transport() { throw new Error("transport must not run"); }
+          });
+        } catch {}
+      }
+      if (getterCalls !== 0) {
+        console.error("util.types getter calls", getterCalls);
+        process.exit(91);
+      }
+      Object.defineProperty(util, "types", original);
+      console.log("round10-lazy-util-safe");
+    });
+  `;
+  const child = spawnSync(process.execPath, ["-e", script], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    timeout: 15000
+  });
+  assert.equal(child.status, 0, child.stderr || child.stdout);
+  assert.match(child.stdout, /round10-lazy-util-safe/);
+});
+
+test("round10 source-identical getBuiltinModule replacement is never invoked", () => {
+  const script = String.raw`
+    const descriptor = Object.getOwnPropertyDescriptor(process, "getBuiltinModule");
+    if (!descriptor || typeof descriptor.value !== "function" || descriptor.configurable !== true) {
+      console.log("round10-loader-not-applicable");
+      process.exit(0);
+    }
+    let calls = 0;
+    function getBuiltinModule(id) {
+      calls += 1;
+      return descriptor.value(id);
+    }
+    Object.defineProperty(process, "getBuiltinModule", {
+      value: getBuiltinModule,
+      writable: descriptor.writable,
+      enumerable: descriptor.enumerable,
+      configurable: true
+    });
+    const api = require("./src");
+    Promise.resolve(api.runContractAttacks({})).catch(() => undefined).then(() => {
+      try {
+        api.createStructuredProviderAdapter({ mode: "quality-contract", transport() {} });
+      } catch {}
+      if (calls !== 0) {
+        console.error("forged loader calls", calls);
+        process.exit(92);
+      }
+      Object.defineProperty(process, "getBuiltinModule", descriptor);
+      console.log("round10-forged-loader-safe");
+    });
+  `;
+  const child = spawnSync(process.execPath, ["-e", script], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    timeout: 15000
+  });
+  assert.equal(child.status, 0, child.stderr || child.stdout);
+  assert.match(child.stdout, /round10-(?:forged-loader-safe|loader-not-applicable)/);
+});

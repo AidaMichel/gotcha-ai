@@ -1,6 +1,63 @@
 "use strict";
 
 const packageAuthority = require("./package-authority");
+
+if (
+  packageAuthority === null ||
+  typeof packageAuthority !== "object" ||
+  packageAuthority.available !== true
+) {
+  // Stable fail-closed authority shape. Package-root lazy getters inspect only
+  // these fields and therefore never load a rejected host graph.
+  module.exports = {
+    objectFreeze(value) { return value; },
+    functionToString: null,
+    consumerPrimordialsAvailable: false,
+    consumerPrimordials: { functionToString: null },
+    weakRefConstructor: null,
+    finalizationRegistryConstructor: null,
+    isVmContext() { return true; },
+    isProxy() { return true; },
+    isPromise() { return false; },
+    isAsyncFunction() { return true; },
+    isGeneratorFunction() { return true; },
+    isCryptoKey: null,
+    isKeyObject: null,
+    isDate() { return true; },
+    isRegExp() { return true; },
+    isMap() { return true; },
+    isSet() { return true; },
+    isWeakMap() { return true; },
+    isWeakSet() { return true; },
+    isNativeError() { return true; },
+    isAnyArrayBuffer() { return true; },
+    isDataView() { return true; },
+    isTypedArray() { return true; },
+    isArrayBufferView() { return true; },
+    isBoxedPrimitive() { return true; },
+    isArgumentsObject() { return true; },
+    isGeneratorObject() { return true; },
+    isModuleNamespaceObject() { return true; },
+    isMapIterator() { return true; },
+    isSetIterator() { return true; },
+    isExternal() { return true; },
+    bufferIsBuffer() { return true; },
+    forbiddenProbes: [],
+    hasForbiddenRuntimeBrand() { return true; },
+    localFunctionPrototype: null,
+    inspect: null,
+    inspectCustom: null,
+    inspectAuthorityAvailable: false,
+    arrayIsArray() { return false; },
+    promiseAuthorityAvailable: false,
+    promiseConstructor: null,
+    promisePrototype: null,
+    promiseThen: null,
+    promiseSpecies: null,
+    hasTrustedLocalPromiseSpecies: false,
+    canLoadMutableBuiltinGraph() { return false; }
+  };
+} else {
 const bootstrapGetOwnPropertyDescriptor =
   packageAuthority.GetOwnPropertyDescriptor;
 
@@ -519,6 +576,350 @@ if (typeof namedNativeIsProxy === "function") {
         return true;
       }
     };
+  }
+}
+
+function inspectorHasNodeInternalFunctionOrigin(candidate, expectedEmbedderName) {
+  if (
+    typeof candidate !== "function" ||
+    typeof expectedEmbedderName !== "string" ||
+    expectedEmbedderName === "" ||
+    isProxy(candidate)
+  ) return false;
+
+  let inspectorModule;
+  try {
+    inspectorModule = require("node:inspector");
+  } catch {
+    return false;
+  }
+
+  const SessionConstructor = bootstrapOwnDataValue(inspectorModule, "Session");
+  const sessionPrototype = bootstrapOwnDataValue(SessionConstructor, "prototype");
+  const connect = bootstrapOwnDataValue(sessionPrototype, "connect");
+  const disconnect = bootstrapOwnDataValue(sessionPrototype, "disconnect");
+  const post = bootstrapOwnDataValue(sessionPrototype, "post");
+  if (
+    typeof SessionConstructor !== "function" ||
+    typeof connect !== "function" ||
+    typeof disconnect !== "function" ||
+    typeof post !== "function" ||
+    typeof pristineDefineProperty !== "function" ||
+    typeof pristineReflectDeleteProperty !== "function"
+  ) return false;
+
+  let session;
+  try {
+    session = new SessionConstructor();
+  } catch {
+    return false;
+  }
+
+  // `on` lives on EventEmitter.prototype. Find it descriptor-by-descriptor so
+  // an accessor-backed inherited replacement is rejected without execution.
+  let eventPrototype = sessionPrototype;
+  let on = null;
+  for (let depth = 0; depth < 8 && eventPrototype !== null; depth += 1) {
+    let descriptor;
+    try {
+      descriptor = pristineReflectApply(
+        pristineGetOwnPropertyDescriptor,
+        undefined,
+        [eventPrototype, "on"]
+      );
+    } catch {
+      return false;
+    }
+    if (descriptor !== undefined) {
+      if (
+        "get" in descriptor ||
+        "set" in descriptor ||
+        typeof descriptor.value !== "function" ||
+        isProxy(descriptor.value)
+      ) return false;
+      on = descriptor.value;
+      break;
+    }
+    try {
+      eventPrototype = pristineReflectApply(
+        pristineGetPrototypeOf,
+        undefined,
+        [eventPrototype]
+      );
+    } catch {
+      return false;
+    }
+  }
+  if (typeof on !== "function") return false;
+
+  const key = "__gotchaRuntimeBuiltinLoaderCandidate__";
+  let existingDescriptor;
+  try {
+    existingDescriptor = pristineReflectApply(
+      pristineGetOwnPropertyDescriptor,
+      undefined,
+      [globalThis, key]
+    );
+  } catch {
+    return false;
+  }
+  if (existingDescriptor !== undefined) return false;
+
+  const scriptMeta = [];
+  function onScriptParsed(message) {
+    const params = message && message.params;
+    if (
+      params !== null &&
+      typeof params === "object" &&
+      typeof params.scriptId === "string"
+    ) {
+      scriptMeta[scriptMeta.length] = {
+        scriptId: params.scriptId,
+        url: params.url,
+        embedderName: params.embedderName
+      };
+    }
+  }
+
+  let connected = false;
+  let installed = false;
+  try {
+    pristineReflectApply(pristineDefineProperty, undefined, [
+      globalThis,
+      key,
+      {
+        value: candidate,
+        writable: false,
+        enumerable: false,
+        configurable: true
+      }
+    ]);
+    installed = true;
+
+    pristineReflectApply(connect, session, []);
+    connected = true;
+    pristineReflectApply(on, session, ["Debugger.scriptParsed", onScriptParsed]);
+
+    let enableCalled = false;
+    let enableError = null;
+    pristineReflectApply(post, session, [
+      "Debugger.enable",
+      {},
+      function gotchaDebuggerEnableCallback(error) {
+        enableCalled = true;
+        enableError = error;
+      }
+    ]);
+    if (enableCalled !== true || enableError !== null) return false;
+
+    let evaluateCalled = false;
+    let evaluateError = null;
+    let evaluateResult = null;
+    pristineReflectApply(post, session, [
+      "Runtime.evaluate",
+      {
+        expression: "globalThis.__gotchaRuntimeBuiltinLoaderCandidate__",
+        generatePreview: false,
+        returnByValue: false
+      },
+      function gotchaBuiltinLoaderEvaluateCallback(error, result) {
+        evaluateCalled = true;
+        evaluateError = error;
+        evaluateResult = result;
+      }
+    ]);
+    if (
+      evaluateCalled !== true ||
+      evaluateError !== null ||
+      evaluateResult === null ||
+      typeof evaluateResult !== "object" ||
+      evaluateResult.result === null ||
+      typeof evaluateResult.result !== "object" ||
+      typeof evaluateResult.result.objectId !== "string"
+    ) return false;
+
+    let propertiesCalled = false;
+    let propertiesError = null;
+    let propertiesResult = null;
+    pristineReflectApply(post, session, [
+      "Runtime.getProperties",
+      {
+        objectId: evaluateResult.result.objectId,
+        ownProperties: true,
+        generatePreview: false
+      },
+      function gotchaBuiltinLoaderPropertiesCallback(error, result) {
+        propertiesCalled = true;
+        propertiesError = error;
+        propertiesResult = result;
+      }
+    ]);
+    if (
+      propertiesCalled !== true ||
+      propertiesError !== null ||
+      propertiesResult === null ||
+      typeof propertiesResult !== "object" ||
+      propertiesResult.internalProperties === null ||
+      typeof propertiesResult.internalProperties !== "object"
+    ) return false;
+
+    let scriptId = null;
+    for (
+      let index = 0;
+      index < propertiesResult.internalProperties.length;
+      index += 1
+    ) {
+      const entry = propertiesResult.internalProperties[index];
+      if (
+        entry !== null &&
+        typeof entry === "object" &&
+        entry.name === "[[FunctionLocation]]" &&
+        entry.value !== null &&
+        typeof entry.value === "object" &&
+        entry.value.value !== null &&
+        typeof entry.value.value === "object" &&
+        typeof entry.value.value.scriptId === "string"
+      ) {
+        scriptId = entry.value.value.scriptId;
+        break;
+      }
+    }
+    if (scriptId === null) return false;
+
+    for (let index = 0; index < scriptMeta.length; index += 1) {
+      const meta = scriptMeta[index];
+      if (
+        meta.scriptId === scriptId &&
+        meta.url === expectedEmbedderName &&
+        meta.embedderName === expectedEmbedderName
+      ) return true;
+    }
+    return false;
+  } catch {
+    return false;
+  } finally {
+    if (connected) {
+      try { pristineReflectApply(disconnect, session, []); } catch {}
+    }
+    if (installed) {
+      try {
+        pristineReflectApply(
+          pristineReflectDeleteProperty,
+          undefined,
+          [globalThis, key]
+        );
+      } catch {}
+    }
+  }
+}
+
+const builtinLoaderSource =
+  "function getBuiltinModule(id) {\n" +
+  "  validateString(id, 'id');\n" +
+  "  const normalizedId = BuiltinModule.normalizeRequirableId(id);\n" +
+  "  return normalizedId ? require(normalizedId) : undefined;\n" +
+  "}";
+
+let nodeMajorVersion = null;
+try {
+  const versions = bootstrapOwnDataValue(process, "versions");
+  const nodeVersion = bootstrapOwnDataValue(versions, "node");
+  if (typeof nodeVersion === "string") {
+    let majorText = "";
+    for (let index = 0; index < nodeVersion.length; index += 1) {
+      const character = nodeVersion[index];
+      if (character === ".") break;
+      if (character < "0" || character > "9") {
+        majorText = "";
+        break;
+      }
+      majorText += character;
+    }
+    if (majorText !== "") nodeMajorVersion = Number(majorText);
+  }
+} catch {
+  nodeMajorVersion = null;
+}
+
+let authenticatedGetBuiltinModule = null;
+let builtinLoaderAuthenticationAttempted = false;
+
+function getAuthenticatedBuiltinModule() {
+  if (builtinLoaderAuthenticationAttempted) {
+    return authenticatedGetBuiltinModule;
+  }
+  builtinLoaderAuthenticationAttempted = true;
+
+  if (
+    nodeMajorVersion === null ||
+    nodeMajorVersion < 20
+  ) return null;
+
+  try {
+    const candidate = bootstrapOwnDataValue(process, "getBuiltinModule");
+    const source = typeof candidate === "function"
+      ? pristineReflectApply(pristineFunctionToString, candidate, [])
+      : null;
+    if (
+      typeof candidate === "function" &&
+      source === builtinLoaderSource &&
+      pristineReflectApply(
+        pristineGetPrototypeOf,
+        undefined,
+        [candidate]
+      ) === localFunctionPrototype &&
+      inspectorHasNodeInternalFunctionOrigin(
+        candidate,
+        "node:internal/modules/helpers"
+      )
+    ) {
+      authenticatedGetBuiltinModule = candidate;
+    }
+  } catch {
+    authenticatedGetBuiltinModule = null;
+  }
+
+  return authenticatedGetBuiltinModule;
+}
+
+function canLoadMutableBuiltinGraph() {
+  // Node 14/16/18 do not expose process.getBuiltinModule and do not use the
+  // modern builtin sync-exports path implicated by the Node 20+ regression.
+  if (
+    nodeMajorVersion !== null &&
+    nodeMajorVersion < 20
+  ) return true;
+
+  const builtinLoader = getAuthenticatedBuiltinModule();
+  if (typeof builtinLoader !== "function") return false;
+
+  try {
+    const utilModule = pristineReflectApply(
+      builtinLoader,
+      undefined,
+      ["node:util"]
+    );
+    if (
+      utilModule === null ||
+      typeof utilModule !== "object" ||
+      isProxy(utilModule)
+    ) return false;
+    const descriptor = pristineReflectApply(
+      pristineGetOwnPropertyDescriptor,
+      undefined,
+      [utilModule, "types"]
+    );
+    return (
+      descriptor !== undefined &&
+      !("get" in descriptor) &&
+      !("set" in descriptor) &&
+      descriptor.value === utilTypesAuthority &&
+      descriptor.value !== null &&
+      typeof descriptor.value === "object" &&
+      !isProxy(descriptor.value)
+    );
+  } catch {
+    return false;
   }
 }
 
@@ -1325,7 +1726,8 @@ const exported = {
   promisePrototype,
   promiseThen,
   promiseSpecies: pristinePromiseSpecies,
-  hasTrustedLocalPromiseSpecies
+  hasTrustedLocalPromiseSpecies,
+  canLoadMutableBuiltinGraph
 };
 
 module.exports = pristineReflectApply(
@@ -1333,3 +1735,4 @@ module.exports = pristineReflectApply(
   undefined,
   [exported]
 );
+}

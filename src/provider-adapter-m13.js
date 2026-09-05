@@ -220,7 +220,12 @@ function getLegacyStructuredProviderAdapter() {
   if (legacyAdapterLoadAttempted) return createLegacyStructuredProviderAdapter;
   legacyAdapterLoadAttempted = true;
 
-  if (!promiseAuthorityAvailable || !legacyTypeErrorAuthorityAvailable) {
+  if (
+    !promiseAuthorityAvailable ||
+    !legacyTypeErrorAuthorityAvailable ||
+    typeof runtimeAuthority.canLoadMutableBuiltinGraph !== "function" ||
+    runtimeAuthority.canLoadMutableBuiltinGraph() !== true
+  ) {
     return null;
   }
 

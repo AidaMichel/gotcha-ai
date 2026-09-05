@@ -2,9 +2,10 @@
 
 const runtimeAuthority = require("./runtime-authority");
 const packageAuthority = require("./package-authority");
-const {
-  isUnsupportedRuntimeObject
-} = require("./ai-data-core");
+const isUnsupportedRuntimeObject =
+  runtimeAuthority.consumerPrimordialsAvailable === true
+    ? require("./ai-data-core").isUnsupportedRuntimeObject
+    : function unavailableRuntimeObjectClassifier() { return true; };
 
 const PromiseConstructor = packageAuthority.PromiseConstructor;
 const PromisePrototype = packageAuthority.PromisePrototype;

@@ -1,53 +1,37 @@
 "use strict";
 
+// Bootstrap trust root.
+//
+// Gotcha is not a same-process sandbox: code that can replace these reflection
+// roots before the first package load already has process-equivalent authority.
+// Keep that unavoidable root intentionally tiny, capture it once, and use it to
+// authenticate every other callable primordial before any such candidate is
+// invoked. Later mutation of these roots is non-authoritative.
+const bootstrapReflectObject = Reflect;
 const bootstrapReflectGetOwnPropertyDescriptor =
-  Reflect.getOwnPropertyDescriptor;
-const bootstrapReflectApply = Reflect.apply;
-const bootstrapFunctionToString = Function.prototype.toString;
+  bootstrapReflectObject.getOwnPropertyDescriptor;
+const bootstrapReflectApply = bootstrapReflectObject.apply;
+const bootstrapFunctionConstructor = Function;
+const bootstrapFunctionPrototype = bootstrapFunctionConstructor.prototype;
+const bootstrapFunctionToString = bootstrapFunctionPrototype.toString;
 
-function captureNamedNativeDataFunction(object, key, expectedSource) {
-  let descriptor;
-  try {
-    descriptor = bootstrapReflectGetOwnPropertyDescriptor(object, key);
-  } catch {
-    return null;
-  }
-  if (
-    descriptor === undefined ||
-    "get" in descriptor ||
-    "set" in descriptor ||
-    typeof descriptor.value !== "function"
-  ) return null;
-
-  let source;
-  try {
-    source = bootstrapReflectApply(
-      bootstrapFunctionToString,
-      descriptor.value,
-      []
-    );
-  } catch {
-    return null;
-  }
-  return source === expectedSource ? descriptor.value : null;
-}
-
-const getOwnPropertyDescriptor = captureNamedNativeDataFunction(
-  Object,
-  "getOwnPropertyDescriptor",
-  "function getOwnPropertyDescriptor() { [native code] }"
+const bootstrapRootAvailable = (
+  typeof bootstrapReflectGetOwnPropertyDescriptor === "function" &&
+  typeof bootstrapReflectApply === "function" &&
+  typeof bootstrapFunctionConstructor === "function" &&
+  bootstrapFunctionPrototype !== null &&
+  typeof bootstrapFunctionPrototype === "function" &&
+  typeof bootstrapFunctionToString === "function"
 );
 
-function dataValue(object, key) {
+function rootDataValue(object, key) {
   if (
-    typeof getOwnPropertyDescriptor !== "function" ||
+    bootstrapRootAvailable !== true ||
     object === null ||
     (typeof object !== "object" && typeof object !== "function")
-  ) {
-    return null;
-  }
+  ) return null;
   try {
-    const descriptor = getOwnPropertyDescriptor(object, key);
+    const descriptor = bootstrapReflectGetOwnPropertyDescriptor(object, key);
     return (
       descriptor !== undefined &&
       !("get" in descriptor) &&
@@ -58,74 +42,241 @@ function dataValue(object, key) {
   }
 }
 
-function accessorGetter(object, key) {
-  if (
-    typeof getOwnPropertyDescriptor !== "function" ||
-    object === null ||
-    (typeof object !== "object" && typeof object !== "function")
-  ) {
+function functionSource(value) {
+  if (bootstrapRootAvailable !== true || typeof value !== "function") {
     return null;
   }
   try {
-    const descriptor = getOwnPropertyDescriptor(object, key);
-    return (
-      descriptor !== undefined &&
-      typeof descriptor.get === "function" &&
-      descriptor.set === undefined
-    ) ? descriptor.get : null;
+    return bootstrapReflectApply(bootstrapFunctionToString, value, []);
   } catch {
     return null;
   }
 }
 
-const PromiseConstructor = dataValue(globalThis, "Promise");
-const PromisePrototype = dataValue(PromiseConstructor, "prototype");
-const PromiseThen = dataValue(PromisePrototype, "then");
-const PromiseSpeciesGetter = accessorGetter(PromiseConstructor, Symbol.species);
-const ArrayConstructor = dataValue(globalThis, "Array");
-const ArrayIsArray = dataValue(ArrayConstructor, "isArray");
-const FunctionConstructor = dataValue(globalThis, "Function");
-const TypeErrorConstructor = dataValue(globalThis, "TypeError");
-const BufferConstructor = dataValue(globalThis, "Buffer");
-const ReflectObject = dataValue(globalThis, "Reflect");
-const ReflectApply = dataValue(ReflectObject, "apply");
-const ObjectConstructor = dataValue(globalThis, "Object");
-const ObjectPrototype = dataValue(ObjectConstructor, "prototype");
-const ObjectGetPrototypeOf = dataValue(ObjectConstructor, "getPrototypeOf");
-const ObjectFreeze = dataValue(ObjectConstructor, "freeze");
-const ObjectToString = dataValue(ObjectPrototype, "toString");
-const FunctionPrototype = dataValue(FunctionConstructor, "prototype");
-const FunctionToString = dataValue(FunctionPrototype, "toString");
-const StringConstructor = dataValue(globalThis, "String");
-const StringPrototype = dataValue(StringConstructor, "prototype");
-const StringStartsWith = dataValue(StringPrototype, "startsWith");
-const ArrayBufferConstructor = dataValue(globalThis, "ArrayBuffer");
-const ArrayBufferIsView = dataValue(ArrayBufferConstructor, "isView");
-const DataViewConstructor = dataValue(globalThis, "DataView");
-const DataViewPrototype = dataValue(DataViewConstructor, "prototype");
-const DataViewByteLengthGetter = accessorGetter(DataViewPrototype, "byteLength");
-const WeakMapConstructor = dataValue(globalThis, "WeakMap");
-const WeakMapPrototype = dataValue(WeakMapConstructor, "prototype");
-const WeakMapHas = dataValue(WeakMapPrototype, "has");
-const WeakSetConstructor = dataValue(globalThis, "WeakSet");
-const WeakSetPrototype = dataValue(WeakSetConstructor, "prototype");
-const WeakSetHas = dataValue(WeakSetPrototype, "has");
-const NumberConstructor = dataValue(globalThis, "Number");
-const NumberPrototype = dataValue(NumberConstructor, "prototype");
-const NumberValueOf = dataValue(NumberPrototype, "valueOf");
-const BooleanConstructor = dataValue(globalThis, "Boolean");
-const BooleanPrototype = dataValue(BooleanConstructor, "prototype");
-const BooleanValueOf = dataValue(BooleanPrototype, "valueOf");
-const BigIntConstructor = dataValue(globalThis, "BigInt");
-const BigIntPrototype = dataValue(BigIntConstructor, "prototype");
-const BigIntValueOf = dataValue(BigIntPrototype, "valueOf");
-const SymbolConstructor = dataValue(globalThis, "Symbol");
-const SymbolPrototype = dataValue(SymbolConstructor, "prototype");
-const SymbolValueOf = dataValue(SymbolPrototype, "valueOf");
-const SymbolSpecies = dataValue(SymbolConstructor, "species");
+function captureNativeDataFunction(object, key, expectedSource) {
+  const candidate = rootDataValue(object, key);
+  if (typeof candidate !== "function") return null;
+  return functionSource(candidate) === expectedSource ? candidate : null;
+}
 
-module.exports = Object.freeze({
-  GetOwnPropertyDescriptor: getOwnPropertyDescriptor,
+function captureNativeGlobalConstructor(name) {
+  const candidate = rootDataValue(globalThis, name);
+  if (typeof candidate !== "function") return null;
+  return functionSource(candidate) ===
+    "function " + name + "() { [native code] }"
+    ? candidate
+    : null;
+}
+
+function captureNativeAccessorGetter(object, key, expectedSource) {
+  if (
+    bootstrapRootAvailable !== true ||
+    object === null ||
+    (typeof object !== "object" && typeof object !== "function")
+  ) return null;
+  try {
+    const descriptor = bootstrapReflectGetOwnPropertyDescriptor(object, key);
+    if (
+      descriptor === undefined ||
+      typeof descriptor.get !== "function" ||
+      descriptor.set !== undefined
+    ) return null;
+    return functionSource(descriptor.get) === expectedSource
+      ? descriptor.get
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function capturePrimitiveDataValue(object, key, expectedType) {
+  const value = rootDataValue(object, key);
+  return typeof value === expectedType ? value : null;
+}
+
+// The three callable reflection roots are authoritative by definition of the
+// bootstrap contract. Every remaining callable below is source-authenticated
+// before retention and is never invoked when that authentication fails.
+const GetOwnPropertyDescriptor = bootstrapRootAvailable
+  ? bootstrapReflectGetOwnPropertyDescriptor
+  : null;
+const ReflectApply = bootstrapRootAvailable
+  ? bootstrapReflectApply
+  : null;
+const FunctionConstructor = bootstrapRootAvailable
+  ? bootstrapFunctionConstructor
+  : null;
+const FunctionToString = bootstrapRootAvailable
+  ? bootstrapFunctionToString
+  : null;
+
+const ObjectConstructor = captureNativeGlobalConstructor("Object");
+const ObjectPrototype = rootDataValue(ObjectConstructor, "prototype");
+const ObjectGetPrototypeOf = captureNativeDataFunction(
+  ObjectConstructor,
+  "getPrototypeOf",
+  "function getPrototypeOf() { [native code] }"
+);
+const ObjectDefineProperty = captureNativeDataFunction(
+  ObjectConstructor,
+  "defineProperty",
+  "function defineProperty() { [native code] }"
+);
+const ObjectFreeze = captureNativeDataFunction(
+  ObjectConstructor,
+  "freeze",
+  "function freeze() { [native code] }"
+);
+const ObjectToString = captureNativeDataFunction(
+  ObjectPrototype,
+  "toString",
+  "function toString() { [native code] }"
+);
+
+const PromiseConstructor = captureNativeGlobalConstructor("Promise");
+const PromisePrototype = rootDataValue(PromiseConstructor, "prototype");
+const PromiseThen = captureNativeDataFunction(
+  PromisePrototype,
+  "then",
+  "function then() { [native code] }"
+);
+
+const ArrayConstructor = captureNativeGlobalConstructor("Array");
+const ArrayIsArray = captureNativeDataFunction(
+  ArrayConstructor,
+  "isArray",
+  "function isArray() { [native code] }"
+);
+
+const TypeErrorConstructor = captureNativeGlobalConstructor("TypeError");
+
+// Buffer is intentionally not retained as bootstrap authority. Runtime brand
+// handling no longer depends on the mutable global Buffer constructor/export.
+const BufferConstructor = null;
+
+const StringConstructor = captureNativeGlobalConstructor("String");
+const StringPrototype = rootDataValue(StringConstructor, "prototype");
+const StringStartsWith = captureNativeDataFunction(
+  StringPrototype,
+  "startsWith",
+  "function startsWith() { [native code] }"
+);
+const StringValueOf = captureNativeDataFunction(
+  StringPrototype,
+  "valueOf",
+  "function valueOf() { [native code] }"
+);
+
+const ArrayBufferConstructor = captureNativeGlobalConstructor("ArrayBuffer");
+const ArrayBufferIsView = captureNativeDataFunction(
+  ArrayBufferConstructor,
+  "isView",
+  "function isView() { [native code] }"
+);
+
+const DataViewConstructor = captureNativeGlobalConstructor("DataView");
+const DataViewPrototype = rootDataValue(DataViewConstructor, "prototype");
+const DataViewByteLengthGetter = captureNativeAccessorGetter(
+  DataViewPrototype,
+  "byteLength",
+  "function get byteLength() { [native code] }"
+);
+
+const WeakMapConstructor = captureNativeGlobalConstructor("WeakMap");
+const WeakMapPrototype = rootDataValue(WeakMapConstructor, "prototype");
+const WeakMapHas = captureNativeDataFunction(
+  WeakMapPrototype,
+  "has",
+  "function has() { [native code] }"
+);
+
+const WeakSetConstructor = captureNativeGlobalConstructor("WeakSet");
+const WeakSetPrototype = rootDataValue(WeakSetConstructor, "prototype");
+const WeakSetHas = captureNativeDataFunction(
+  WeakSetPrototype,
+  "has",
+  "function has() { [native code] }"
+);
+
+const NumberConstructor = captureNativeGlobalConstructor("Number");
+const NumberPrototype = rootDataValue(NumberConstructor, "prototype");
+const NumberValueOf = captureNativeDataFunction(
+  NumberPrototype,
+  "valueOf",
+  "function valueOf() { [native code] }"
+);
+
+const BooleanConstructor = captureNativeGlobalConstructor("Boolean");
+const BooleanPrototype = rootDataValue(BooleanConstructor, "prototype");
+const BooleanValueOf = captureNativeDataFunction(
+  BooleanPrototype,
+  "valueOf",
+  "function valueOf() { [native code] }"
+);
+
+const BigIntConstructor = captureNativeGlobalConstructor("BigInt");
+const BigIntPrototype = rootDataValue(BigIntConstructor, "prototype");
+const BigIntValueOf = captureNativeDataFunction(
+  BigIntPrototype,
+  "valueOf",
+  "function valueOf() { [native code] }"
+);
+
+const SymbolConstructor = captureNativeGlobalConstructor("Symbol");
+const SymbolPrototype = rootDataValue(SymbolConstructor, "prototype");
+const SymbolValueOf = captureNativeDataFunction(
+  SymbolPrototype,
+  "valueOf",
+  "function valueOf() { [native code] }"
+);
+const SymbolSpecies = capturePrimitiveDataValue(
+  SymbolConstructor,
+  "species",
+  "symbol"
+);
+const PromiseSpeciesGetter = SymbolSpecies === null
+  ? null
+  : captureNativeAccessorGetter(
+      PromiseConstructor,
+      SymbolSpecies,
+      "function get [Symbol.species]() { [native code] }"
+    );
+
+const mandatoryAuthorityAvailable = (
+  bootstrapRootAvailable === true &&
+  typeof GetOwnPropertyDescriptor === "function" &&
+  typeof ReflectApply === "function" &&
+  typeof FunctionConstructor === "function" &&
+  typeof FunctionToString === "function" &&
+  typeof ObjectConstructor === "function" &&
+  ObjectPrototype !== null &&
+  typeof ObjectGetPrototypeOf === "function" &&
+  typeof ObjectDefineProperty === "function" &&
+  typeof ObjectFreeze === "function" &&
+  typeof ObjectToString === "function" &&
+  typeof PromiseConstructor === "function" &&
+  PromisePrototype !== null &&
+  typeof PromiseThen === "function" &&
+  typeof PromiseSpeciesGetter === "function" &&
+  typeof ArrayConstructor === "function" &&
+  typeof ArrayIsArray === "function" &&
+  typeof TypeErrorConstructor === "function" &&
+  typeof StringStartsWith === "function" &&
+  typeof StringValueOf === "function" &&
+  typeof ArrayBufferIsView === "function" &&
+  typeof DataViewByteLengthGetter === "function" &&
+  typeof WeakMapHas === "function" &&
+  typeof WeakSetHas === "function" &&
+  typeof NumberValueOf === "function" &&
+  typeof BooleanValueOf === "function" &&
+  typeof BigIntValueOf === "function" &&
+  typeof SymbolValueOf === "function" &&
+  typeof SymbolSpecies === "symbol"
+);
+
+const authority = {
+  available: mandatoryAuthorityAvailable === true,
+  GetOwnPropertyDescriptor,
   PromiseConstructor,
   PromisePrototype,
   PromiseThen,
@@ -137,6 +288,7 @@ module.exports = Object.freeze({
   BufferConstructor,
   ReflectApply,
   ObjectGetPrototypeOf,
+  ObjectDefineProperty,
   ObjectFreeze,
   ObjectToString,
   FunctionToString,
@@ -146,10 +298,17 @@ module.exports = Object.freeze({
   WeakMapHas,
   WeakSetHas,
   NumberValueOf,
-  StringValueOf: dataValue(StringPrototype, "valueOf"),
+  StringValueOf,
   BooleanValueOf,
   BigIntValueOf,
   SymbolValueOf,
-  SymbolSpecies,
-  PromiseSpeciesGetter
-});
+  SymbolSpecies
+};
+
+// Authority absence is represented by a stable data object, not `null`. The
+// package root can therefore expose its predeclared fail-closed API without any
+// consumer dereferencing a missing authority record. Never invoke a rejected
+// non-root primordial merely to freeze the unavailable record.
+module.exports = mandatoryAuthorityAvailable === true
+  ? bootstrapReflectApply(ObjectFreeze, undefined, [authority])
+  : authority;

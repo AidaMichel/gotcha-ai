@@ -137,6 +137,15 @@ Proposal generation does not implicitly enter M10 drafting. M10 and M12 public o
 
 ## 5. Captured boundary authority
 
+The same-realm bootstrap trust boundary is defined normatively in
+`docs/BOOTSTRAP_TRUST_MODEL.md`. The package is not a same-process sandbox: the
+module-local CommonJS loader plus the minimal reflection roots named there are
+the trusted computing base required to inspect descriptors without invoking
+accessors and to authenticate every later callable. Pre-first-load code that
+has already replaced those roots has process-equivalent authority and is
+outside this poisoning guarantee. No other ambient primitive or Node builtin
+export receives that exemption.
+
 At M13 module initialization, before any public invocation or generator execution, M13 captures every primitive used for public boundary classification, capture, projection, Promise observation, and candidate validation.
 
 Required captures are exactly:
