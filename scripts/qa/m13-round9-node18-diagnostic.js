@@ -16,54 +16,48 @@ function run(label, code) {
   process.stdout.write(`status=${result.status}\n`);
 }
 
-const runtimePath = path.join(repoRoot, "src", "runtime-authority.js");
 const indexPath = path.join(repoRoot, "src", "index.js");
 
-run("util.types lazy stack trace", `
+run("M13 util.types phase trace", `
   "use strict";
   const util = require("node:util");
   const descriptor = Object.getOwnPropertyDescriptor(util, "types");
   if (!descriptor || descriptor.configurable !== true) process.exit(0);
   let calls = 0;
+  let traces = 0;
   Object.defineProperty(util, "types", {
     configurable: true,
     enumerable: descriptor.enumerable,
     get() {
       calls += 1;
-      try { process.stderr.write("UTIL_TYPES_GET\\n" + new Error("util.types access").stack + "\\n"); } catch {}
+      if (traces < 4) {
+        traces += 1;
+        try { process.stderr.write("UTIL_TYPES_GET_" + calls + "\\n" + new Error("util.types access").stack + "\\n"); } catch {}
+      }
       throw new Error("types getter executed");
     }
   });
   try {
     const api = require(${JSON.stringify(indexPath)});
-    void api.createStructuredProviderAdapter;
-    void api.runContractAttacks;
+    process.stdout.write("afterRoot=" + calls + "\\n");
+    const factory = api.createStructuredProviderAdapter;
+    process.stdout.write("afterGetter=" + calls + " factory=" + typeof factory + "\\n");
+    try {
+      factory({
+        model: "trace-model",
+        mode: "contract-protection",
+        transport() {
+          return { version: 1, kind: "gotcha-provider-response", output: {} };
+        }
+      });
+    } catch (error) {
+      process.stderr.write("FACTORY_ERROR\\n" + (error && error.stack || error) + "\\n");
+    }
+    process.stdout.write("afterFactory=" + calls + "\\n");
   } catch (error) {
-    try { process.stderr.write("LAZY_ERROR\\n" + (error && error.stack || error) + "\\n"); } catch {}
+    try { process.stderr.write("ROOT_OR_GETTER_ERROR\\n" + (error && error.stack || error) + "\\n"); } catch {}
   } finally {
     Object.defineProperty(util, "types", descriptor);
   }
   process.stdout.write("typesCalls=" + calls + "\\n");
-`);
-
-run("util.inspect runtime trace", `
-  "use strict";
-  const util = require("node:util");
-  require("node:buffer");
-  require("node:vm");
-  const descriptor = Object.getOwnPropertyDescriptor(util, "inspect");
-  let calls = 0;
-  Object.defineProperty(util, "inspect", {
-    configurable: true,
-    enumerable: descriptor.enumerable,
-    get() {
-      calls += 1;
-      try { process.stderr.write("UTIL_INSPECT_GET\\n" + new Error("util.inspect access").stack + "\\n"); } catch {}
-      throw new Error("inspect getter executed");
-    }
-  });
-  try { require(${JSON.stringify(runtimePath)}); }
-  catch {}
-  finally { Object.defineProperty(util, "inspect", descriptor); }
-  process.stdout.write("inspectCalls=" + calls + "\\n");
 `);
