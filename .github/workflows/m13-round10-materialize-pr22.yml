@@ -46,6 +46,8 @@ jobs:
         run: |
           git fetch origin milestone-13-runtime-slice-a
           test "$(git rev-parse origin/milestone-13-runtime-slice-a)" = "2c2d03c2f4429ee1fcfe22cd1e62410f8460a4d7"
+          git reset --hard HEAD
+          git clean -fd
           git checkout -B milestone-13-runtime-slice-a origin/milestone-13-runtime-slice-a
           tar -xf /tmp/round10-pr22.tar
           test ! -e .github/workflows/m13-round9-root-audit.yml
