@@ -22,21 +22,52 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-      - name: Inspect embedded Undici source layout
-        run: |
-          node - <<'NODE'
-          const natives = process.binding('natives');
-          const keys = Object.keys(natives).filter((key) => key.includes('undici'));
-          console.log('UNDICI_KEYS', JSON.stringify(keys));
-          for (const key of keys) {
-            const source = natives[key];
-            console.log('UNDICI_SOURCE', key, typeof source, typeof source === 'string' ? source.length : -1);
-          }
-          NODE
       - name: Apply Round11 candidate
         run: |
           python3 scripts/qa/m13-round11-codex-remediation.py
           python3 scripts/qa/m13-round11-codex-remediation-v2.py
+      - name: Pinpoint process native-source authority
+        run: |
+          node - <<'NODE'
+          const authority = require('./src/runtime-authority');
+          const nodeProcess = require('node:process');
+          const bindingDescriptor = Object.getOwnPropertyDescriptor(nodeProcess, 'binding');
+          let natives = null;
+          let bindingError = null;
+          try {
+            natives = Reflect.apply(bindingDescriptor && bindingDescriptor.value, nodeProcess, ['natives']);
+          } catch (error) {
+            bindingError = String(error && error.message || error);
+          }
+          let sourceDescriptor = null;
+          if (natives) {
+            sourceDescriptor = Object.getOwnPropertyDescriptor(natives, 'internal/deps/undici/undici');
+          }
+          console.log(JSON.stringify({
+            node: nodeProcess.version,
+            bindingDescriptor: bindingDescriptor && {
+              accessor: ('get' in bindingDescriptor) || ('set' in bindingDescriptor),
+              type: typeof bindingDescriptor.value,
+              writable: bindingDescriptor.writable,
+              enumerable: bindingDescriptor.enumerable,
+              configurable: bindingDescriptor.configurable
+            },
+            bindingIsProxy: bindingDescriptor && typeof bindingDescriptor.value === 'function'
+              ? authority.isProxy(bindingDescriptor.value)
+              : null,
+            bindingError,
+            nativesType: typeof natives,
+            nativesIsProxy: natives ? authority.isProxy(natives) : null,
+            sourceDescriptor: sourceDescriptor && {
+              accessor: ('get' in sourceDescriptor) || ('set' in sourceDescriptor),
+              type: typeof sourceDescriptor.value,
+              length: typeof sourceDescriptor.value === 'string' ? sourceDescriptor.value.length : null,
+              writable: sourceDescriptor.writable,
+              enumerable: sourceDescriptor.enumerable,
+              configurable: sourceDescriptor.configurable
+            }
+          }));
+          NODE
       - name: Instrument host-brand availability
         run: |
           python3 - <<'PY'
