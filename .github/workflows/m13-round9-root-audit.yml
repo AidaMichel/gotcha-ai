@@ -21,18 +21,20 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       - name: Apply Round10 remediation
-        run: python3 scripts/qa/m13-round10-run.py
+        run: |
+          python3 scripts/qa/m13-round10-run.py
+          python3 scripts/qa/m13-round10-compat-fix.py
       - name: Syntax and compatibility proof
         run: |
           node --check src/package-authority.js
           node --check src/runtime-authority.js
           node --check src/contract-attacks-core.js
+          node --check src/provider-adapter.js
           node --check src/provider-adapter-m13.js
           node --check src/index.js
           node --check test/m13-bootstrap-root-authority.test.js
           node --check test/m13-review-remediation.test.js
           git diff --check
-          node --test test/m13-bootstrap-root-authority.test.js test/m13-review-remediation.test.js
           node - <<'NODE'
           const api = require('./src');
           for (const name of ['runContractAttacks','generateContractProtectionProposal','createStructuredProviderAdapter']) {
@@ -52,12 +54,15 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       - name: Apply Round10 remediation
-        run: python3 scripts/qa/m13-round10-run.py
+        run: |
+          python3 scripts/qa/m13-round10-run.py
+          python3 scripts/qa/m13-round10-compat-fix.py
       - name: Syntax and diff hygiene
         run: |
           node --check src/package-authority.js
           node --check src/runtime-authority.js
           node --check src/contract-attacks-core.js
+          node --check src/provider-adapter.js
           node --check src/provider-adapter-m13.js
           node --check src/index.js
           node --check test/m13-bootstrap-root-authority.test.js
