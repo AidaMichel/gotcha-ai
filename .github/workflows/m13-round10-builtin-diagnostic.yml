@@ -1,0 +1,39 @@
+name: M13 Round10 builtin diagnostic
+
+on:
+  push:
+    branches:
+      - qa/m13-round9-root-audit
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [18.20.8, 20.20.2, 22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Inspect getBuiltinModule
+        run: |
+          node - <<'NODE'
+          const d = Object.getOwnPropertyDescriptor(process, 'getBuiltinModule');
+          console.log('node', process.version);
+          console.log('descriptor', d && { writable:d.writable, enumerable:d.enumerable, configurable:d.configurable, type:typeof d.value });
+          if (d && typeof d.value === 'function') console.log('source', Function.prototype.toString.call(d.value));
+          if (d && typeof d.value === 'function') {
+            try {
+              const util = d.value('node:util');
+              const td = Object.getOwnPropertyDescriptor(util, 'types');
+              console.log('util-types-descriptor', td && { hasValue:Object.prototype.hasOwnProperty.call(td,'value'), hasGet:typeof td.get === 'function', writable:td.writable, enumerable:td.enumerable, configurable:td.configurable, valueType:typeof td.value });
+            } catch (error) {
+              console.log('getBuiltinModule-error', error && error.stack || error);
+            }
+          }
+          NODE
