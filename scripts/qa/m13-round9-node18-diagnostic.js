@@ -18,6 +18,34 @@ function run(label, code) {
 
 const indexPath = path.join(repoRoot, "src", "index.js");
 
+for (const property of ["types", "inspect"]) {
+  run(`inspector load under poisoned util.${property}`, `
+    "use strict";
+    const util = require("node:util");
+    const descriptor = Object.getOwnPropertyDescriptor(util, ${JSON.stringify(property)});
+    if (!descriptor || descriptor.configurable !== true) {
+      process.stdout.write("not-configurable\\n");
+      process.exit(0);
+    }
+    let calls = 0;
+    Object.defineProperty(util, ${JSON.stringify(property)}, {
+      configurable: true,
+      enumerable: descriptor.enumerable,
+      get() { calls += 1; throw new Error("poisoned ${property} getter executed"); }
+    });
+    let loaded = false;
+    try {
+      const inspector = require("node:inspector");
+      loaded = inspector !== null && typeof inspector === "object";
+    } catch (error) {
+      process.stderr.write("INSPECTOR_LOAD_ERROR\\n" + (error && error.stack || error) + "\\n");
+    } finally {
+      Object.defineProperty(util, ${JSON.stringify(property)}, descriptor);
+    }
+    process.stdout.write("property=${property} calls=" + calls + " loaded=" + loaded + "\\n");
+  `);
+}
+
 run("lazy and M8 execution builtin phase trace", `
   "use strict";
   (async () => {
@@ -64,13 +92,7 @@ run("lazy and M8 execution builtin phase trace", `
           input: { value: 1 },
           expectedOutput: { time: "3 PM" },
           evaluator() { return true; },
-          generator() {
-            return {
-              version: 1,
-              task: "Return the approved time.",
-              attacks: []
-            };
-          }
+          generator() { return { version: 1, task: "Return the approved time.", attacks: [] }; }
         });
       } catch (error) {
         process.stderr.write("M8_EXEC_ERROR\\n" + (error && error.stack || error) + "\\n");
