@@ -14,33 +14,39 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: [18.20.8, 20.20.2, 22, 24]
+        node: [20.20.2, 22, 24]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-      - name: Inspect loader and inspector poison behavior
+      - name: Inspect builtin loader internal origin
         run: |
           node - <<'NODE'
-          const util = require('node:util');
-          const original = Object.getOwnPropertyDescriptor(util, 'types');
-          let calls = 0;
-          Object.defineProperty(util, 'types', {
-            configurable: true,
-            enumerable: original.enumerable,
-            get() { calls += 1; throw new Error('poison util.types'); }
-          });
-          console.log('node', process.version);
-          try {
-            require('node:inspector');
-            console.log('inspector-loaded', true);
-          } catch (error) {
-            console.log('inspector-loaded', false, error && error.message);
+          const inspector = require('node:inspector');
+          const genuine = Object.getOwnPropertyDescriptor(process, 'getBuiltinModule').value;
+          const BuiltinModule = { normalizeRequirableId(id) { return id; } };
+          const requireFake = () => null;
+          const fake = Function('BuiltinModule', 'require', `return function getBuiltinModule(id) {\n  validateString(id, 'id');\n  const normalizedId = BuiltinModule.normalizeRequirableId(id);\n  return normalizedId ? require(normalizedId) : undefined;\n}`)(BuiltinModule, requireFake);
+          globalThis.__gotchaGenuine = genuine;
+          globalThis.__gotchaFake = fake;
+          const session = new inspector.Session();
+          session.connect();
+          function post(method, params) {
+            let called = false, error = null, result = null;
+            session.post(method, params, (e, r) => { called = true; error = e; result = r; });
+            if (!called || error) throw error || new Error('inspector callback not synchronous');
+            return result;
           }
-          console.log('types-getter-calls-after-inspector', calls);
-          Object.defineProperty(util, 'types', original);
-          const d = Object.getOwnPropertyDescriptor(process, 'getBuiltinModule');
-          console.log('getBuiltinModule-descriptor', d && { writable:d.writable, enumerable:d.enumerable, configurable:d.configurable, type:typeof d.value });
-          if (d && typeof d.value === 'function') console.log('getBuiltinModule-source', Function.prototype.toString.call(d.value));
+          function inspect(expression) {
+            const remote = post('Runtime.evaluate', {expression, returnByValue:false, generatePreview:false}).result;
+            const props = post('Runtime.getProperties', {objectId:remote.objectId, ownProperties:true, generatePreview:false});
+            console.log(expression, JSON.stringify(props.internalProperties));
+          }
+          console.log('node', process.version);
+          inspect('globalThis.__gotchaGenuine');
+          inspect('globalThis.__gotchaFake');
+          session.disconnect();
+          delete globalThis.__gotchaGenuine;
+          delete globalThis.__gotchaFake;
           NODE
