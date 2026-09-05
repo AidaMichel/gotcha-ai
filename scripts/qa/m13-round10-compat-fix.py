@@ -29,7 +29,7 @@ replace_once(
     objectFreeze(value) { return value; },
     functionToString: null,
     consumerPrimordialsAvailable: false,
-    consumerPrimordials: null,
+    consumerPrimordials: { functionToString: null },
     weakRefConstructor: null,
     finalizationRegistryConstructor: null,
     isVmContext() { return true; },
@@ -73,6 +73,148 @@ replace_once(
     hasTrustedLocalPromiseSpecies: false,
     canLoadMutableBuiltinGraph() { return false; }
   };
+'''
+)
+
+# Authenticate process.getBuiltinModule only at the lazy legacy boundary. The
+# Inspector origin proof is intentionally not run during package bootstrap,
+# because loading Inspector can consult mutable node:util.inspect / Buffer
+# exports on some Node releases. The candidate is never invoked until the
+# origin proof succeeds, and the result is memoized after the first attempt.
+path = Path("src/runtime-authority.js")
+replace_once(
+    path,
+    '''let authenticatedGetBuiltinModule = null;
+let nodeMajorVersion = null;
+try {
+  const versions = bootstrapOwnDataValue(process, "versions");
+  const nodeVersion = bootstrapOwnDataValue(versions, "node");
+  if (typeof nodeVersion === "string") {
+    let majorText = "";
+    for (let index = 0; index < nodeVersion.length; index += 1) {
+      const character = nodeVersion[index];
+      if (character === ".") break;
+      if (character < "0" || character > "9") {
+        majorText = "";
+        break;
+      }
+      majorText += character;
+    }
+    if (majorText !== "") nodeMajorVersion = Number(majorText);
+  }
+
+  const candidate = bootstrapOwnDataValue(process, "getBuiltinModule");
+  const source = typeof candidate === "function"
+    ? pristineReflectApply(pristineFunctionToString, candidate, [])
+    : null;
+  if (
+    nodeMajorVersion !== null &&
+    nodeMajorVersion >= 20 &&
+    typeof candidate === "function" &&
+    source === builtinLoaderSource &&
+    pristineReflectApply(
+      pristineGetPrototypeOf,
+      undefined,
+      [candidate]
+    ) === localFunctionPrototype &&
+    inspectorHasNodeInternalFunctionOrigin(
+      candidate,
+      "node:internal/modules/helpers"
+    )
+  ) {
+    authenticatedGetBuiltinModule = candidate;
+  }
+} catch {
+  authenticatedGetBuiltinModule = null;
+}
+
+function canLoadMutableBuiltinGraph() {
+''',
+    '''let nodeMajorVersion = null;
+try {
+  const versions = bootstrapOwnDataValue(process, "versions");
+  const nodeVersion = bootstrapOwnDataValue(versions, "node");
+  if (typeof nodeVersion === "string") {
+    let majorText = "";
+    for (let index = 0; index < nodeVersion.length; index += 1) {
+      const character = nodeVersion[index];
+      if (character === ".") break;
+      if (character < "0" || character > "9") {
+        majorText = "";
+        break;
+      }
+      majorText += character;
+    }
+    if (majorText !== "") nodeMajorVersion = Number(majorText);
+  }
+} catch {
+  nodeMajorVersion = null;
+}
+
+let authenticatedGetBuiltinModule = null;
+let builtinLoaderAuthenticationAttempted = false;
+
+function getAuthenticatedBuiltinModule() {
+  if (builtinLoaderAuthenticationAttempted) {
+    return authenticatedGetBuiltinModule;
+  }
+  builtinLoaderAuthenticationAttempted = true;
+
+  if (
+    nodeMajorVersion === null ||
+    nodeMajorVersion < 20
+  ) return null;
+
+  try {
+    const candidate = bootstrapOwnDataValue(process, "getBuiltinModule");
+    const source = typeof candidate === "function"
+      ? pristineReflectApply(pristineFunctionToString, candidate, [])
+      : null;
+    if (
+      typeof candidate === "function" &&
+      source === builtinLoaderSource &&
+      pristineReflectApply(
+        pristineGetPrototypeOf,
+        undefined,
+        [candidate]
+      ) === localFunctionPrototype &&
+      inspectorHasNodeInternalFunctionOrigin(
+        candidate,
+        "node:internal/modules/helpers"
+      )
+    ) {
+      authenticatedGetBuiltinModule = candidate;
+    }
+  } catch {
+    authenticatedGetBuiltinModule = null;
+  }
+
+  return authenticatedGetBuiltinModule;
+}
+
+function canLoadMutableBuiltinGraph() {
+'''
+)
+replace_once(
+    path,
+    '''  if (typeof authenticatedGetBuiltinModule !== "function") return false;
+
+  try {
+    const utilModule = pristineReflectApply(
+      authenticatedGetBuiltinModule,
+      undefined,
+      ["node:util"]
+    );
+''',
+    '''  const builtinLoader = getAuthenticatedBuiltinModule();
+  if (typeof builtinLoader !== "function") return false;
+
+  try {
+    const utilModule = pristineReflectApply(
+      builtinLoader,
+      undefined,
+      ["node:util"]
+    );
 '''
 )
 
