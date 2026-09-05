@@ -26,27 +26,28 @@ jobs:
         run: |
           python3 scripts/qa/m13-round11-codex-remediation.py
           python3 scripts/qa/m13-round11-codex-remediation-v2.py
-      - name: Instrument exact Undici capture exits
+          python3 scripts/qa/m13-round11-codex-remediation-v3.py
+      - name: Compare Headers metadata to embedded Undici
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('src/ai-data-core.js')
-          s = p.read_text()
-          start = s.index('function captureUndiciNativeSource()')
-          end = s.index('\nconst undiciNativeSource =', start)
-          block = s[start:end]
-          needle = 'undiciHostBrandAuthorityAvailable = false;\n    return null;'
-          labels = ['binding-descriptor-throw','binding-descriptor-invalid','binding-call-throw','natives-invalid','source-descriptor-throw','source-descriptor-invalid']
-          for label in labels:
-            if needle not in block:
-              break
-            block = block.replace(needle, f'console.error("UNDICI_FAIL:{label}");\n    undiciHostBrandAuthorityAvailable = false;\n    return null;', 1)
-          s = s[:start] + block + s[end:]
-          old = '''function hostBrandAuthorityError() {\n  return new Error(\n    "Host brand probe authority is unavailable."\n  );\n}'''
-          new = '''function hostBrandAuthorityError() {\n  return new Error(\n    "Host brand probe authority is unavailable." +\n    " additional=" + additionalHostBrandMethodAuthorityAvailable +\n    " abort=" + abortControllerBrandAuthorityAvailable +\n    " trusted=" + trustedModuleBrandAuthorityAvailable +\n    " undici=" + undiciHostBrandAuthorityAvailable\n  );\n}'''
-          s = s.replace(old, new, 1)
-          p.write_text(s)
-          PY
+          node - <<'NODE'
+          const source = process.binding('natives')['internal/deps/undici/undici'];
+          const ctor = globalThis.Headers;
+          const get = ctor && ctor.prototype && ctor.prototype.get;
+          const ctorSource = typeof ctor === 'function' ? Function.prototype.toString.call(ctor) : null;
+          const getSource = typeof get === 'function' ? Function.prototype.toString.call(get) : null;
+          console.log(JSON.stringify({
+            node: process.version,
+            ctorName: ctor && ctor.name,
+            ctorLength: ctor && ctor.length,
+            ctorSource: ctorSource && ctorSource.slice(0, 180),
+            ctorInBundle: !!(source && ctorSource && source.includes(ctorSource)),
+            getName: get && get.name,
+            getLength: get && get.length,
+            getSource: getSource && getSource.slice(0, 180),
+            getInBundle: !!(source && getSource && source.includes(getSource)),
+            globalDescriptor: (() => { const d = Object.getOwnPropertyDescriptor(globalThis, 'Headers'); return d && { accessor: ('get' in d)||('set' in d), configurable:d.configurable, enumerable:d.enumerable, writable:d.writable }; })()
+          }));
+          NODE
       - name: Exercise host-brand boundary
         run: |
           node - <<'NODE'
