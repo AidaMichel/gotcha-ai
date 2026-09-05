@@ -20,7 +20,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-      - name: Inspect builtin loader internal origin
+      - name: Inspect builtin loader script metadata
         run: |
           node - <<'NODE'
           const inspector = require('node:inspector');
@@ -32,16 +32,22 @@ jobs:
           globalThis.__gotchaFake = fake;
           const session = new inspector.Session();
           session.connect();
-          function post(method, params) {
+          const scripts = new Map();
+          session.on('Debugger.scriptParsed', ({params}) => scripts.set(params.scriptId, params));
+          function post(method, params = {}) {
             let called = false, error = null, result = null;
             session.post(method, params, (e, r) => { called = true; error = e; result = r; });
             if (!called || error) throw error || new Error('inspector callback not synchronous');
             return result;
           }
+          post('Debugger.enable');
           function inspect(expression) {
             const remote = post('Runtime.evaluate', {expression, returnByValue:false, generatePreview:false}).result;
             const props = post('Runtime.getProperties', {objectId:remote.objectId, ownProperties:true, generatePreview:false});
-            console.log(expression, JSON.stringify(props.internalProperties));
+            const location = props.internalProperties.find((entry) => entry.name === '[[FunctionLocation]]');
+            const scriptId = location && location.value && location.value.value && location.value.value.scriptId;
+            const meta = scripts.get(scriptId);
+            console.log(expression, JSON.stringify({scriptId, meta: meta && {url:meta.url, hash:meta.hash, hasSourceURL:meta.hasSourceURL, isModule:meta.isModule, length:meta.length, embedderName:meta.embedderName}}));
           }
           console.log('node', process.version);
           inspect('globalThis.__gotchaGenuine');
