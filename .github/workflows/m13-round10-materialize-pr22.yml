@@ -71,9 +71,20 @@ jobs:
               'test/m13-bootstrap-root-authority.test.js',
               'test/m13-review-remediation.test.js',
           }
-          actual = set(subprocess.check_output(['git','diff','--name-only'], text=True).splitlines())
+          status = subprocess.check_output(
+              ['git', 'status', '--porcelain=v1', '--untracked-files=all'],
+              text=True,
+          ).splitlines()
+          actual = set()
+          for line in status:
+              if not line:
+                  continue
+              path = line[3:]
+              if ' -> ' in path:
+                  path = path.split(' -> ', 1)[1]
+              actual.add(path)
           if actual != expected:
-              raise SystemExit(f'unexpected materialized diff: {sorted(actual)}')
+              raise SystemExit(f'unexpected materialized status: {sorted(actual)}')
           PY
       - name: Validate exact cleaned PR22 tree
         run: |
@@ -83,6 +94,8 @@ jobs:
           node --check src/provider-adapter.js
           node --check src/provider-adapter-m13.js
           node --check src/index.js
+          node --check test/m13-bootstrap-root-authority.test.js
+          node --check test/m13-review-remediation.test.js
           node --test test/m13-bootstrap-root-authority.test.js test/m13-review-remediation.test.js test/runtime-authority.test.js test/provider-adapter-m13.test.js test/m8-runtime-brand-authority.test.js
           for i in 1 2 3; do
             echo "PR22 exact-tree stress pass $i"
