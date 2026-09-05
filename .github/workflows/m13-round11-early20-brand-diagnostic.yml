@@ -27,25 +27,27 @@ jobs:
           python3 scripts/qa/m13-round11-codex-remediation.py
           python3 scripts/qa/m13-round11-codex-remediation-v2.py
           python3 scripts/qa/m13-round11-codex-remediation-v3.py
-      - name: Compare Headers metadata to embedded Undici
+      - name: Locate lazy Headers accessor source
         run: |
           node - <<'NODE'
-          const source = process.binding('natives')['internal/deps/undici/undici'];
-          const ctor = globalThis.Headers;
-          const get = ctor && ctor.prototype && ctor.prototype.get;
-          const ctorSource = typeof ctor === 'function' ? Function.prototype.toString.call(ctor) : null;
-          const getSource = typeof get === 'function' ? Function.prototype.toString.call(get) : null;
+          const natives = process.binding('natives');
+          const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'Headers');
+          const getter = descriptor && descriptor.get;
+          const setter = descriptor && descriptor.set;
+          const getterSource = typeof getter === 'function' ? Function.prototype.toString.call(getter) : null;
+          const setterSource = typeof setter === 'function' ? Function.prototype.toString.call(setter) : null;
+          const matches = (source) => source ? Object.keys(natives).filter((key) => typeof natives[key] === 'string' && natives[key].includes(source)) : [];
           console.log(JSON.stringify({
             node: process.version,
-            ctorName: ctor && ctor.name,
-            ctorLength: ctor && ctor.length,
-            ctorSource: ctorSource && ctorSource.slice(0, 180),
-            ctorInBundle: !!(source && ctorSource && source.includes(ctorSource)),
-            getName: get && get.name,
-            getLength: get && get.length,
-            getSource: getSource && getSource.slice(0, 180),
-            getInBundle: !!(source && getSource && source.includes(getSource)),
-            globalDescriptor: (() => { const d = Object.getOwnPropertyDescriptor(globalThis, 'Headers'); return d && { accessor: ('get' in d)||('set' in d), configurable:d.configurable, enumerable:d.enumerable, writable:d.writable }; })()
+            descriptor: descriptor && { accessor: ('get' in descriptor)||('set' in descriptor), configurable:descriptor.configurable, enumerable:descriptor.enumerable, writable:descriptor.writable },
+            getterName: getter && getter.name,
+            getterLength: getter && getter.length,
+            getterSource,
+            getterModules: matches(getterSource),
+            setterName: setter && setter.name,
+            setterLength: setter && setter.length,
+            setterSource,
+            setterModules: matches(setterSource)
           }));
           NODE
       - name: Exercise host-brand boundary
