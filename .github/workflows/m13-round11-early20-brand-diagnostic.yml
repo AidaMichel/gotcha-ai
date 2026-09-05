@@ -1,0 +1,51 @@
+name: M13 Round11 early Node20 brand diagnostic
+
+on:
+  push:
+    branches: [milestone-13-runtime-slice-a]
+    paths:
+      - .github/workflows/m13-round11-early20-brand-diagnostic.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostic:
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["20.0.0", "20.11.1", "20.12.0", "20.15.1"]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Apply Round11 candidate
+        run: |
+          python3 scripts/qa/m13-round11-codex-remediation.py
+          python3 scripts/qa/m13-round11-codex-remediation-v2.py
+      - name: Instrument host-brand availability
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/ai-data-core.js')
+          s = p.read_text()
+          old = '''function hostBrandAuthorityError() {\n  return new Error(\n    "Host brand probe authority is unavailable."\n  );\n}'''
+          new = '''function hostBrandAuthorityError() {\n  return new Error(\n    "Host brand probe authority is unavailable." +\n    " additional=" + additionalHostBrandMethodAuthorityAvailable +\n    " abort=" + abortControllerBrandAuthorityAvailable +\n    " trusted=" + trustedModuleBrandAuthorityAvailable +\n    " undici=" + undiciHostBrandAuthorityAvailable +\n    " undiciExpected=" + undiciRuntimeExpected\n  );\n}'''
+          if old not in s:
+              raise SystemExit('diagnostic anchor missing')
+          p.write_text(s.replace(old, new, 1))
+          PY
+      - name: Exercise host-brand boundary
+        run: |
+          node - <<'NODE'
+          try {
+            const ai = require('./src/ai-data-core');
+            ai.cloneAiData({ ok: true });
+            console.log('HOST_BRAND_OK');
+          } catch (error) {
+            console.log('HOST_BRAND_ERROR', error && error.message);
+          }
+          NODE
