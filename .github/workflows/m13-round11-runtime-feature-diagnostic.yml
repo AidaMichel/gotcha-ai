@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ["14.21.3", "16.20.2", "18.20.8", "20.15.1", "20.20.2", "22.2.0", "22", "24"]
+        node: ["14.21.3", "16.20.2", "18.20.8", "20.0.0", "20.15.1", "20.20.2", "22.0.0", "22.2.0", "22", "24"]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
