@@ -9,6 +9,7 @@ on:
       - scripts/qa/m13-round11-codex-remediation-v3.py
       - scripts/qa/m13-round11-codex-remediation-v4.py
       - scripts/qa/m13-round11-codex-remediation-v5.py
+      - scripts/qa/m13-round11-codex-remediation-v6.py
       - .github/workflows/m13-round11-codex-remediation.yml
   workflow_dispatch:
 
@@ -45,6 +46,7 @@ jobs:
           path.write_text(text)
           PY
           python3 scripts/qa/m13-round11-codex-remediation-v5.py
+          python3 scripts/qa/m13-round11-codex-remediation-v6.py
       - name: Syntax and diff hygiene
         run: |
           node --check src/runtime-authority.js
@@ -105,6 +107,7 @@ jobs:
           path.write_text(text)
           PY
           python3 scripts/qa/m13-round11-codex-remediation-v5.py
+          python3 scripts/qa/m13-round11-codex-remediation-v6.py
       - name: Static guards
         run: |
           node --check src/runtime-authority.js
@@ -155,6 +158,7 @@ jobs:
           path.write_text(text)
           PY
           python3 scripts/qa/m13-round11-codex-remediation-v5.py
+          python3 scripts/qa/m13-round11-codex-remediation-v6.py
       - name: Repeat focused authority suite
         run: |
           for i in 1 2 3; do
