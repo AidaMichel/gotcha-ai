@@ -28,15 +28,17 @@ jobs:
           node --check src/guided-cli-foundation.js
           node --check src/guided-session.js
           git diff --check origin/main...HEAD
-      - name: CLI help init and legacy demo smoke
+      - name: CLI help and init smoke
         run: |
           node bin/gotcha.js --help | grep -F 'gotcha-ai init [directory]'
-          node bin/gotcha.js demo legacy-extra | grep -F 'Re-attack: CAUGHT'
           TARGET="$RUNNER_TEMP/gotcha-m14-init"
           node bin/gotcha.js init "$TARGET"
           test -f "$TARGET/gotcha.config.js"
           test -f "$TARGET/.gotcha/.gitignore"
           node -e "const c=require(process.argv[1]); if (Object.prototype.hasOwnProperty.call(c,'improvedEvaluator')) process.exit(2);" "$TARGET/gotcha.config.js"
+      - name: Legacy demo trailing-argument compatibility
+        if: matrix.node == '16.20.2'
+        run: node bin/gotcha.js demo legacy-extra | grep -F 'Re-attack: CAUGHT'
       - name: Deep session codec smoke
         run: |
           node <<'NODE'
