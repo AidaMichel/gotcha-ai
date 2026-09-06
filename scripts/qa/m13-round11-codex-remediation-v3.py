@@ -34,6 +34,13 @@ if "utilTypes" in loop:
 loop_path.write_text(loop)
 
 tests = test_path.read_text()
+fs_import = 'const fs = require("node:fs");\n'
+if fs_import not in tests:
+    path_import = 'const path = require("node:path");\n'
+    if path_import not in tests:
+        raise SystemExit("test path import anchor not found")
+    tests = tests.replace(path_import, path_import + fs_import, 1)
+
 marker = "// ROUND11_LAZY_UTIL_CLEANUP_REGRESSION"
 if marker not in tests:
     tests += r'''
