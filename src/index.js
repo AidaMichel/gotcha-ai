@@ -179,7 +179,7 @@ const exported = {
   completeContractQualityLoop: unavailableAsyncBoundary
 };
 
-function defineLazyExport(name, modulePath, unavailable) {
+function defineLazyExport(name, unavailable) {
   if (typeof bootstrapDefineProperty !== "function") return;
   try {
     bootstrapDefineProperty(exported, name, {
@@ -208,52 +208,42 @@ boundImplementations = bindImplementationGeneration();
 // boundaries prevent Node internals from touching rejected caller hooks.
 defineLazyExport(
   "draftQualityContract",
-  "./quality-contract",
   unavailableSyncBoundary
 );
 defineLazyExport(
   "confirmQualityContract",
-  "./quality-contract",
   unavailableSyncBoundary
 );
 defineLazyExport(
   "runContractAttacks",
-  "./contract-attacks",
   unavailableAsyncBoundary
 );
 defineLazyExport(
   "draftContractProtection",
-  "./contract-remediation",
   unavailableAsyncBoundary
 );
 defineLazyExport(
   "confirmContractProtection",
-  "./contract-remediation",
   unavailableAsyncBoundary
 );
 defineLazyExport(
   "verifyContractProtection",
-  "./contract-remediation",
   unavailableAsyncBoundary
 );
 defineLazyExport(
   "generateContractProtectionProposal",
-  "./contract-protection-proposal",
   unavailableAsyncBoundary
 );
 defineLazyExport(
   "createStructuredProviderAdapter",
-  "./provider-adapter-m13",
   unavailableAdapterBoundary
 );
 defineLazyExport(
   "prepareContractQualityLoop",
-  "./contract-quality-loop",
   unavailableAsyncBoundary
 );
 defineLazyExport(
   "completeContractQualityLoop",
-  "./contract-quality-loop",
   unavailableAsyncBoundary
 );
 
