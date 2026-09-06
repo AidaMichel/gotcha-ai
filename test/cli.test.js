@@ -35,6 +35,15 @@ const helpOutput = [
   ""
 ].join("\n");
 
+const demoOutput = [
+  "Evaluator said: PASS",
+  "Gotcha: wrong-price survived",
+  "Why: Changes the price while keeping the product correct.",
+  "Protection: Product price must remain correct.",
+  "Re-attack: CAUGHT",
+  ""
+].join("\n");
+
 test(
   "bare CLI prints helpful guidance",
   () => {
@@ -72,18 +81,18 @@ test(
 
     assert.equal(result.status, 0);
     assert.equal(result.stderr, "");
+    assert.equal(result.stdout, demoOutput);
+  }
+);
 
-    assert.equal(
-      result.stdout,
-      [
-        "Evaluator said: PASS",
-        "Gotcha: wrong-price survived",
-        "Why: Changes the price while keeping the product correct.",
-        "Protection: Product price must remain correct.",
-        "Re-attack: CAUGHT",
-        ""
-      ].join("\n")
-    );
+test(
+  "demo preserves legacy behavior and ignores trailing arguments",
+  () => {
+    const result = runCli("demo", "legacy-extra");
+
+    assert.equal(result.status, 0);
+    assert.equal(result.stderr, "");
+    assert.equal(result.stdout, demoOutput);
   }
 );
 
