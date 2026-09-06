@@ -159,6 +159,39 @@ test(
 );
 
 test(
+  "explicit prompt rejects EOF after invalid input without synthesizing a decision",
+  async () => {
+    const input = new PassThrough();
+    const output = new PassThrough();
+    let printed = "";
+    output.on("data", (chunk) => {
+      printed += chunk.toString("utf8");
+    });
+
+    const answerPromise = promptExplicit({
+      input,
+      output,
+      message: "Decision: ",
+      invalidMessage: "Explicit choice required.\n",
+      parse() {
+        return null;
+      }
+    });
+
+    input.end("\n");
+
+    await assert.rejects(
+      answerPromise,
+      /Input ended before a required decision was provided\./
+    );
+    assert.equal(
+      printed.includes("Explicit choice required."),
+      true
+    );
+  }
+);
+
+test(
   "session encoder is stack-safe at 12000 levels and preserves nested key order",
   () => {
     const experiment = {
