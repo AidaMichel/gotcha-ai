@@ -61,8 +61,7 @@ jobs:
         run: |
           git config user.name "AidaMichel"
           git config user.email "126730924+AidaMichel@users.noreply.github.com"
-          git add src test
-          git add -u .github/workflows scripts/qa
+          git add -A
           git status --short
           git commit -m "fix: close Round11 runtime authority gaps"
           git push origin HEAD:milestone-13-runtime-slice-a
