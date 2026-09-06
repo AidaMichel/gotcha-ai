@@ -19,21 +19,22 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Apply bounded replay patch
+      - name: Apply bounded M14 materialization
         run: python3 scripts/qa/m14-provider-replay-remediation.py
-      - name: Validate patched seam
+      - name: Validate patched seam and README
         run: |
           node --check src/contract-experiment.js
           git diff --check
+          grep -F '## Guided V0: find, protect, and verify in five minutes' README.md
           node --test test/m14-provider-replay-integration.test.js test/m14-guided-flow.test.js
-      - name: Materialize source patch
+      - name: Materialize permanent M14 files
         run: |
-          if git diff --quiet -- src/contract-experiment.js; then
-            echo 'Provider replay seam already materialized.'
+          if git diff --quiet -- src/contract-experiment.js README.md; then
+            echo 'M14 permanent files already materialized.'
             exit 0
           fi
           git config user.name 'AidaMichel'
           git config user.email '126730924+AidaMichel@users.noreply.github.com'
-          git add src/contract-experiment.js
-          git commit -m 'fix(m14): preserve M11 provider replayability'
+          git add src/contract-experiment.js README.md
+          git commit -m 'docs(m14): add guided V0 five-minute flow'
           git push origin HEAD:milestone-14-guided-v0-slice-b
