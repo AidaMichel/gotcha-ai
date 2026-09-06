@@ -1,0 +1,39 @@
+name: M14 provider replay materialization
+
+on:
+  push:
+    branches:
+      - milestone-14-guided-v0-slice-b
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: milestone-14-guided-v0-slice-b
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply bounded replay patch
+        run: python3 scripts/qa/m14-provider-replay-remediation.py
+      - name: Validate patched seam
+        run: |
+          node --check src/contract-experiment.js
+          git diff --check
+          node --test test/m14-provider-replay-integration.test.js test/m14-guided-flow.test.js
+      - name: Materialize source patch
+        run: |
+          if git diff --quiet -- src/contract-experiment.js; then
+            echo 'Provider replay seam already materialized.'
+            exit 0
+          fi
+          git config user.name 'AidaMichel'
+          git config user.email '126730924+AidaMichel@users.noreply.github.com'
+          git add src/contract-experiment.js
+          git commit -m 'fix(m14): preserve M11 provider replayability'
+          git push origin HEAD:milestone-14-guided-v0-slice-b
