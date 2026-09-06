@@ -56,11 +56,9 @@ if (
 ) {
   printHelp();
 } else if (command === "demo") {
-  if (args.length !== 1) {
-    fail("Usage: gotcha-ai demo");
-  } else {
-    require("../examples/quickstart");
-  }
+  // Preserve the pre-M14 behavior: the legacy demo command keys only on the
+  // first CLI token and ignores trailing arguments.
+  require("../examples/quickstart");
 } else if (command === "init") {
   runInit(args.slice(1));
 } else {
