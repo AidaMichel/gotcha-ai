@@ -169,12 +169,21 @@ function exactSessionEnvelope(value) {
   const keys = Reflect.ownKeys(descriptors);
   if (keys.length !== SESSION_KEYS.length) return false;
 
+  for (let index = 0; index < keys.length; index += 1) {
+    if (typeof keys[index] !== "string") return false;
+
+    let expected = false;
+    for (let keyIndex = 0; keyIndex < SESSION_KEYS.length; keyIndex += 1) {
+      if (keys[index] === SESSION_KEYS[keyIndex]) {
+        expected = true;
+        break;
+      }
+    }
+    if (!expected) return false;
+  }
+
   for (let index = 0; index < SESSION_KEYS.length; index += 1) {
-    const key = SESSION_KEYS[index];
-    if (
-      keys[index] !== key ||
-      !ordinaryEnumerableDataDescriptor(descriptors[key])
-    ) {
+    if (!ordinaryEnumerableDataDescriptor(descriptors[SESSION_KEYS[index]])) {
       return false;
     }
   }
