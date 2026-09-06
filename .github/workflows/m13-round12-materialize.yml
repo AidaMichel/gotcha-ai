@@ -1,0 +1,69 @@
+name: M13 Round12 materialize
+
+on:
+  push:
+    branches: [milestone-13-runtime-slice-a]
+    paths:
+      - .github/workflows/m13-round12-materialize.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: milestone-13-runtime-slice-a
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Apply proven Round12 candidate
+        run: |
+          python3 scripts/qa/m13-round12-lazy-generation-remediation.py
+          python3 scripts/qa/m13-round12-lazy-generation-remediation-v2.py
+          python3 scripts/qa/m13-round12-lazy-generation-remediation-v3.py
+      - name: Validate permanent candidate before cleanup
+        run: |
+          node --check src/package-authority.js
+          node --check src/index.js
+          node --check src/contract-attacks-core.js
+          node --check src/provider-adapter-m13.js
+          node --check test/m13-review-remediation.test.js
+          git diff --check
+          ! grep -q 'return require(modulePath)\[name\]' src/index.js
+          node --test test/m13-review-remediation.test.js test/runtime-authority.test.js test/provider-adapter.test.js test/provider-adapter-m13.test.js test/contract-attacks.test.js test/m8-runtime-brand-authority.test.js
+          for i in 1 2 3; do
+            echo "materialized Round12 stress pass $i"
+            node --test test/m13-review-remediation.test.js test/runtime-authority.test.js test/provider-adapter.test.js test/provider-adapter-m13.test.js test/contract-attacks.test.js test/m8-runtime-brand-authority.test.js
+          done
+          npm test
+      - name: Remove all Round12 QA scaffolding
+        run: |
+          rm -f .github/workflows/m13-independent-lazy-primordial-audit.yml
+          rm -f .github/workflows/m13-round12-preload-retention-audit.yml
+          rm -f .github/workflows/m13-round12-compatibility.yml
+          rm -f .github/workflows/m13-round12-materialize.yml
+          rm -f scripts/qa/m13-round12-lazy-generation-remediation.py
+          rm -f scripts/qa/m13-round12-lazy-generation-remediation-v2.py
+          rm -f scripts/qa/m13-round12-lazy-generation-remediation-v3.py
+          git diff --check
+          if find .github/workflows scripts/qa -type f -name 'm13-round12-*' -print | grep -q .; then
+            echo 'Round12 QA artifact remains' >&2
+            exit 1
+          fi
+          if test -e .github/workflows/m13-independent-lazy-primordial-audit.yml; then
+            echo 'Independent lazy audit artifact remains' >&2
+            exit 1
+          fi
+      - name: Commit permanent Round12 closure
+        run: |
+          git config user.name "AidaMichel"
+          git config user.email "126730924+AidaMichel@users.noreply.github.com"
+          git add -A
+          git status --short
+          git commit -m "fix: bind M13 runtime to trusted initialization generation"
+          git push origin HEAD:milestone-13-runtime-slice-a
