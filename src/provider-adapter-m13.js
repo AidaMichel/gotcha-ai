@@ -222,9 +222,7 @@ function getLegacyStructuredProviderAdapter() {
 
   if (
     !promiseAuthorityAvailable ||
-    !legacyTypeErrorAuthorityAvailable ||
-    typeof runtimeAuthority.canLoadMutableBuiltinGraph !== "function" ||
-    runtimeAuthority.canLoadMutableBuiltinGraph() !== true
+    !legacyTypeErrorAuthorityAvailable
   ) {
     return null;
   }

@@ -1106,11 +1106,30 @@ function resolveRequiredUndiciConstructor(
     return null;
   }
 
+  const resolvedToDataProperty =
+    resolvedDescriptor !== undefined &&
+    !("get" in resolvedDescriptor) &&
+    !("set" in resolvedDescriptor) &&
+    resolvedDescriptor.value === constructor;
+
+  // Node 20.0-20.11 keeps the authenticated pre_execution lazy accessor in
+  // place even after it returns the Undici constructor. Newer releases replace
+  // it with a data property. Both states are safe: the accessor source/name/
+  // arity was authenticated above, and captureRequiredUndiciProbe separately
+  // authenticates the returned constructor and brand method against the
+  // embedded Undici bundle before retaining either callable.
+  const retainedAuthenticatedAccessor =
+    resolvedDescriptor !== undefined &&
+    "get" in resolvedDescriptor &&
+    "set" in resolvedDescriptor &&
+    resolvedDescriptor.get === getter &&
+    resolvedDescriptor.set === setter &&
+    resolvedDescriptor.enumerable === globalDescriptor.enumerable &&
+    resolvedDescriptor.configurable === globalDescriptor.configurable;
+
   if (
-    resolvedDescriptor === undefined ||
-    "get" in resolvedDescriptor ||
-    "set" in resolvedDescriptor ||
-    resolvedDescriptor.value !== constructor
+    !resolvedToDataProperty &&
+    !retainedAuthenticatedAccessor
   ) {
     return null;
   }

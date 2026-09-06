@@ -2003,3 +2003,260 @@ test("round10 source-identical getBuiltinModule replacement is never invoked", (
   assert.equal(child.status, 0, child.stderr || child.stdout);
   assert.match(child.stdout, /round10-(?:forged-loader-safe|loader-not-applicable)/);
 });
+
+
+// ROUND11_CODEX_AUTHORITY_REGRESSIONS
+
+test("round11 lazy builtin preflight never invokes a post-load EventEmitter.on replacement", () => {
+  const modulePath = path.join(repoRoot, "src", "runtime-authority.js");
+  const code = `
+    "use strict";
+    const events = require("node:events");
+    const authority = require(${JSON.stringify(modulePath)});
+    const descriptor = Object.getOwnPropertyDescriptor(events.EventEmitter.prototype, "on");
+    let calls = 0;
+    function poisonOn(type, listener) {
+      calls += 1;
+      return Reflect.apply(descriptor.value, this, [type, listener]);
+    }
+    Object.defineProperty(events.EventEmitter.prototype, "on", {
+      ...descriptor,
+      value: poisonOn
+    });
+    let allowed = false;
+    try { allowed = authority.canLoadMutableBuiltinGraph(); }
+    finally { Object.defineProperty(events.EventEmitter.prototype, "on", descriptor); }
+    if (calls !== 0) process.exitCode = 141;
+    if (typeof allowed !== "boolean") process.exitCode = 142;
+  `;
+  const result = spawnSync(process.execPath, ["-e", code], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
+test("round11 runtime bootstrap never reads accessor-backed global process or Proxy-backed process versions", () => {
+  const packageAuthorityPath = path.join(repoRoot, "src", "package-authority.js");
+  const runtimeAuthorityPath = path.join(repoRoot, "src", "runtime-authority.js");
+  const code = `
+    "use strict";
+    const nativeProcess = process;
+    require(${JSON.stringify(packageAuthorityPath)});
+    const globalDescriptor = Object.getOwnPropertyDescriptor(globalThis, "process");
+    const versionsDescriptor = Object.getOwnPropertyDescriptor(nativeProcess, "versions");
+    let processGetterCalls = 0;
+    let versionsDescriptorTraps = 0;
+    if (versionsDescriptor && versionsDescriptor.configurable === true) {
+      Object.defineProperty(nativeProcess, "versions", {
+        ...versionsDescriptor,
+        value: new Proxy(versionsDescriptor.value, {
+          getOwnPropertyDescriptor(target, key) {
+            versionsDescriptorTraps += 1;
+            return Reflect.getOwnPropertyDescriptor(target, key);
+          }
+        })
+      });
+    }
+    Object.defineProperty(globalThis, "process", {
+      configurable: true,
+      enumerable: globalDescriptor.enumerable,
+      get() {
+        processGetterCalls += 1;
+        return nativeProcess;
+      }
+    });
+    try { require(${JSON.stringify(runtimeAuthorityPath)}); }
+    catch (error) { console.error(error); process.exitCode = 143; }
+    Object.defineProperty(globalThis, "process", globalDescriptor);
+    if (versionsDescriptor && versionsDescriptor.configurable === true) {
+      Object.defineProperty(nativeProcess, "versions", versionsDescriptor);
+    }
+    if (processGetterCalls !== 0) process.exitCode = 144;
+    if (versionsDescriptorTraps !== 0) process.exitCode = 145;
+  `;
+  const result = spawnSync(process.execPath, ["-e", code], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
+test("round11 safe legacy path works when process.getBuiltinModule is absent", () => {
+  const rootPath = path.join(repoRoot, "src");
+  const code = `
+    "use strict";
+    const descriptor = Object.getOwnPropertyDescriptor(process, "getBuiltinModule");
+    if (descriptor && descriptor.configurable === true) {
+      delete process.getBuiltinModule;
+    } else if (descriptor && descriptor.writable === true) {
+      process.getBuiltinModule = undefined;
+    }
+    const api = require(${JSON.stringify(rootPath)});
+    const transport = () => ({ output: { version: 1, task: "t", rules: [] } });
+    const quality = api.createStructuredProviderAdapter({ transport, model: "m", mode: "quality-contract" });
+    const attacks = api.createStructuredProviderAdapter({ transport, model: "m", mode: "contract-attacks" });
+    if (typeof quality !== "function" || typeof attacks !== "function") process.exitCode = 146;
+    Promise.resolve(api.runContractAttacks({
+      contract: {
+        version: 1,
+        status: "confirmed",
+        task: "t",
+        rules: [{
+          id: "r1",
+          statement: "ok must be true.",
+          kind: "required",
+          severity: "major"
+        }]
+      },
+      input: { request: "x" },
+      expectedOutput: { ok: true },
+      evaluator(output) { return output.ok === true; },
+      generator() { return { version: 1, task: "t", attacks: [] }; }
+    })).then(
+      (result) => { if (!result || result.baselinePassed !== true) process.exitCode = 150; },
+      (error) => { console.error(error); process.exitCode = 151; }
+    ).finally(() => {
+      if (descriptor) Object.defineProperty(process, "getBuiltinModule", descriptor);
+    });
+  `;
+  const result = spawnSync(process.execPath, ["-e", code], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
+test("round11 RegExp era probe rejects pre-load replacement without execution", () => {
+  const modulePath = path.join(repoRoot, "src", "runtime-authority.js");
+  const code = `
+    "use strict";
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, "RegExp");
+    let calls = 0;
+    const wrapped = new Proxy(descriptor.value, {
+      apply(target, receiver, args) {
+        calls += 1;
+        return Reflect.apply(target, receiver, args);
+      },
+      construct(target, args, newTarget) {
+        calls += 1;
+        return Reflect.construct(target, args, newTarget);
+      }
+    });
+    Object.defineProperty(globalThis, "RegExp", { ...descriptor, value: wrapped });
+    const authority = require(${JSON.stringify(modulePath)});
+    Object.defineProperty(globalThis, "RegExp", descriptor);
+    if (calls !== 0) process.exitCode = 147;
+    if (authority.canLoadMutableBuiltinGraph() !== false) process.exitCode = 148;
+  `;
+  const result = spawnSync(process.execPath, ["-e", code], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
+
+// ROUND11_LAZY_UTIL_CLEANUP_REGRESSION
+
+test("round11 legacy quality modules have no direct node util types dependency", () => {
+  const qualitySource = require("node:fs").readFileSync(
+    path.join(repoRoot, "src", "quality-contract.js"),
+    "utf8"
+  );
+  const loopSource = require("node:fs").readFileSync(
+    path.join(repoRoot, "src", "contract-quality-loop.js"),
+    "utf8"
+  );
+  assert.equal(qualitySource.includes('require("node:util")'), false);
+  assert.equal(loopSource.includes('require("node:util")'), false);
+  assert.equal(qualitySource.includes("utilTypes"), false);
+  assert.equal(loopSource.includes("utilTypes"), false);
+});
+
+
+// ROUND11_EARLY_NODE20_UNDICI_COMPAT_REGRESSION
+
+test("round11 clean host-brand boundary remains available when built-in Headers exists", () => {
+  const modulePath = path.join(repoRoot, "src", "ai-data-core.js");
+  const code = `
+    "use strict";
+    if (typeof globalThis.Headers !== "function") process.exit(0);
+    const ai = require(${JSON.stringify(modulePath)});
+    const value = { ok: true, nested: [1, "two", null] };
+    const cloned = ai.cloneAiData(value);
+    if (
+      cloned === value ||
+      cloned.ok !== true ||
+      !Array.isArray(cloned.nested) ||
+      cloned.nested[1] !== "two"
+    ) process.exitCode = 149;
+  `;
+  const result = spawnSync(process.execPath, ["-e", code], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
+
+// ROUND11_SAFE_LEGACY_PATH_REGRESSIONS
+
+test("round11 safe legacy path never loads dangerous builtin helpers under util poison", () => {
+  const rootPath = path.join(repoRoot, "src");
+  const code = `
+    "use strict";
+    const util = require("node:util");
+    const typesDescriptor = Object.getOwnPropertyDescriptor(util, "types");
+    const inspectDescriptor = Object.getOwnPropertyDescriptor(util, "inspect");
+    let typesCalls = 0;
+    let inspectCalls = 0;
+    Object.defineProperty(util, "types", {
+      configurable: true,
+      enumerable: typesDescriptor.enumerable,
+      get() { typesCalls += 1; throw new Error("poison util.types"); }
+    });
+    if (inspectDescriptor && inspectDescriptor.configurable) {
+      Object.defineProperty(util, "inspect", {
+        configurable: true,
+        enumerable: inspectDescriptor.enumerable,
+        get() { inspectCalls += 1; throw new Error("poison util.inspect"); }
+      });
+    }
+    const api = require(${JSON.stringify(rootPath)});
+    const transport = () => ({ output: { version: 1, task: "t", rules: [] } });
+    const a = api.createStructuredProviderAdapter({ transport, model: "m", mode: "quality-contract" });
+    const b = api.createStructuredProviderAdapter({ transport, model: "m", mode: "contract-attacks" });
+    if (typeof a !== "function" || typeof b !== "function") process.exitCode = 152;
+    Promise.resolve(api.runContractAttacks({
+      contract: {
+        version: 1,
+        status: "confirmed",
+        task: "t",
+        rules: [{
+          id: "r1",
+          statement: "ok must be true.",
+          kind: "required",
+          severity: "major"
+        }]
+      },
+      input: { request: "x" },
+      expectedOutput: { ok: true },
+      evaluator(output) { return output.ok === true; },
+      generator() { return { version: 1, task: "t", attacks: [] }; }
+    })).then(
+      (result) => { if (!result || result.baselinePassed !== true) process.exitCode = 153; },
+      (error) => { console.error(error); process.exitCode = 154; }
+    ).finally(() => {
+      Object.defineProperty(util, "types", typesDescriptor);
+      if (inspectDescriptor && inspectDescriptor.configurable) Object.defineProperty(util, "inspect", inspectDescriptor);
+      if (typesCalls !== 0) process.exitCode = 155;
+      if (inspectCalls !== 0) process.exitCode = 156;
+    });
+  `;
+  const result = spawnSync(process.execPath, ["-e", code], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});

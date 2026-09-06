@@ -1,6 +1,5 @@
 "use strict";
 
-const { types: utilTypes } = require("node:util");
 const runtimeAuthority = require("./runtime-authority");
 const remediation = require("./contract-remediation");
 

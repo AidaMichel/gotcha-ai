@@ -2,9 +2,10 @@
 
 const runtimeAuthority = require("./runtime-authority");
 const packageAuthority = require("./package-authority");
+const legacyAiData = require("./legacy-ai-data-safe");
 const isUnsupportedRuntimeObject =
-  runtimeAuthority.consumerPrimordialsAvailable === true
-    ? require("./ai-data-core").isUnsupportedRuntimeObject
+  legacyAiData.available === true
+    ? legacyAiData.isUnsupportedRuntimeObject
     : function unavailableRuntimeObjectClassifier() { return true; };
 
 const PromiseConstructor = packageAuthority.PromiseConstructor;

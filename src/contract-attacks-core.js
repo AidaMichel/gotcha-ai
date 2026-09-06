@@ -138,15 +138,11 @@ function loadM8ExecutionDependencies() {
   if (m8DependenciesLoadAttempted) return;
   m8DependenciesLoadAttempted = true;
 
-  if (
-    !m8DependencyAuthorityAvailable ||
-    typeof runtimeAuthority.canLoadMutableBuiltinGraph !== "function" ||
-    runtimeAuthority.canLoadMutableBuiltinGraph() !== true
-  ) return;
+  if (!m8DependencyAuthorityAvailable) return;
 
   try {
     ({ attack } = require("./engine"));
-    ({ cloneAiData, snapshotAiData } = require("./ai-data"));
+    ({ cloneAiData, snapshotAiData } = require("./legacy-ai-data-safe"));
   } catch {
     attack = null;
     cloneAiData = null;
