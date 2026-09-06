@@ -8,6 +8,7 @@ on:
       - scripts/qa/m13-round11-codex-remediation.py
       - scripts/qa/m13-round11-codex-remediation-v3.py
       - scripts/qa/m13-round11-codex-remediation-v4.py
+      - scripts/qa/m13-round11-codex-remediation-v5.py
       - .github/workflows/m13-round11-codex-remediation.yml
   workflow_dispatch:
 
@@ -31,9 +32,14 @@ jobs:
           python3 scripts/qa/m13-round11-codex-remediation.py
           python3 scripts/qa/m13-round11-codex-remediation-v3.py
           python3 scripts/qa/m13-round11-codex-remediation-v4.py
+          python3 scripts/qa/m13-round11-codex-remediation-v5.py
       - name: Syntax and diff hygiene
         run: |
           node --check src/runtime-authority.js
+          node --check src/legacy-ai-data-safe.js
+          node --check src/provider-adapter.js
+          node --check src/provider-adapter-m13.js
+          node --check src/contract-attacks-core.js
           node --check src/ai-data-core.js
           node --check src/quality-contract.js
           node --check src/contract-quality-loop.js
@@ -44,6 +50,8 @@ jobs:
           ! grep -q 'getAuthenticatedBuiltinModule' src/runtime-authority.js
           ! grep -q 'bootstrapOwnDataValue(process,' src/runtime-authority.js
           ! grep -q 'types: utilTypes' src/quality-contract.js src/contract-quality-loop.js
+          ! grep -q 'require("./ai-data-core")' src/provider-adapter.js
+          ! grep -q 'require("./ai-data")' src/contract-attacks-core.js
       - name: Compatibility smoke
         run: |
           node - <<'NODE'
@@ -51,8 +59,10 @@ jobs:
           if (!api || typeof api !== 'object') throw new Error('root API unavailable');
           const authority = require('./src/runtime-authority');
           if (typeof authority.canLoadMutableBuiltinGraph !== 'function') throw new Error('preflight unavailable');
-          if (authority.canLoadMutableBuiltinGraph() !== true) throw new Error('clean builtin graph rejected');
+          if (authority.canLoadMutableBuiltinGraph() !== true) throw new Error('legacy host generation rejected');
           NODE
+      - name: Focused legacy compatibility
+        run: node --test test/contract-attacks.test.js test/provider-adapter.test.js test/provider-adapter-m13.test.js test/m13-review-remediation.test.js
 
   supported:
     strategy:
@@ -70,9 +80,14 @@ jobs:
           python3 scripts/qa/m13-round11-codex-remediation.py
           python3 scripts/qa/m13-round11-codex-remediation-v3.py
           python3 scripts/qa/m13-round11-codex-remediation-v4.py
+          python3 scripts/qa/m13-round11-codex-remediation-v5.py
       - name: Static guards
         run: |
           node --check src/runtime-authority.js
+          node --check src/legacy-ai-data-safe.js
+          node --check src/provider-adapter.js
+          node --check src/provider-adapter-m13.js
+          node --check src/contract-attacks-core.js
           node --check src/ai-data-core.js
           node --check src/quality-contract.js
           node --check src/contract-quality-loop.js
@@ -84,8 +99,10 @@ jobs:
           ! grep -q 'authenticatedGetBuiltinModule' src/runtime-authority.js
           ! grep -q 'bootstrapOwnDataValue(process,' src/runtime-authority.js
           ! grep -q 'types: utilTypes' src/quality-contract.js src/contract-quality-loop.js
-      - name: Focused authority and M13 regressions
-        run: node --test test/m13-review-remediation.test.js test/runtime-authority.test.js test/provider-adapter-m13.test.js test/m8-runtime-brand-authority.test.js
+          ! grep -q 'require("./ai-data-core")' src/provider-adapter.js
+          ! grep -q 'require("./ai-data")' src/contract-attacks-core.js
+      - name: Focused authority M8 M11 M13 regressions
+        run: node --test test/m13-review-remediation.test.js test/runtime-authority.test.js test/provider-adapter.test.js test/provider-adapter-m13.test.js test/contract-attacks.test.js test/m8-runtime-brand-authority.test.js
       - name: Full repository suite
         run: npm test
 
@@ -101,9 +118,10 @@ jobs:
           python3 scripts/qa/m13-round11-codex-remediation.py
           python3 scripts/qa/m13-round11-codex-remediation-v3.py
           python3 scripts/qa/m13-round11-codex-remediation-v4.py
+          python3 scripts/qa/m13-round11-codex-remediation-v5.py
       - name: Repeat focused authority suite
         run: |
           for i in 1 2 3; do
             echo "Round11 stress pass $i"
-            node --test test/m13-review-remediation.test.js test/runtime-authority.test.js test/provider-adapter-m13.test.js test/m8-runtime-brand-authority.test.js
+            node --test test/m13-review-remediation.test.js test/runtime-authority.test.js test/provider-adapter.test.js test/provider-adapter-m13.test.js test/contract-attacks.test.js test/m8-runtime-brand-authority.test.js
           done
