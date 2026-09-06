@@ -79,38 +79,38 @@ jobs:
           if (typeof authority.canLoadMutableBuiltinGraph !== 'function') throw new Error('preflight unavailable');
           if (authority.canLoadMutableBuiltinGraph() !== true) throw new Error('legacy host generation rejected');
           NODE
-      - name: Legacy behavior compatibility
+      - name: Node 14 behavior compatibility
+        if: matrix.node == '14.21.3'
         run: |
-          if node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 16 ? 0 : 1)'; then
-            node --test test/contract-attacks.test.js test/provider-adapter.test.js test/provider-adapter-m13.test.js test/m13-review-remediation.test.js
-          else
-            node - <<'NODE'
-            const api = require('./src');
-            const quality = api.createStructuredProviderAdapter({
-              model: 'm', mode: 'quality-contract',
-              transport() { return { output: { version: 1, task: 't', rules: [] } }; }
-            });
-            const attacks = api.createStructuredProviderAdapter({
-              model: 'm', mode: 'contract-attacks',
-              transport() { return { output: { version: 1, task: 't', attacks: [] } }; }
-            });
-            if (typeof quality !== 'function' || typeof attacks !== 'function') {
-              throw new Error('legacy provider modes unavailable');
-            }
-            Promise.resolve(api.runContractAttacks({
-              contract: {
-                version: 1, status: 'confirmed', task: 't',
-                rules: [{ id: 'r1', statement: 'ok must be true.', kind: 'required', severity: 'major' }]
-              },
-              input: { request: 'x' },
-              expectedOutput: { ok: true },
-              evaluator(output) { return output.ok === true; },
-              generator() { return { version: 1, task: 't', attacks: [] }; }
-            })).then((result) => {
-              if (!result || result.baselinePassed !== true) throw new Error('M8 legacy behavior unavailable');
-            }).catch((error) => { console.error(error); process.exitCode = 1; });
-            NODE
-          fi
+          node - <<'NODE'
+          const api = require('./src');
+          const quality = api.createStructuredProviderAdapter({
+            model: 'm', mode: 'quality-contract',
+            transport() { return { output: { version: 1, task: 't', rules: [] } }; }
+          });
+          const attacks = api.createStructuredProviderAdapter({
+            model: 'm', mode: 'contract-attacks',
+            transport() { return { output: { version: 1, task: 't', attacks: [] } }; }
+          });
+          if (typeof quality !== 'function' || typeof attacks !== 'function') {
+            throw new Error('legacy provider modes unavailable');
+          }
+          Promise.resolve(api.runContractAttacks({
+            contract: {
+              version: 1, status: 'confirmed', task: 't',
+              rules: [{ id: 'r1', statement: 'ok must be true.', kind: 'required', severity: 'major' }]
+            },
+            input: { request: 'x' },
+            expectedOutput: { ok: true },
+            evaluator(output) { return output.ok === true; },
+            generator() { return { version: 1, task: 't', attacks: [] }; }
+          })).then((result) => {
+            if (!result || result.baselinePassed !== true) throw new Error('M8 legacy behavior unavailable');
+          }).catch((error) => { console.error(error); process.exitCode = 1; });
+          NODE
+      - name: Node 16 focused compatibility
+        if: matrix.node == '16.20.2'
+        run: node --test test/contract-attacks.test.js test/provider-adapter.test.js test/provider-adapter-m13.test.js test/m13-review-remediation.test.js
 
   supported:
     strategy:
