@@ -1,0 +1,112 @@
+name: M14 Slice A validation
+
+on:
+  push:
+    branches:
+      - milestone-14-guided-v0-slice-a
+
+jobs:
+  compatibility:
+    name: Node ${{ matrix.node }} compatibility
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node:
+          - 14.21.3
+          - 16.20.2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Syntax and diff checks
+        run: |
+          node --check bin/gotcha.js
+          node --check src/guided-cli-foundation.js
+          node --check src/guided-session.js
+          git diff --check origin/main...HEAD
+      - name: CLI help and init smoke
+        run: |
+          node bin/gotcha.js --help | grep -F 'gotcha-ai init [directory]'
+          TARGET="$RUNNER_TEMP/gotcha-m14-init"
+          node bin/gotcha.js init "$TARGET"
+          test -f "$TARGET/gotcha.config.js"
+          test -f "$TARGET/.gotcha/.gitignore"
+          node -e "const c=require(process.argv[1]); if (Object.prototype.hasOwnProperty.call(c,'improvedEvaluator')) process.exit(2);" "$TARGET/gotcha.config.js"
+      - name: Deep session codec smoke
+        run: |
+          node <<'NODE'
+          const { encodeJsonIterative, parseSessionText } = require('./src/guided-session');
+          const experiment = { beta: 1, alpha: { second: 'two', first: 'one' } };
+          let cursor = experiment.alpha;
+          for (let i = 0; i < 12000; i += 1) { cursor.next = {}; cursor = cursor.next; }
+          cursor.done = true;
+          const session = {
+            version: 1,
+            kind: 'gotcha-guided-session',
+            experiment,
+            sourceAttackId: 'attack-1',
+            proposal: { version: 1, task: 't', sourceAttackId: 'attack-1', ruleId: 'r', protection: { statement: 's', rationale: 'r' } }
+          };
+          const parsed = parseSessionText(encodeJsonIterative(session));
+          if (Object.keys(parsed.experiment).join(',') !== 'beta,alpha') process.exit(3);
+          let check = parsed.experiment.alpha;
+          for (let i = 0; i < 12000; i += 1) check = check.next;
+          if (check.done !== true) process.exit(4);
+          NODE
+
+  modern:
+    name: Node ${{ matrix.node }} full suite
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node:
+          - 18.20.8
+          - 20.20.2
+          - 22
+          - 24
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Static checks
+        run: |
+          node --check bin/gotcha.js
+          node --check src/guided-cli-foundation.js
+          node --check src/guided-session.js
+          node --check test/m14-guided-foundation.test.js
+          git diff --check origin/main...HEAD
+      - name: Focused Slice A tests
+        run: node --test test/cli.test.js test/m14-guided-foundation.test.js
+      - name: Full repository suite
+        run: npm test
+
+  stress:
+    name: Node 22 focused stress and package proof
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Focused tests x3
+        run: |
+          for i in 1 2 3; do
+            node --test test/cli.test.js test/m14-guided-foundation.test.js
+          done
+      - name: Packed external consumer init proof
+        run: |
+          PACK_NAME=$(npm pack --silent)
+          PACK_PATH="$GITHUB_WORKSPACE/$PACK_NAME"
+          CONSUMER="$RUNNER_TEMP/gotcha-m14-consumer"
+          mkdir -p "$CONSUMER"
+          cd "$CONSUMER"
+          npm init -y >/dev/null 2>&1
+          npm install "$PACK_PATH" >/dev/null 2>&1
+          ./node_modules/.bin/gotcha-ai init sample
+          test -f sample/gotcha.config.js
+          test -f sample/.gotcha/.gitignore
+          node -e "const c=require('./sample/gotcha.config.js'); if (Object.prototype.hasOwnProperty.call(c,'improvedEvaluator')) process.exit(2);"
