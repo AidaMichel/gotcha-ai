@@ -29,7 +29,9 @@ jobs:
           node --check src/guided-session.js
           node --check src/guided-run.js
           node --check src/guided-verify.js
+          node --check src/contract-experiment.js
           node --check test/m14-guided-flow.test.js
+          node --check test/m14-provider-replay-integration.test.js
           git diff --check origin/main...HEAD
       - name: Minimum-runtime CLI surfaces
         run: |
@@ -62,7 +64,7 @@ jobs:
           NODE
       - name: Node 16 guided focused tests
         if: matrix.node == '16.20.2'
-        run: node --test test/cli.test.js test/m14-guided-foundation.test.js test/m14-guided-flow.test.js
+        run: node --test test/cli.test.js test/m14-guided-foundation.test.js test/m14-guided-flow.test.js test/m14-provider-replay-integration.test.js
 
   modern:
     name: Node ${{ matrix.node }} full suite
@@ -89,10 +91,12 @@ jobs:
           node --check src/guided-session.js
           node --check src/guided-run.js
           node --check src/guided-verify.js
+          node --check src/contract-experiment.js
           node --check test/m14-guided-flow.test.js
+          node --check test/m14-provider-replay-integration.test.js
           git diff --check origin/main...HEAD
       - name: Focused M14 tests
-        run: node --test test/cli.test.js test/m14-guided-foundation.test.js test/m14-guided-flow.test.js
+        run: node --test test/cli.test.js test/m14-guided-foundation.test.js test/m14-guided-flow.test.js test/m14-provider-replay-integration.test.js
       - name: Full repository suite
         run: npm test
 
@@ -109,7 +113,7 @@ jobs:
       - name: Focused M14 tests x3
         run: |
           for i in 1 2 3; do
-            node --test test/cli.test.js test/m14-guided-foundation.test.js test/m14-guided-flow.test.js
+            node --test test/cli.test.js test/m14-guided-foundation.test.js test/m14-guided-flow.test.js test/m14-provider-replay-integration.test.js
           done
       - name: Packed installed-consumer full guided proof
         run: |
