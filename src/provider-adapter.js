@@ -1,16 +1,19 @@
 "use strict";
 
-const { types: utilTypes } = require("node:util");
-const {
-  isUnsupportedRuntimeObject
-} = require("./ai-data-core");
+const runtimeAuthority = require("./runtime-authority");
+const packageAuthority = require("./package-authority");
+const legacyAiData = require("./legacy-ai-data-safe");
+const isUnsupportedRuntimeObject =
+  legacyAiData.available === true
+    ? legacyAiData.isUnsupportedRuntimeObject
+    : function unavailableRuntimeObjectClassifier() { return true; };
 
-const PromiseConstructor = Promise;
-const PromisePrototype = Promise.prototype;
-const TypeErrorConstructor = TypeError;
+const PromiseConstructor = packageAuthority.PromiseConstructor;
+const PromisePrototype = packageAuthority.PromisePrototype;
+const TypeErrorConstructor = packageAuthority.TypeErrorConstructor;
 const ArrayConstructor = Array;
 const WeakSetConstructor = WeakSet;
-const promiseThen = Promise.prototype.then;
+const promiseThen = packageAuthority.PromiseThen;
 const promiseSpecies = Symbol.species;
 const objectPrototype = Object.prototype;
 const arrayPrototype = Array.prototype;
@@ -34,8 +37,8 @@ const stringConstructor = String;
 const functionHasInstance = Function.prototype[Symbol.hasInstance];
 const functionToString = Function.prototype.toString;
 const stringStartsWith = String.prototype.startsWith;
-const isProxy = utilTypes.isProxy;
-const isPromise = utilTypes.isPromise;
+const isProxy = runtimeAuthority.isProxy;
+const isPromise = runtimeAuthority.isPromise;
 const weakSetHas = WeakSet.prototype.has;
 const weakSetAdd = WeakSet.prototype.add;
 const weakSetDelete = WeakSet.prototype.delete;
@@ -637,7 +640,7 @@ function createStructuredProviderAdapter(options) {
         }
       };
 
-      if (transportResult !== null && typeof transportResult === "object" && !isProxy(transportResult) && reflectApply(isPromise, utilTypes, [transportResult])) {
+      if (transportResult !== null && typeof transportResult === "object" && !isProxy(transportResult) && reflectApply(isPromise, undefined, [transportResult])) {
         try {
           if (getPrototypeOf(transportResult) !== PromisePrototype) {
             throw boundaryError("transport Promise has an unsupported current prototype.");

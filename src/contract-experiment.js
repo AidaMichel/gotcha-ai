@@ -4,9 +4,7 @@ const {
   AsyncLocalStorage
 } = require("node:async_hooks");
 
-const {
-  runInNewContext
-} = require("node:vm");
+const runtimeAuthority = require("./runtime-authority");
 const {
   experimentIntrinsics
 } = require("./contract-attacks-core");
@@ -22,29 +20,7 @@ const {
 } = experimentIntrinsics;
 
 const pristineIntrinsics =
-  runInNewContext(`({
-    arrayIsArray: Array.isArray,
-    getOwnPropertyDescriptors: Object.getOwnPropertyDescriptors,
-    getOwnPropertyDescriptor: Object.getOwnPropertyDescriptor,
-    getPrototypeOf: Object.getPrototypeOf,
-    isExtensible: Object.isExtensible,
-    objectIs: Object.is,
-    defineProperty: Object.defineProperty,
-    ownKeys: Reflect.ownKeys,
-    reflectApply: Reflect.apply,
-    numberIsFinite: Number.isFinite,
-    stringTrim: String.prototype.trim,
-    hasOwnProperty: Object.prototype.hasOwnProperty,
-    setHas: Set.prototype.has,
-    setAdd: Set.prototype.add,
-    mapGet: Map.prototype.get,
-    mapSet: Map.prototype.set,
-    arrayPush: Array.prototype.push,
-    arrayPop: Array.prototype.pop,
-    arrayJoin: Array.prototype.join,
-    SetConstructor: Set,
-    MapConstructor: Map
-  })`);
+  runtimeAuthority.consumerPrimordials;
 
 const arrayIsArray =
   pristineIntrinsics.arrayIsArray;

@@ -1,9 +1,7 @@
 
 "use strict";
 
-const {
-  types: utilTypes
-} = require("node:util");
+const runtimeAuthority = require("./runtime-authority");
 
 const getOwnPropertyDescriptors =
   Object.getOwnPropertyDescriptors;
@@ -82,7 +80,7 @@ function captureDataProperties(
   }
 
   if (
-    utilTypes.isProxy(value)
+    runtimeAuthority.isProxy(value)
   ) {
     throw new Error(
       `${label} must not be a Proxy.`
@@ -133,7 +131,7 @@ function captureArrayValues(
   label
 ) {
   if (
-    utilTypes.isProxy(value)
+    runtimeAuthority.isProxy(value)
   ) {
     throw new Error(
       `${label} must not be a Proxy.`
