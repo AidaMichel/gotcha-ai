@@ -32,6 +32,16 @@ jobs:
           python3 scripts/qa/m13-round11-codex-remediation.py
           python3 scripts/qa/m13-round11-codex-remediation-v3.py
           python3 scripts/qa/m13-round11-codex-remediation-v4.py
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("scripts/qa/m13-round11-codex-remediation-v5.py")
+          text = path.read_text()
+          old = 'end = runtime.find("\\n\\n// Node 14 has no util/types module.", start)'
+          new = 'end = runtime.find("\\n\\nfunction nativeProbe(", start)'
+          if old not in text:
+              raise SystemExit("Round11 v5 stale anchor not found")
+          path.write_text(text.replace(old, new, 1))
+          PY
           python3 scripts/qa/m13-round11-codex-remediation-v5.py
       - name: Syntax and diff hygiene
         run: |
@@ -80,6 +90,16 @@ jobs:
           python3 scripts/qa/m13-round11-codex-remediation.py
           python3 scripts/qa/m13-round11-codex-remediation-v3.py
           python3 scripts/qa/m13-round11-codex-remediation-v4.py
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("scripts/qa/m13-round11-codex-remediation-v5.py")
+          text = path.read_text()
+          old = 'end = runtime.find("\\n\\n// Node 14 has no util/types module.", start)'
+          new = 'end = runtime.find("\\n\\nfunction nativeProbe(", start)'
+          if old not in text:
+              raise SystemExit("Round11 v5 stale anchor not found")
+          path.write_text(text.replace(old, new, 1))
+          PY
           python3 scripts/qa/m13-round11-codex-remediation-v5.py
       - name: Static guards
         run: |
@@ -118,6 +138,16 @@ jobs:
           python3 scripts/qa/m13-round11-codex-remediation.py
           python3 scripts/qa/m13-round11-codex-remediation-v3.py
           python3 scripts/qa/m13-round11-codex-remediation-v4.py
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("scripts/qa/m13-round11-codex-remediation-v5.py")
+          text = path.read_text()
+          old = 'end = runtime.find("\\n\\n// Node 14 has no util/types module.", start)'
+          new = 'end = runtime.find("\\n\\nfunction nativeProbe(", start)'
+          if old not in text:
+              raise SystemExit("Round11 v5 stale anchor not found")
+          path.write_text(text.replace(old, new, 1))
+          PY
           python3 scripts/qa/m13-round11-codex-remediation-v5.py
       - name: Repeat focused authority suite
         run: |
