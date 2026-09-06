@@ -1,0 +1,139 @@
+name: M13 Round11 safe path trigger diagnostic
+
+on:
+  push:
+    branches: [milestone-13-runtime-slice-a]
+    paths:
+      - .github/workflows/m13-round11-safe-path-trigger-diagnostic.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostic:
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["20.0.0", "20.11.1", "22.0.0", "22", "24"]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Apply staged Round11 candidate
+        run: |
+          python3 scripts/qa/m13-round11-codex-remediation.py
+          python3 scripts/qa/m13-round11-codex-remediation-v3.py
+          python3 scripts/qa/m13-round11-codex-remediation-v4.py
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("scripts/qa/m13-round11-codex-remediation-v5.py")
+          text = path.read_text()
+          old = 'end = runtime.find("\\n\\n// Node 14 has no util/types module.", start)'
+          new = 'end = runtime.find("\\n\\nfunction nativeProbe(", start)'
+          if old not in text:
+              raise SystemExit("Round11 v5 stale anchor not found")
+          text = text.replace(old, new, 1)
+          text = text.replace('    \'require("node:util")\',\n    \'require("util")\',\n', '', 1)
+          path.write_text(text)
+          PY
+          python3 scripts/qa/m13-round11-codex-remediation-v5.py
+          python3 scripts/qa/m13-round11-codex-remediation-v6.py
+      - name: Trace fresh-process lazy boundaries
+        run: |
+          for STEP in root access-factory create-quality create-attacks access-run require-provider require-attacks require-experiment-safe require-experiment invoke-run; do
+            echo "=== $STEP ==="
+            STEP="$STEP" node - <<'NODE'
+            "use strict";
+            const step = process.env.STEP;
+            const util = require("node:util");
+            const typesDescriptor = Object.getOwnPropertyDescriptor(util, "types");
+            const inspectDescriptor = Object.getOwnPropertyDescriptor(util, "inspect");
+            let typesCalls = 0;
+            let inspectCalls = 0;
+            if (typesDescriptor && typesDescriptor.configurable) {
+              Object.defineProperty(util, "types", {
+                configurable: true,
+                enumerable: typesDescriptor.enumerable,
+                get() { typesCalls += 1; throw new Error("poison util.types"); }
+              });
+            }
+            if (inspectDescriptor && inspectDescriptor.configurable) {
+              Object.defineProperty(util, "inspect", {
+                configurable: true,
+                enumerable: inspectDescriptor.enumerable,
+                get() { inspectCalls += 1; throw new Error("poison util.inspect"); }
+              });
+            }
+            let error = null;
+            try {
+              if (step === "require-provider") {
+                require("./src/provider-adapter");
+              } else if (step === "require-attacks") {
+                require("./src/contract-attacks");
+              } else if (step === "require-experiment-safe") {
+                require("./src/contract-experiment-safe");
+              } else if (step === "require-experiment") {
+                require("./src/contract-experiment");
+              } else {
+                const api = require("./src");
+                if (step === "access-factory") {
+                  void api.createStructuredProviderAdapter;
+                } else if (step === "create-quality") {
+                  api.createStructuredProviderAdapter({
+                    transport() { return { output: {} }; },
+                    model: "m",
+                    mode: "quality-contract"
+                  });
+                } else if (step === "create-attacks") {
+                  api.createStructuredProviderAdapter({
+                    transport() { return { output: {} }; },
+                    model: "m",
+                    mode: "contract-attacks"
+                  });
+                } else if (step === "access-run") {
+                  void api.runContractAttacks;
+                } else if (step === "invoke-run") {
+                  const promise = api.runContractAttacks({
+                    contract: {
+                      version: 1,
+                      status: "confirmed",
+                      task: "t",
+                      rules: [{
+                        id: "r1",
+                        statement: "ok must be true.",
+                        kind: "required",
+                        severity: "major"
+                      }]
+                    },
+                    input: { request: "x" },
+                    expectedOutput: { ok: true },
+                    evaluator(output) { return output.ok === true; },
+                    generator() { return { version: 1, task: "t", attacks: [] }; }
+                  });
+                  if (!promise || typeof promise.then !== "function") {
+                    throw new Error("runContractAttacks did not return a Promise");
+                  }
+                }
+              }
+            } catch (caught) {
+              error = caught;
+            }
+            if (typesDescriptor && typesDescriptor.configurable) {
+              Object.defineProperty(util, "types", typesDescriptor);
+            }
+            if (inspectDescriptor && inspectDescriptor.configurable) {
+              Object.defineProperty(util, "inspect", inspectDescriptor);
+            }
+            console.log(JSON.stringify({
+              node: process.version,
+              step,
+              typesCalls,
+              inspectCalls,
+              error: error ? String(error && error.message || error) : null,
+              stack: error && error.stack ? String(error.stack).split("\n").slice(0, 8) : null
+            }));
+            NODE
+          done
