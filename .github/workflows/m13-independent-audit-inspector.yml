@@ -14,11 +14,11 @@ env:
   AUDIT_HEAD: 568050c660d1cd7ae211f0fbe2e7c9978bf7f8d5
 
 jobs:
-  types_binding_probe:
+  inspector_binding_probe:
     strategy:
       fail-fast: false
       matrix:
-        node: ["20.0.0", "20.20.2", "22.0.0", "22.2.0", "22", "24"]
+        node: ["20.0.0", "20.20.2", "22.0.0", "22", "24"]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,11 +27,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-      - name: Probe internal types binding routes under poisoning
+      - name: Probe native inspector binding under util poisoning
         run: |
           node - <<'NODE'
           const util = require('node:util');
-          const types = require('node:util/types');
           let parentTypesCalls = 0;
           const parentDesc = Object.getOwnPropertyDescriptor(util, 'types');
           if (parentDesc && parentDesc.configurable) {
@@ -41,49 +40,43 @@ jobs:
               get() { parentTypesCalls += 1; throw new Error('poison parent util.types'); }
             });
           }
-          let isProxyCalls = 0;
-          const proxyDesc = Object.getOwnPropertyDescriptor(types, 'isProxy');
-          if (proxyDesc && proxyDesc.configurable) {
-            const original = proxyDesc.value;
-            Object.defineProperty(types, 'isProxy', {
-              ...proxyDesc,
-              value: new Proxy(original, {
-                apply(target, receiver, args) {
-                  isProxyCalls += 1;
-                  return Reflect.apply(target, receiver, args);
-                }
-              })
-            });
-          }
-          const routes = {};
-          for (const [label, loader] of [
-            ['binding-types', () => process.binding('types')],
-            ['linked-types', () => process._linkedBinding('types')],
-            ['binding-util', () => process.binding('util')]
-          ]) {
-            try {
-              const value = loader();
-              const keys = value && typeof value === 'object' ? Reflect.ownKeys(value).map(String) : [];
-              const d = value && typeof value === 'object'
-                ? Object.getOwnPropertyDescriptor(value, 'isProxy')
-                : null;
-              routes[label] = {
-                keys,
-                isProxy: d && typeof d.value === 'function' ? {
-                  name: d.value.name,
-                  length: d.value.length,
-                  source: Function.prototype.toString.call(d.value),
-                  sameAsCjs: d.value === types.isProxy
-                } : null
-              };
-            } catch (error) {
-              routes[label] = { error: error && error.message };
-            }
-          }
-          console.log(JSON.stringify({
+          const processBindingDesc = Object.getOwnPropertyDescriptor(process, 'binding');
+          let binding = null;
+          let error = null;
+          try {
+            binding = processBindingDesc && typeof processBindingDesc.value === 'function'
+              ? Reflect.apply(processBindingDesc.value, process, ['inspector'])
+              : null;
+          } catch (e) { error = e; }
+          const out = {
             node: process.version,
             parentTypesCalls,
-            isProxyCalls,
-            routes
-          }));
+            bindingError: error && error.message,
+            processBinding: processBindingDesc && typeof processBindingDesc.value === 'function' ? {
+              writable: processBindingDesc.writable,
+              configurable: processBindingDesc.configurable,
+              enumerable: processBindingDesc.enumerable,
+              name: processBindingDesc.value.name,
+              length: processBindingDesc.value.length,
+              source: Function.prototype.toString.call(processBindingDesc.value)
+            } : null,
+            keys: [],
+            connection: null
+          };
+          try { out.keys = binding ? Reflect.ownKeys(binding).map(String) : []; } catch {}
+          if (binding) {
+            const d = Object.getOwnPropertyDescriptor(binding, 'Connection');
+            if (d && typeof d.value === 'function') {
+              const proto = d.value.prototype;
+              const dispatch = proto && Object.getOwnPropertyDescriptor(proto, 'dispatch');
+              const disconnect = proto && Object.getOwnPropertyDescriptor(proto, 'disconnect');
+              out.connection = {
+                name: d.value.name,
+                source: Function.prototype.toString.call(d.value),
+                dispatch: dispatch && typeof dispatch.value === 'function' ? Function.prototype.toString.call(dispatch.value) : null,
+                disconnect: disconnect && typeof disconnect.value === 'function' ? Function.prototype.toString.call(disconnect.value) : null
+              };
+            }
+          }
+          console.log(JSON.stringify(out));
           NODE
