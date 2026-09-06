@@ -10,6 +10,7 @@ on:
       - scripts/qa/m13-round11-codex-remediation-v4.py
       - scripts/qa/m13-round11-codex-remediation-v5.py
       - scripts/qa/m13-round11-codex-remediation-v6.py
+      - scripts/qa/m13-round11-codex-remediation-v7.py
       - .github/workflows/m13-round11-codex-remediation.yml
   workflow_dispatch:
 
@@ -47,6 +48,7 @@ jobs:
           PY
           python3 scripts/qa/m13-round11-codex-remediation-v5.py
           python3 scripts/qa/m13-round11-codex-remediation-v6.py
+          python3 scripts/qa/m13-round11-codex-remediation-v7.py
       - name: Syntax and diff hygiene
         run: |
           node --check src/runtime-authority.js
@@ -108,6 +110,7 @@ jobs:
           PY
           python3 scripts/qa/m13-round11-codex-remediation-v5.py
           python3 scripts/qa/m13-round11-codex-remediation-v6.py
+          python3 scripts/qa/m13-round11-codex-remediation-v7.py
       - name: Static guards
         run: |
           node --check src/runtime-authority.js
@@ -159,6 +162,7 @@ jobs:
           PY
           python3 scripts/qa/m13-round11-codex-remediation-v5.py
           python3 scripts/qa/m13-round11-codex-remediation-v6.py
+          python3 scripts/qa/m13-round11-codex-remediation-v7.py
       - name: Repeat focused authority suite
         run: |
           for i in 1 2 3; do
