@@ -6,6 +6,7 @@ on:
     paths:
       - .github/workflows/m13-independent-lazy-primordial-audit.yml
       - scripts/qa/m13-round12-lazy-generation-remediation.py
+      - scripts/qa/m13-round12-lazy-generation-remediation-v2.py
   workflow_dispatch:
 
 permissions:
@@ -24,9 +25,12 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       - name: Apply Round12 patch
-        run: python3 scripts/qa/m13-round12-lazy-generation-remediation.py
+        run: |
+          python3 scripts/qa/m13-round12-lazy-generation-remediation.py
+          python3 scripts/qa/m13-round12-lazy-generation-remediation-v2.py
       - name: Syntax and static hygiene
         run: |
+          node --check src/package-authority.js
           node --check src/index.js
           node --check src/contract-attacks-core.js
           node --check src/provider-adapter-m13.js
@@ -71,7 +75,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - run: python3 scripts/qa/m13-round12-lazy-generation-remediation.py
+      - name: Apply Round12 patch
+        run: |
+          python3 scripts/qa/m13-round12-lazy-generation-remediation.py
+          python3 scripts/qa/m13-round12-lazy-generation-remediation-v2.py
       - name: Repeat focused authority suite
         run: |
           for i in 1 2 3; do
