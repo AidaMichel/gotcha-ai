@@ -1,0 +1,215 @@
+name: M14 final guided V0 validation
+
+on:
+  push:
+    branches:
+      - milestone-14-guided-v0-slice-b
+
+jobs:
+  compatibility:
+    name: Node ${{ matrix.node }} compatibility
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node:
+          - 14.21.3
+          - 16.20.2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Syntax and static checks
+        run: |
+          node --check bin/gotcha.js
+          node --check src/guided-cli-foundation.js
+          node --check src/guided-session.js
+          node --check src/guided-run.js
+          node --check src/guided-verify.js
+          node --check src/contract-experiment.js
+          node --check test/m14-guided-flow.test.js
+          node --check test/m14-provider-replay-integration.test.js
+          node --check test/m14-nonreplayable-no-survivor.test.js
+          git diff --check origin/main...HEAD
+      - name: Minimum-runtime CLI surfaces
+        run: |
+          node bin/gotcha.js --help | grep -F 'gotcha-ai run [--config path] [--session path]'
+          node bin/gotcha.js --help | grep -F 'gotcha-ai verify <session-path> [--config path]'
+          TARGET="$RUNNER_TEMP/gotcha-m14-init"
+          node bin/gotcha.js init "$TARGET"
+          test -f "$TARGET/gotcha.config.js"
+          test -f "$TARGET/.gotcha/.gitignore"
+      - name: Deep session codec smoke
+        run: |
+          node <<'NODE'
+          const { encodeJsonIterative, parseSessionText } = require('./src/guided-session');
+          const experiment = { beta: 1, alpha: { second: 'two', first: 'one' } };
+          let cursor = experiment.alpha;
+          for (let i = 0; i < 12000; i += 1) { cursor.next = {}; cursor = cursor.next; }
+          cursor.done = true;
+          const session = {
+            version: 1,
+            kind: 'gotcha-guided-session',
+            experiment,
+            sourceAttackId: 'attack-1',
+            proposal: { version: 1, task: 't', sourceAttackId: 'attack-1', ruleId: 'r', protection: { statement: 's', rationale: 'r' } }
+          };
+          const parsed = parseSessionText(encodeJsonIterative(session));
+          if (Object.keys(parsed.experiment).join(',') !== 'beta,alpha') process.exit(3);
+          let check = parsed.experiment.alpha;
+          for (let i = 0; i < 12000; i += 1) check = check.next;
+          if (check.done !== true) process.exit(4);
+          NODE
+      - name: Node 16 guided focused tests
+        if: matrix.node == '16.20.2'
+        run: node --test test/cli.test.js test/m14-guided-foundation.test.js test/m14-guided-flow.test.js test/m14-provider-replay-integration.test.js test/m14-nonreplayable-no-survivor.test.js
+
+  modern:
+    name: Node ${{ matrix.node }} full suite
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node:
+          - 18.20.8
+          - 20.20.2
+          - 22
+          - 24
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Static checks
+        run: |
+          node --check bin/gotcha.js
+          node --check src/guided-cli-foundation.js
+          node --check src/guided-session.js
+          node --check src/guided-run.js
+          node --check src/guided-verify.js
+          node --check src/contract-experiment.js
+          node --check test/m14-guided-flow.test.js
+          node --check test/m14-provider-replay-integration.test.js
+          node --check test/m14-nonreplayable-no-survivor.test.js
+          git diff --check origin/main...HEAD
+      - name: Focused M14 tests
+        run: node --test test/cli.test.js test/m14-guided-foundation.test.js test/m14-guided-flow.test.js test/m14-provider-replay-integration.test.js test/m14-nonreplayable-no-survivor.test.js
+      - name: Full repository suite
+        run: npm test
+
+  stress:
+    name: Node 22 M14 stress and packed consumer proof
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Focused M14 tests x3
+        run: |
+          for i in 1 2 3; do
+            node --test test/cli.test.js test/m14-guided-foundation.test.js test/m14-guided-flow.test.js test/m14-provider-replay-integration.test.js test/m14-nonreplayable-no-survivor.test.js
+          done
+      - name: Packed installed-consumer full guided proof
+        run: |
+          PACK_NAME=$(npm pack --silent)
+          PACK_PATH="$GITHUB_WORKSPACE/$PACK_NAME"
+          CONSUMER="$RUNNER_TEMP/gotcha-m14-consumer"
+          mkdir -p "$CONSUMER/.gotcha"
+          cd "$CONSUMER"
+          npm init -y >/dev/null 2>&1
+          npm install "$PACK_PATH" >/dev/null 2>&1
+          ./node_modules/.bin/gotcha-ai --help | grep -F 'gotcha-ai verify <session-path> [--config path]'
+          cat > gotcha.config.js <<'NODE'
+          "use strict";
+          const fs = require("node:fs");
+          const transportLog = require("node:path").join(__dirname, "transport.log");
+          module.exports = {
+            task: "Return the approved meeting time.",
+            examples: [{
+              id: "example-1",
+              type: "judgment",
+              input: "Schedule at 3 PM.",
+              output: "Scheduled at 4 PM.",
+              judgment: "bad",
+              note: "The time changed."
+            }],
+            case: {
+              input: { request: "Schedule at 3 PM." },
+              expectedOutput: { time: "3 PM" }
+            },
+            evaluator(output) { return output.time !== "5 PM"; },
+            provider: {
+              model: "fake-model",
+              transport(request) {
+                fs.appendFileSync(transportLog, request.mode + "\n");
+                let output;
+                if (request.mode === "quality-contract") {
+                  output = {
+                    version: 1,
+                    task: "Return the approved meeting time.",
+                    rules: [{
+                      id: "time-rule",
+                      statement: "The meeting time must be 3 PM.",
+                      kind: "required",
+                      severity: "major",
+                      confidence: "high",
+                      rationale: "The example rejects changed time.",
+                      evidence: [{ type: "example", exampleId: "example-1" }]
+                    }]
+                  };
+                } else if (request.mode === "contract-attacks") {
+                  output = {
+                    version: 1,
+                    task: "Return the approved meeting time.",
+                    attacks: [{
+                      id: "wrong-time",
+                      ruleId: "time-rule",
+                      type: "wrong-time",
+                      description: "Changes the approved time.",
+                      rationale: "The baseline evaluator accepts it.",
+                      mutatedOutput: { time: "4 PM" },
+                      scores: { realism: 0.9, subtlety: 0.9, novelty: 0.8, fixability: 1 }
+                    }]
+                  };
+                } else if (request.mode === "contract-protection") {
+                  output = {
+                    version: 1,
+                    task: "Return the approved meeting time.",
+                    sourceAttackId: "wrong-time",
+                    ruleId: "time-rule",
+                    protection: {
+                      statement: "Reject outputs whose meeting time is not 3 PM.",
+                      rationale: "The selected survivor changed the time."
+                    }
+                  };
+                } else {
+                  throw new Error("unexpected mode");
+                }
+                return { version: 1, kind: "gotcha-provider-response", output };
+              }
+            }
+          };
+          NODE
+          printf 'accept\n1\n' | ./node_modules/.bin/gotcha-ai run --config gotcha.config.js --session .gotcha/session.json | tee run.out
+          test -f .gotcha/session.json
+          grep -F 'SESSION SAVED:' run.out
+          test "$(wc -l < transport.log)" -eq 3
+          cat > verify.config.js <<'NODE'
+          "use strict";
+          module.exports = {
+            evaluator(output) { return output.time !== "5 PM"; },
+            improvedEvaluator(output) { return output.time === "3 PM"; }
+          };
+          NODE
+          printf 'accept\n' | ./node_modules/.bin/gotcha-ai verify .gotcha/session.json --config verify.config.js | tee verify.out
+          grep -F 'State: verified' verify.out
+          grep -F 'Source finding caught: true' verify.out
+          test "$(wc -l < transport.log)" -eq 3
