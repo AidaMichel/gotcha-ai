@@ -61,30 +61,30 @@ jobs:
           for (const [holderExpr, key] of targets) {
             const code = `
               'use strict';
-              const holder = ${holderExpr};
-              const original = Object.getOwnPropertyDescriptor(holder, ${JSON.stringify(key)});
-              if (!original || typeof original.value !== 'function' || original.configurable !== true) process.exit(0);
-              let calls = 0;
-              const poison = new Proxy(original.value, {
-                apply(target, thisArg, args) {
-                  calls += 1;
-                  return Reflect.apply(target, thisArg, args);
-                }
-              });
-              Object.defineProperty(holder, ${JSON.stringify(key)}, { ...original, value: poison });
-              let api;
-              try { api = require('./src'); }
-              catch (error) { console.error('load', error); process.exit(81); }
-              Object.defineProperty(holder, ${JSON.stringify(key)}, original);
-              try { void api.runContractAttacks; } catch {}
-              try { api.createStructuredProviderAdapter({}); } catch {}
-              try { api.draftQualityContract({}); } catch {}
-              setImmediate(() => {
+              (async () => {
+                const holder = ${holderExpr};
+                const original = Object.getOwnPropertyDescriptor(holder, ${JSON.stringify(key)});
+                if (!original || typeof original.value !== 'function' || original.configurable !== true) return;
+                let calls = 0;
+                const poison = new Proxy(original.value, {
+                  apply(target, thisArg, args) {
+                    calls += 1;
+                    return Reflect.apply(target, thisArg, args);
+                  }
+                });
+                Object.defineProperty(holder, ${JSON.stringify(key)}, { ...original, value: poison });
+                let api;
+                try { api = require('./src'); }
+                catch (error) { console.error('load', error); process.exitCode = 81; return; }
+                Object.defineProperty(holder, ${JSON.stringify(key)}, original);
+                try { await api.runContractAttacks({}); } catch {}
+                try { api.createStructuredProviderAdapter({}); } catch {}
+                try { await api.draftQualityContract({}); } catch {}
                 if (calls !== 0) {
                   console.error(${JSON.stringify(holderExpr + '.' + key)}, calls);
-                  process.exit(91);
+                  process.exitCode = 91;
                 }
-              });
+              })().catch((error) => { console.error(error); process.exitCode = 82; });
             `;
             const run = spawnSync(process.execPath, ['-e', code], { cwd: process.cwd(), encoding: 'utf8' });
             if (run.status !== 0) failures.push({ target: holderExpr + '.' + key, status: run.status, stderr: run.stderr.trim() });
