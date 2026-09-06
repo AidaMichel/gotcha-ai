@@ -67,6 +67,49 @@ The evaluator passed a bad output because it was not checking an important value
 
 **Gotcha.**
 
+## Guided V0: find, protect, and verify in five minutes
+
+The installed CLI can now guide the public Gotcha APIs without making hidden product decisions for you.
+
+Start a project:
+
+```bash
+npx gotcha-ai init
+```
+
+That creates `gotcha.config.js` and `.gotcha/.gitignore`. Fill in the starter config with your task, teaching examples, one known-good case, your **current baseline evaluator**, and your provider transport/model. The starter intentionally does not create an `improvedEvaluator` for you.
+
+Run the guided discovery flow:
+
+```bash
+npx gotcha-ai run
+```
+
+`run` uses your provider through Gotcha's three structured modes to draft the Quality Contract, generate contract attacks, and generate one protection proposal for the survivor **you explicitly select**. Proposed rules require explicit `accept`, `edit`, or `reject` decisions. Survivor selection has no default; blank or invalid input does not silently choose the first finding.
+
+If a protection proposal is produced, Gotcha saves one local session under `.gotcha/` by default and prints the exact resume path. The session contains local evaluation evidence and may be sensitive project data. Treat it as **untrusted mutable storage**: being written by Gotcha or living under `.gotcha/` does not make it semantic authority.
+
+Apply your human-approved evaluator change yourself. Keep the original baseline evaluator available and add the stronger behavior separately as `improvedEvaluator`; Gotcha does not generate executable evaluator code or apply a patch automatically.
+
+Then resume verification with the path printed by `run`:
+
+```bash
+npx gotcha-ai verify .gotcha/session-<id>.json
+```
+
+`verify` loads the current config, re-prepares the protection through the existing M12/M10 validation path, shows the **fresh current draft**, and requires another explicit `accept`, `edit`, or `reject` decision. It then replays the historical evaluator first and only runs `improvedEvaluator` if the baseline still matches the bound experiment.
+
+Verification does **not** construct or call a model/provider. A verify-only config needs only:
+
+```js
+module.exports = {
+  evaluator,
+  improvedEvaluator
+};
+```
+
+A `verified` result means the selected bound finding is caught in that exact replay with no newly surviving bound attack. States such as `baseline-mismatch`, `regression-detected`, or `source-finding-still-survives` remain explicit results rather than being collapsed into a generic success message.
+
 ## The problem
 
 AI teams usually define quality by writing checks for failures they already know about.

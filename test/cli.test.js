@@ -31,6 +31,8 @@ const helpOutput = [
   "Usage:",
   "  gotcha-ai demo",
   "  gotcha-ai init [directory]",
+  "  gotcha-ai run [--config path] [--session path]",
+  "  gotcha-ai verify <session-path> [--config path]",
   "  gotcha-ai --help",
   ""
 ].join("\n");
@@ -48,37 +50,26 @@ test(
   "bare CLI prints helpful guidance",
   () => {
     const result = runCli();
-
     assert.equal(result.status, 0);
     assert.equal(result.stderr, "");
-    assert.equal(
-      result.stdout,
-      helpOutput
-    );
+    assert.equal(result.stdout, helpOutput);
   }
 );
 
 test(
   "--help prints usage",
   () => {
-    const result =
-      runCli("--help");
-
+    const result = runCli("--help");
     assert.equal(result.status, 0);
     assert.equal(result.stderr, "");
-    assert.equal(
-      result.stdout,
-      helpOutput
-    );
+    assert.equal(result.stdout, helpOutput);
   }
 );
 
 test(
   "demo prints deterministic Gotcha flow",
   () => {
-    const result =
-      runCli("demo");
-
+    const result = runCli("demo");
     assert.equal(result.status, 0);
     assert.equal(result.stderr, "");
     assert.equal(result.stdout, demoOutput);
@@ -89,7 +80,6 @@ test(
   "demo preserves legacy behavior and ignores trailing arguments",
   () => {
     const result = runCli("demo", "legacy-extra");
-
     assert.equal(result.status, 0);
     assert.equal(result.stderr, "");
     assert.equal(result.stdout, demoOutput);
@@ -106,7 +96,6 @@ test(
 
     try {
       const result = runCli("init", target);
-
       assert.equal(result.status, 0);
       assert.equal(result.stderr, "");
       assert.equal(
@@ -138,7 +127,6 @@ test(
 
     try {
       const result = runCli("init", target);
-
       assert.equal(result.status, 1);
       assert.equal(result.stdout, "");
       assert.equal(
@@ -155,12 +143,9 @@ test(
 test(
   "unknown command fails cleanly",
   () => {
-    const result =
-      runCli("potato");
-
+    const result = runCli("potato");
     assert.equal(result.status, 1);
     assert.equal(result.stdout, "");
-
     assert.equal(
       result.stderr,
       [
@@ -169,12 +154,6 @@ test(
         ""
       ].join("\n")
     );
-
-    assert.equal(
-      result.stderr.includes(
-        "Error:"
-      ),
-      false
-    );
+    assert.equal(result.stderr.includes("Error:"), false);
   }
 );

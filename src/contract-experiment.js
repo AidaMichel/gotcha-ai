@@ -335,8 +335,30 @@ function prepareWireNode(
     descriptors =
       validateExactArraySurface(value);
   } else {
+    // M11's structured provider boundary deliberately detaches records onto a
+    // null prototype. Those records are still validated data, and wire-value
+    // capture must be able to canonicalize them into ordinary replay records.
+    // Keep schema/contract record validation strict elsewhere; this allowance
+    // is only for JSON-compatible wire values traversed by cloneWireValue().
+    const prototype =
+      getPrototypeOf(value);
+
+    if (
+      (
+        prototype !== objectPrototype &&
+        prototype !== null
+      ) ||
+      isExtensible(value) !== true
+    ) {
+      throw new Error("invalid-wire-record-surface");
+    }
+
+    if (isForbiddenBrand(value)) {
+      throw new Error("invalid-wire-record-brand");
+    }
+
     descriptors =
-      validateExactRecordSurface(value);
+      getOwnPropertyDescriptors(value);
   }
 
   if (setHasValue(seen, value)) {

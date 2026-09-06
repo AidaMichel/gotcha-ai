@@ -200,9 +200,14 @@ test(
 test(
   "successful M8 runs emit the exact non-replayable variant for unsupported wire cases",
   async () => {
+    // The M8 engine can safely canonicalize frozen input data for execution,
+    // but Revision 20 replay capture intentionally requires an extensible
+    // source wire record. This keeps the non-replayable fallback covered while
+    // null-prototype records remain available for M11 detached provider data.
     const expectedOutput =
-      Object.create(null);
-    expectedOutput.time = "3 PM";
+      Object.freeze({
+        time: "3 PM"
+      });
 
     const result =
       await runContractAttacks(

@@ -161,76 +161,155 @@ function loadConfigAfterPublicApi(configPath) {
   };
 }
 
-function promptExplicit(options) {
+function createExplicitPromptSession(options = {}) {
   const input = options.input || process.stdin;
   const output = options.output || process.stdout;
-  const message = String(options.message || "");
-  const parse = options.parse;
-  const invalidMessage = options.invalidMessage || "Please enter an explicit valid choice.\n";
+  const rl = readline.createInterface({ input, output, terminal: false });
+  const queuedLines = [];
+  let pending = null;
+  let ended = false;
+  let terminalError = null;
+  let explicitlyClosed = false;
 
-  if (typeof parse !== "function") {
-    return Promise.reject(guidedError("Prompt parser must be a function."));
+  function rejectPending(error) {
+    if (pending === null) return;
+    const current = pending;
+    pending = null;
+    current.reject(error);
   }
 
-  return new Promise((resolve, reject) => {
-    const rl = readline.createInterface({ input, output, terminal: false });
-    let settled = false;
-
-    function finishError(error) {
-      if (settled) return;
-      settled = true;
+  function write(value) {
+    try {
+      output.write(value);
+      return true;
+    } catch (error) {
+      terminalError = error;
+      rejectPending(error);
       try { rl.close(); } catch {}
-      reject(error);
+      return false;
+    }
+  }
+
+  function drain() {
+    if (pending === null) return;
+
+    if (terminalError !== null) {
+      rejectPending(terminalError);
+      return;
     }
 
-    function writePrompt() {
-      try {
-        output.write(message);
-      } catch (error) {
-        finishError(error);
-      }
-    }
-
-    rl.on("line", (answer) => {
-      if (settled) return;
-
+    while (pending !== null && queuedLines.length > 0) {
+      const answer = queuedLines.shift();
       let parsed;
       try {
-        parsed = parse(answer);
+        parsed = pending.parse(answer);
       } catch (error) {
-        finishError(error);
+        rejectPending(error);
         return;
       }
 
       if (parsed !== undefined && parsed !== null && parsed !== false) {
-        settled = true;
-        try { rl.close(); } catch {}
-        resolve(parsed === true ? answer : parsed);
+        const current = pending;
+        pending = null;
+        current.resolve(parsed === true ? answer : parsed);
         return;
       }
 
-      try {
-        output.write(invalidMessage);
-      } catch (error) {
-        finishError(error);
-        return;
-      }
-      writePrompt();
-    });
+      if (!write(pending.invalidMessage)) return;
+      if (!write(pending.message)) return;
+    }
 
-    rl.on("SIGINT", () => {
-      finishError(new GuidedCancelledError());
-    });
+    if (pending !== null && ended) {
+      rejectPending(
+        guidedError("Input ended before a required decision was provided.")
+      );
+    }
+  }
 
-    rl.on("close", () => {
-      if (!settled) {
-        settled = true;
-        reject(guidedError("Input ended before a required decision was provided."));
-      }
-    });
-
-    writePrompt();
+  rl.on("line", (line) => {
+    queuedLines.push(line);
+    drain();
   });
+
+  rl.on("SIGINT", () => {
+    terminalError = new GuidedCancelledError();
+    rejectPending(terminalError);
+    try { rl.close(); } catch {}
+  });
+
+  rl.on("close", () => {
+    ended = true;
+    drain();
+  });
+
+  function prompt(promptOptions) {
+    if (pending !== null) {
+      return Promise.reject(
+        guidedError("Only one guided prompt may be active at a time.")
+      );
+    }
+
+    if (terminalError !== null) {
+      return Promise.reject(terminalError);
+    }
+
+    const parse = promptOptions.parse;
+    if (typeof parse !== "function") {
+      return Promise.reject(guidedError("Prompt parser must be a function."));
+    }
+
+    const message = String(promptOptions.message || "");
+    const invalidMessage =
+      promptOptions.invalidMessage ||
+      "Please enter an explicit valid choice.\n";
+
+    return new Promise((resolve, reject) => {
+      pending = {
+        parse,
+        message,
+        invalidMessage,
+        resolve,
+        reject
+      };
+
+      if (!write(message)) return;
+      drain();
+    });
+  }
+
+  function close() {
+    if (explicitlyClosed) return;
+    explicitlyClosed = true;
+    if (pending !== null) {
+      rejectPending(
+        guidedError("Guided prompt session closed before a required decision was provided.")
+      );
+    }
+    try { rl.close(); } catch {}
+  }
+
+  return {
+    prompt,
+    close
+  };
+}
+
+function promptExplicit(options) {
+  const session = createExplicitPromptSession({
+    input: options.input || process.stdin,
+    output: options.output || process.stdout
+  });
+
+  return session.prompt(options).then(
+    (value) => {
+      session.close();
+      return value;
+    },
+    (error) => {
+      session.close();
+      throw error;
+    }
+  );
 }
 
 module.exports = {
@@ -241,6 +320,7 @@ module.exports = {
   initProject,
   capturePublicApi,
   loadConfigAfterPublicApi,
+  createExplicitPromptSession,
   promptExplicit,
   resolveConfigPath
 };
