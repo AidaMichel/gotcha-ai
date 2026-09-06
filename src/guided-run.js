@@ -210,6 +210,27 @@ function displayedSurvivors(result) {
   return { displayed, total: ids.length, experiment };
 }
 
+function resultHasNoSurvivors(result) {
+  return (
+    result !== null &&
+    typeof result === "object" &&
+    result.attack !== null &&
+    typeof result.attack === "object" &&
+    Array.isArray(result.attack.survivors) &&
+    result.attack.survivors.length === 0
+  );
+}
+
+function presentNoSurvivor(output) {
+  writeLine(output, "");
+  writeLine(output, "NO SURVIVING BLIND SPOT FOUND");
+  writeLine(
+    output,
+    "Gotcha found no generated attack that survived this evaluator run."
+  );
+  writeLine(output, "This does not prove the evaluator is globally correct.");
+}
+
 function presentSurvivors(survivors, output) {
   writeLine(output, "");
   writeLine(output, "GOTCHA FINDINGS");
@@ -325,15 +346,16 @@ async function runGuided(options = {}) {
       generator: adapters.contractAttacks
     });
 
+    // A no-survivor result needs no replay/session authority. Preserve M8's
+    // successful product outcome before requiring replayability for remediation.
+    if (resultHasNoSurvivors(attackResult)) {
+      presentNoSurvivor(output);
+      return { state: "no-survivor", sessionPath: null };
+    }
+
     const survivors = displayedSurvivors(attackResult);
     if (survivors.total === 0) {
-      writeLine(output, "");
-      writeLine(output, "NO SURVIVING BLIND SPOT FOUND");
-      writeLine(
-        output,
-        "Gotcha found no generated attack that survived this evaluator run."
-      );
-      writeLine(output, "This does not prove the evaluator is globally correct.");
+      presentNoSurvivor(output);
       return { state: "no-survivor", sessionPath: null };
     }
 
@@ -419,6 +441,7 @@ module.exports = {
   createRunAdapters,
   collectContractDecisions,
   displayedSurvivors,
+  resultHasNoSurvivors,
   selectSurvivor,
   runGuided
 };
