@@ -112,6 +112,11 @@ const FunctionToString = bootstrapRootAvailable
 
 const ObjectConstructor = captureNativeGlobalConstructor("Object");
 const ObjectPrototype = rootDataValue(ObjectConstructor, "prototype");
+const ObjectGetOwnPropertyDescriptor = captureNativeDataFunction(
+  ObjectConstructor,
+  "getOwnPropertyDescriptor",
+  "function getOwnPropertyDescriptor() { [native code] }"
+);
 const ObjectGetPrototypeOf = captureNativeDataFunction(
   ObjectConstructor,
   "getPrototypeOf",
@@ -121,6 +126,11 @@ const ObjectDefineProperty = captureNativeDataFunction(
   ObjectConstructor,
   "defineProperty",
   "function defineProperty() { [native code] }"
+);
+const ObjectCreate = captureNativeDataFunction(
+  ObjectConstructor,
+  "create",
+  "function create() { [native code] }"
 );
 const ObjectFreeze = captureNativeDataFunction(
   ObjectConstructor,
@@ -197,6 +207,11 @@ const WeakSetHas = captureNativeDataFunction(
   "has",
   "function has() { [native code] }"
 );
+const WeakSetAdd = captureNativeDataFunction(
+  WeakSetPrototype,
+  "add",
+  "function add() { [native code] }"
+);
 
 const NumberConstructor = captureNativeGlobalConstructor("Number");
 const NumberPrototype = rootDataValue(NumberConstructor, "prototype");
@@ -250,8 +265,10 @@ const mandatoryAuthorityAvailable = (
   typeof FunctionToString === "function" &&
   typeof ObjectConstructor === "function" &&
   ObjectPrototype !== null &&
+  typeof ObjectGetOwnPropertyDescriptor === "function" &&
   typeof ObjectGetPrototypeOf === "function" &&
   typeof ObjectDefineProperty === "function" &&
+  typeof ObjectCreate === "function" &&
   typeof ObjectFreeze === "function" &&
   typeof ObjectToString === "function" &&
   typeof PromiseConstructor === "function" &&
@@ -267,6 +284,7 @@ const mandatoryAuthorityAvailable = (
   typeof DataViewByteLengthGetter === "function" &&
   typeof WeakMapHas === "function" &&
   typeof WeakSetHas === "function" &&
+  typeof WeakSetAdd === "function" &&
   typeof NumberValueOf === "function" &&
   typeof BooleanValueOf === "function" &&
   typeof BigIntValueOf === "function" &&
@@ -287,8 +305,10 @@ const authority = {
   TypeErrorConstructor,
   BufferConstructor,
   ReflectApply,
+  ObjectGetOwnPropertyDescriptor,
   ObjectGetPrototypeOf,
   ObjectDefineProperty,
+  ObjectCreate,
   ObjectFreeze,
   ObjectToString,
   FunctionToString,
@@ -297,6 +317,7 @@ const authority = {
   DataViewByteLengthGetter,
   WeakMapHas,
   WeakSetHas,
+  WeakSetAdd,
   NumberValueOf,
   StringValueOf,
   BooleanValueOf,

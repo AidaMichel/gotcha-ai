@@ -150,6 +150,10 @@ function loadM8ExecutionDependencies() {
   }
 }
 
+// Capture the execution dependency generation while package authority is still
+// trusted; first invocation must never load a fresh mutable module graph.
+loadM8ExecutionDependencies();
+
 const getOwnPropertyDescriptors =
   Object.getOwnPropertyDescriptors;
 

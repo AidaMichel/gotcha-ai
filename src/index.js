@@ -49,6 +49,11 @@ if (packageAuthority !== null) {
   }
 }
 
+// Bind every public implementation to the same authenticated package-load
+// generation. Caller mutations after require("gotcha-ai") must never become
+// first-use module-initialization authority.
+let boundImplementations = null;
+
 function makeBoundaryError() {
   try {
     null.gotchaBoundary;
@@ -83,13 +88,69 @@ function promiseAuthorityAvailable() {
   );
 }
 
+function bindImplementationGeneration() {
+  if (
+    packageAuthority === null ||
+    packageAuthority.available !== true ||
+    !promiseAuthorityAvailable()
+  ) return null;
+
+  try {
+    const quality = require("./quality-contract");
+    const attacks = require("./contract-attacks");
+    const remediation = require("./contract-remediation");
+    const proposal = require("./contract-protection-proposal");
+    const provider = require("./provider-adapter-m13");
+    const qualityLoop = require("./contract-quality-loop");
+    const mutationPack = require("./mutation-pack");
+    const engine = require("./engine");
+
+    const bound = {
+      draftQualityContract: quality.draftQualityContract,
+      confirmQualityContract: quality.confirmQualityContract,
+      runContractAttacks: attacks.runContractAttacks,
+      draftContractProtection: remediation.draftContractProtection,
+      confirmContractProtection: remediation.confirmContractProtection,
+      verifyContractProtection: remediation.verifyContractProtection,
+      generateContractProtectionProposal:
+        proposal.generateContractProtectionProposal,
+      createStructuredProviderAdapter:
+        provider.createStructuredProviderAdapter,
+      prepareContractQualityLoop: qualityLoop.prepareContractQualityLoop,
+      completeContractQualityLoop: qualityLoop.completeContractQualityLoop,
+      compileMutationPack: mutationPack.compileMutationPack,
+      runImprovementLoop: engine.runImprovementLoop
+    };
+
+    if (
+      typeof bound.draftQualityContract !== "function" ||
+      typeof bound.confirmQualityContract !== "function" ||
+      typeof bound.runContractAttacks !== "function" ||
+      typeof bound.draftContractProtection !== "function" ||
+      typeof bound.confirmContractProtection !== "function" ||
+      typeof bound.verifyContractProtection !== "function" ||
+      typeof bound.generateContractProtectionProposal !== "function" ||
+      typeof bound.createStructuredProviderAdapter !== "function" ||
+      typeof bound.prepareContractQualityLoop !== "function" ||
+      typeof bound.completeContractQualityLoop !== "function" ||
+      typeof bound.compileMutationPack !== "function" ||
+      typeof bound.runImprovementLoop !== "function"
+    ) return null;
+
+    return bound;
+  } catch {
+    return null;
+  }
+}
+
 function runGotcha({ evaluator, expectedOutput, mutationPack }) {
   if (
     runtimeAuthority === null ||
-    runtimeAuthority.consumerPrimordialsAvailable !== true
+    runtimeAuthority.consumerPrimordialsAvailable !== true ||
+    boundImplementations === null
   ) throw makeBoundaryError();
-  const { compileMutationPack } = require("./mutation-pack");
-  const { runImprovementLoop } = require("./engine");
+  const compileMutationPack = boundImplementations.compileMutationPack;
+  const runImprovementLoop = boundImplementations.runImprovementLoop;
   const mutations = compileMutationPack({
     output: expectedOutput,
     pack: mutationPack
@@ -125,14 +186,22 @@ function defineLazyExport(name, modulePath, unavailable) {
       enumerable: true,
       configurable: false,
       get() {
-        if (!promiseAuthorityAvailable()) return unavailable;
-        return require(modulePath)[name];
+        if (
+          !promiseAuthorityAvailable() ||
+          boundImplementations === null
+        ) return unavailable;
+        const implementation = boundImplementations[name];
+        return typeof implementation === "function"
+          ? implementation
+          : unavailable;
       }
     });
   } catch {
     // The predeclared own data property remains the fail-closed boundary.
   }
 }
+
+boundImplementations = bindImplementationGeneration();
 
 // These public surfaces all participate in modules that can transitively load
 // host runtime code. Under unavailable authority, the predeclared local

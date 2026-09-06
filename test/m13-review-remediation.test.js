@@ -2260,3 +2260,68 @@ test("round11 safe legacy path never loads dangerous builtin helpers under util 
   });
   assert.equal(result.status, 0, result.stderr || result.stdout);
 });
+
+
+// ROUND12_TRUSTED_GENERATION_REGRESSION
+
+test("round12 post-load primordial mutation never becomes lazy public authority", () => {
+  const rootPath = path.join(repoRoot, "src");
+  const code = `
+    "use strict";
+    const api = require(${JSON.stringify(rootPath)});
+    const originals = {
+      gopd: Object.getOwnPropertyDescriptor,
+      gopds: Object.getOwnPropertyDescriptors,
+      getProto: Object.getPrototypeOf,
+      apply: Reflect.apply
+    };
+    let calls = 0;
+    Object.getOwnPropertyDescriptor = function (...args) {
+      calls += 1;
+      return originals.gopd(...args);
+    };
+    Object.getOwnPropertyDescriptors = function (...args) {
+      calls += 1;
+      return originals.gopds(...args);
+    };
+    Object.getPrototypeOf = function (...args) {
+      calls += 1;
+      return originals.getProto(...args);
+    };
+    Reflect.apply = function (...args) {
+      calls += 1;
+      return originals.apply(...args);
+    };
+
+    const attacks = api.runContractAttacks;
+    const adapterFactory = api.createStructuredProviderAdapter;
+    let attackRejected = false;
+    Promise.resolve(attacks({})).then(
+      () => { process.exitCode = 91; },
+      () => { attackRejected = true; }
+    ).then(() => {
+      let adapterError = null;
+      try {
+        adapterFactory({});
+      } catch (error) {
+        adapterError = error;
+      }
+      const observed = calls;
+      Object.getOwnPropertyDescriptor = originals.gopd;
+      Object.getOwnPropertyDescriptors = originals.gopds;
+      Object.getPrototypeOf = originals.getProto;
+      Reflect.apply = originals.apply;
+      if (!attackRejected) process.exitCode = 92;
+      if (adapterError === null) process.exitCode = 93;
+      if (observed !== 0) {
+        console.error("post-load primordial calls", observed);
+        process.exitCode = 94;
+      }
+    });
+  `;
+  const result = spawnSync(process.execPath, ["-e", code], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});

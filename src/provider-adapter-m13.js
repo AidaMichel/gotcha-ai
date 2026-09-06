@@ -246,6 +246,11 @@ function getLegacyStructuredProviderAdapter() {
   return createLegacyStructuredProviderAdapter;
 }
 
+// Bind legacy delegation under the same authenticated package-load generation.
+// The root evicts stale consumers before this module loads, so later caller
+// mutations cannot be captured by a first legacy-mode request.
+getLegacyStructuredProviderAdapter();
+
 let safePromiseConstructor = null;
 if (promiseAuthorityAvailable) {
   try {
