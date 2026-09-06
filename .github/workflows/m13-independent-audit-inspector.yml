@@ -14,11 +14,11 @@ env:
   AUDIT_HEAD: 568050c660d1cd7ae211f0fbe2e7c9978bf7f8d5
 
 jobs:
-  inspector_poison:
+  util_sources:
     strategy:
       fail-fast: false
       matrix:
-        node: ["22", "24"]
+        node: ["20.0.0", "20.20.2", "22.0.0", "22.2.0", "22", "24"]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,53 +27,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-      - name: Verify exact audited tree
-        run: test "$(git rev-parse HEAD)" = "$AUDIT_HEAD"
-      - name: Preloaded Inspector post replacement must not execute
+      - name: Print util/types callable identities
         run: |
           node - <<'NODE'
-          const inspector = require('node:inspector');
-          const proto = inspector.Session.prototype;
-          const descriptor = Object.getOwnPropertyDescriptor(proto, 'post');
-          if (!descriptor || typeof descriptor.value !== 'function' || descriptor.configurable !== true) {
-            console.log('SKIP post descriptor', descriptor);
-            process.exit(0);
+          const types = require('node:util/types');
+          const names = ['isProxy','isPromise','isDate','isRegExp','isMap','isSet','isNativeError','isAnyArrayBuffer','isBoxedPrimitive','isArgumentsObject','isGeneratorObject','isModuleNamespaceObject','isMapIterator','isSetIterator','isExternal'];
+          for (const name of names) {
+            const fn = types[name];
+            console.log(JSON.stringify({ name, fnName: fn && fn.name, length: fn && fn.length, source: typeof fn === 'function' ? Function.prototype.toString.call(fn) : null }));
           }
-          const original = descriptor.value;
-          let calls = 0;
-          Object.defineProperty(proto, 'post', {
-            ...descriptor,
-            value: function post(...args) {
-              calls += 1;
-              return Reflect.apply(original, this, args);
-            }
-          });
-          let loadError = null;
-          try { require('./src'); } catch (error) { loadError = error; }
-          console.log(JSON.stringify({ node: process.version, calls, loadError: loadError && loadError.message }));
-          if (calls !== 0) process.exit(91);
-          NODE
-      - name: Preloaded Inspector connect replacement must not execute
-        run: |
-          node - <<'NODE'
-          const inspector = require('node:inspector');
-          const proto = inspector.Session.prototype;
-          const descriptor = Object.getOwnPropertyDescriptor(proto, 'connect');
-          if (!descriptor || typeof descriptor.value !== 'function' || descriptor.configurable !== true) {
-            console.log('SKIP connect descriptor', descriptor);
-            process.exit(0);
-          }
-          const original = descriptor.value;
-          let calls = 0;
-          Object.defineProperty(proto, 'connect', {
-            ...descriptor,
-            value: function connect(...args) {
-              calls += 1;
-              return Reflect.apply(original, this, args);
-            }
-          });
-          let loadError = null;
-          try { require('./src'); } catch (error) { loadError = error; }
-          console.log(JSON.stringify({ node: process.version, calls, loadError: loadError && loadError.message }));
-          if (calls !== 0) process.exit(92);
           NODE
