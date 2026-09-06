@@ -1,6 +1,6 @@
 # M14 — Guided V0 Experience
 
-Status: Architecture Draft — Revision 3
+Status: Architecture Draft — Revision 4
 Milestone: 14
 Branch: `milestone-14-guided-v0-flow`
 Base: `main@2a55a41624d406aac5f0e6d36a9817b3af1a5e10`
@@ -30,13 +30,18 @@ The M14 product target is:
 
 M14 is a product-orchestration milestone, not a new trusted-core milestone.
 
-Revision 3 closes the architecture audit ambiguities found after Revision 2:
+Revision 4 is the architecture-audit closure. In addition to the Revision-2/3 clarifications, it locks two final invariants:
 
-1. `verify` requires only the current baseline and improved evaluators; it does not require or touch provider/task/example config fields;
-2. displayed remediation choices are derived directly from the replayable experiment's bound survivor order, never reconstructed/re-ranked independently;
-3. terminal TTY status is not treated as proof of human authority; explicit stdin answers are allowed, but no auto-accept/select bypass exists;
-4. session persistence must remain stack-safe for Gotcha's supported deep replayable evidence and cannot regress to a naïve recursive full-tree `JSON.stringify(session)` boundary;
-5. the earlier Revision-2 baseline/improved evaluator, non-overwrite, cancellation, and public-entry-point rules remain locked.
+1. `run` and `verify` bind/capture Gotcha's public package API **before** loading the trusted user config, so config execution cannot become first-use core module authority; `init` remains a filesystem-only command and need not initialize the core;
+2. the stack-safe session encoder preserves exact existing object own-key order and Array order while serializing, because replayable experiment wire/key order is already part of the M10/M13 contract.
+
+Earlier locked clarifications remain:
+
+- `verify` requires only baseline + improved evaluators and performs no provider/model work;
+- displayed remediation choices come directly from the replayable experiment survivor order;
+- TTY status is not human-authority proof and explicit stdin answers follow the same decision path;
+- session persistence is stack-safe, unique/non-overwriting, untrusted on resume, and stores no reusable human decision;
+- the starter never exports an active placeholder improved evaluator.
 
 ## 2. Architectural rule: one core, one guided application layer
 
@@ -48,13 +53,35 @@ The guided layer delegates semantic authority exactly as follows:
 draftQualityContract()                 M7
 confirmQualityContract()               M7
 runContractAttacks()                   M8
-createStructuredProviderAdapter()      M11
+createStructuredProviderAdapter()      M11/M13 mode extension
 prepareContractQualityLoop()           M12
 generateContractProtectionProposal()   M13
 completeContractQualityLoop()          M12 -> M10 verification
 ```
 
 M14 application code obtains those semantic entry points only from Gotcha's public package/root API. It MUST NOT import private semantic implementation modules to obtain alternate versions of contract, attack, provider, proposal, confirmation, or verification authority.
+
+### 2.1 Initialization ordering
+
+For `run` and `verify`, the CLI loads Gotcha's public package/root API before it requires or otherwise executes the caller's `gotcha.config.js` module.
+
+The required order is:
+
+```text
+parse command/path arguments
+  -> load/bind Gotcha public package root
+  -> capture required public function references for this command
+  -> load trusted local config module
+  -> perform command orchestration
+```
+
+M14 MUST NOT load the user config first and then perform a first package-root/core load afterward.
+
+This preserves the completed M13/Round12 trusted package-load generation: later config/global/prototype mutations cannot become first-use semantic module authority through M14.
+
+`init` is different: it performs no semantic API calls and SHOULD NOT require the Gotcha core merely to scaffold local files.
+
+### 2.2 Convenience validation is not authority
 
 M14 may validate its own CLI/config/session convenience surfaces enough to produce useful local errors, but those checks are not semantic authority. Every artifact entering an existing public API is revalidated by that owning API under its existing contract.
 
@@ -109,19 +136,20 @@ gotcha.config.js
 
 `init` MUST NOT overwrite an existing `gotcha.config.js` or existing `.gotcha/.gitignore`. Existing-path conflict is a user-visible non-zero CLI error.
 
-`init` does not contact a model/provider and does not create a session.
+`init` does not load the semantic core, contact a model/provider, or create a session.
 
 ### 3.2 `gotcha-ai run`
 
 `run` performs the guided first half plus proposal generation in one process:
 
 ```text
-LOAD INTEGRATION
+BIND PUBLIC GOTCHA API
+  -> LOAD INTEGRATION
   -> TEACH / CONTRACT
-  -> HUMAN CONTRACT CONFIRMATION
+  -> EXPLICIT CONTRACT CONFIRMATION
   -> ATTACK
   -> RANK / GOTCHA
-  -> HUMAN SURVIVOR SELECTION
+  -> EXPLICIT SURVIVOR SELECTION
   -> PROTECTION PROPOSAL
   -> SAVE NON-AUTHORITATIVE SESSION
 ```
@@ -134,7 +162,7 @@ The final successful `run` message tells the user exactly:
 2. what declarative protection was proposed;
 3. where the local session file was written;
 4. that the original `evaluator` must remain available with baseline behavior for verification;
-5. that the human/caller must implement the stronger behavior separately as `improvedEvaluator`; and
+5. that the caller must implement stronger behavior separately as `improvedEvaluator`; and
 6. the exact `gotcha-ai verify ...` command to continue.
 
 M14 never edits either evaluator implementation.
@@ -146,18 +174,19 @@ M14 never edits either evaluator implementation.
 It performs:
 
 ```text
-LOAD CURRENT EVALUATOR INTEGRATION
+BIND PUBLIC GOTCHA API
+  -> LOAD CURRENT EVALUATOR INTEGRATION
   -> LOAD UNTRUSTED SESSION DATA
   -> RE-PREPARE CURRENT M12 CHECKPOINT
   -> SHOW EXACT CURRENT DRAFT
-  -> FRESH HUMAN ACCEPT / EDIT / REJECT
+  -> FRESH EXPLICIT ACCEPT / EDIT / REJECT
   -> COMPLETE M12/M10 QUALITY LOOP
   -> RE-ATTACK / REPORT IMPROVEMENT
 ```
 
-A session never stores a reusable human decision. A resumed verification always displays the exact current draft and obtains a fresh decision in the current process before `completeContractQualityLoop()`.
+A session never stores a reusable human decision. A resumed verification always displays the exact current draft and obtains a fresh current decision before `completeContractQualityLoop()`.
 
-This preserves M12's human reinspection requirement when a proposal/experiment crosses mutable storage.
+This preserves M12's reinspection requirement when a proposal/experiment crosses mutable storage.
 
 ## 4. Trusted local integration module
 
@@ -169,7 +198,7 @@ The default integration path is:
 
 `--config path` may select another local CommonJS module.
 
-The integration module is **trusted local integration code**, just like the evaluator/generator callbacks already documented by Gotcha. Loading it may execute arbitrary JavaScript. M14 does not claim to sandbox a malicious config module.
+The integration module is **trusted local integration code**, just like evaluator/generator callbacks already documented by Gotcha. Loading it may execute arbitrary JavaScript. M14 does not claim to sandbox a malicious config module.
 
 The V1 starter is conceptually:
 
@@ -236,15 +265,15 @@ improvedEvaluator
 
 `verify` MUST NOT require `task`, `examples`, `case`, `provider`, `provider.model`, or `provider.transport` merely because those fields were required by the earlier `run` command.
 
-`verify` MUST NOT construct an M11 adapter, invoke a provider transport, or perform model work.
+`verify` MUST NOT construct a structured provider adapter, invoke a provider transport, or perform model work.
 
-A user may continue using the original all-in-one `gotcha.config.js`, but a smaller verify-only config that exports exactly the two evaluator callbacks is valid application input.
+A user may continue using the original all-in-one `gotcha.config.js`, but a smaller verify-only config that exports the two evaluator callbacks is valid application input.
 
 ### 4.3 Baseline/improved evaluator rule
 
 The `evaluator` loaded by `verify` is the baseline replay callback. It must reproduce the bound historical behavior under M10's existing replay identity gate.
 
-The user must not replace the baseline export with the improved logic and then present that changed behavior as the historical evaluator. M10's baseline replay/mismatch gate remains authoritative and prevents improved evaluation from starting when historical behavior does not reproduce.
+The user must not replace the baseline export with improved behavior and then present it as the historical evaluator. M10's baseline replay/mismatch gate remains authoritative and prevents improved evaluation from starting when historical behavior does not reproduce.
 
 The changed quality logic belongs in the separate `improvedEvaluator` export.
 
@@ -256,7 +285,7 @@ M14 documentation and generated comments MUST describe this distinction explicit
 
 M14 never defines provider-specific request formats.
 
-From the one caller-owned `{ model, transport }`, `run` creates three public M11/M13 adapter modes:
+From the one caller-owned `{ model, transport }`, `run` creates three public structured adapter modes:
 
 ```text
 mode = "quality-contract"
@@ -312,7 +341,7 @@ Provider/model failures surface as errors. M14 does not retry.
 
 ### 5.2 Contract confirmation
 
-Every proposed rule is shown to the human before confirmation.
+Every proposed rule is shown before confirmation.
 
 The CLI supports the exact decision types already supported by `confirmQualityContract()`:
 
@@ -326,7 +355,7 @@ For M7 `edit`, the only V1 editable rule field is the existing human-edited `sta
 
 There is no default decision that converts pressing Enter into `accept`.
 
-Only after the complete human decision set exists does M14 call `confirmQualityContract()` exactly once.
+Only after the complete explicit decision set exists does M14 call `confirmQualityContract()` exactly once.
 
 If the result has no active rules, the guided run stops successfully with an explanatory `no-active-rules` product result. It MUST NOT continue to attack with an empty/meaningless confirmed contract.
 
@@ -393,7 +422,7 @@ If more than five replayable survivors exist, the CLI says that additional findi
 
 ### 5.6 Explicit survivor selection
 
-The human/caller must explicitly select one displayed survivor.
+The caller must explicitly select one displayed survivor.
 
 There is no default survivor, no automatic first-item selection, and no silent use of `topFinding`.
 
@@ -431,7 +460,7 @@ The session contains exactly:
 }
 ```
 
-The M14 reader may reject a malformed top-level session envelope early when `version`, `kind`, required keys, JSON form, or exact key set is wrong. That is only convenience validation. M10/M12 remain authoritative for the experiment/source/proposal semantics.
+The M14 reader may reject a malformed top-level session envelope early when `version`, `kind`, required keys, JSON form, or exact key set is wrong. That is only convenience validation. M10/M12 remain authoritative for experiment/source/proposal semantics.
 
 No human confirmation decision is stored.
 
@@ -457,15 +486,17 @@ M14 MUST NOT silently overwrite an existing session at either the default-genera
 
 V1 intentionally has no session registry/history database. The path printed by `run` is the resume handle.
 
-### 6.2 Stack-safe session encoding
+### 6.2 Stack-safe, order-preserving session encoding
 
 M14 MUST NOT make successful persistence of a core-supported replayable experiment depend on JavaScript call-stack depth by recursively applying a whole-tree serializer.
 
 The writer uses an iterative/explicit-stack JSON-compatible encoder for the M14-created session tree. It may use native JSON string escaping for primitive strings/property names, but traversal of nested Object/Array containers is iterative.
 
-This session encoder is **not semantic authority** and MUST NOT duplicate M8/M10/M13 experiment/proposal validation. It only serializes the already-produced session convenience tree. On resume, the parsed data is untrusted and revalidated by M12/M10.
+For every encoded Object record, the writer preserves the source record's existing own string-key order exactly; it MUST NOT sort, normalize, or schema-reorder nested session data. Arrays preserve exact index order. This is required because schema-less replay/wire key order is already part of the M10/M13 experiment contract.
 
-At minimum, permanent proof must cover a session containing the same supported 12,000-level replayable evidence class already exercised by the protection-proposal path, with no JavaScript stack overflow during write/read handoff.
+The session encoder is **not semantic authority** and MUST NOT duplicate M8/M10/M13 experiment/proposal validation. It only serializes the already-produced session convenience tree. On resume, parsed data is untrusted and revalidated by M12/M10.
+
+At minimum, permanent proof covers a session containing the same supported 12,000-level replayable evidence class already exercised by the protection-proposal path, with no JavaScript stack overflow and with nested key order reproduced through write + parse.
 
 Serialization must complete before the final target is exposed as a completed session.
 
@@ -483,7 +514,7 @@ The session is **untrusted mutable storage**.
 
 On `verify`, M14 parses it as data and passes its current `experiment`, `sourceAttackId`, and `proposal` into `prepareContractQualityLoop()`.
 
-M12/M10 then independently revalidate replayability, source binding, proposal shape, ownership/wire invariants, and the current draft.
+M12/M10 then independently revalidate replayability, source binding, proposal shape, ownership/wire invariants, nested key order where authoritative, and the current draft.
 
 M14 MUST NOT mark a session trusted merely because:
 
@@ -522,7 +553,7 @@ improvedEvaluator
 
 The baseline `evaluator` is replayed first by M10 and must reproduce the bound historical result. This existing baseline identity gate protects against verifying changed baseline behavior as if it were the original experiment.
 
-The improved evaluator is never used if baseline replay fails/mismatches or if the human rejects the draft.
+The improved evaluator is never used if baseline replay fails/mismatches or if the decision rejects the draft.
 
 M14 must not try to infer which function is “old” or “new” by source text, timestamps, filenames, or convenience metadata.
 
@@ -540,7 +571,7 @@ prepareContractQualityLoop({
 });
 ```
 
-The fresh checkpoint's exact current draft is then shown to the human/caller.
+The fresh checkpoint's exact current draft is then shown to the caller.
 
 This avoids treating a serialized historical checkpoint as proof of what is currently being reviewed.
 
@@ -556,9 +587,9 @@ reject
 
 There is no default accept.
 
-For edit, M14 collects only the exact existing M10/M12 protection edit fields. It does not invent a new remediation edit schema.
+For edit, M14 collects only the exact existing M10/M12 protection edit fields. Current M10 V1 edit is exactly `{ type: "edit", statement }`.
 
-If the decision is reject, M14 calls the existing M12 completion/confirmation path and stops at its rejected semantic state. Neither evaluator may execute in a rejected completion.
+If the decision is reject, M14 calls the existing M12 completion/confirmation path and stops at its rejected semantic state. M12 still requires both evaluator callbacks at invocation, but neither evaluator executes after a valid rejection result.
 
 If the decision is accept/edit, M14 calls exactly one `completeContractQualityLoop()` with:
 
@@ -655,7 +686,7 @@ V1 does not add `--yes`, `--accept-all`, `--select-first`, decision files, envir
 
 Because stdin answers are explicit input, deterministic package/subprocess tests may pipe exact answers through stdin. That testing capability does not change the semantic rule that Gotcha itself never manufactures a decision.
 
-Ctrl-C exits with process code `130` and never synthesizes a human decision. EOF while a mandatory decision is pending is a non-zero command failure and likewise never synthesizes a decision.
+Ctrl-C exits with process code `130` and never synthesizes a decision. EOF while a mandatory decision is pending is a non-zero command failure and likewise never synthesizes a decision.
 
 M14 does not widen the semantic availability of delegated core APIs on old runtimes. Existing package behavior on the documented Node floor remains authoritative: `help`/`demo`/`init` preserve minimum-runtime compatibility, while `run`/`verify` fail clearly if an existing delegated advanced API is unavailable/fail-closed on that runtime. M14 must not weaken core authority merely to make an old runtime complete the guided flow.
 
@@ -700,7 +731,7 @@ The CLI MUST NOT:
 - read arbitrary environment variables itself;
 - write provider credentials into config/session/logs;
 - print full provider request headers or SDK objects;
-- upload session artifacts anywhere except through the caller-owned provider transport as already required by the existing generation APIs.
+- upload session artifacts anywhere except through the caller-owned provider transport as already required by existing generation APIs.
 
 The caller's trusted `transport` may read environment variables or provider SDK configuration because that is caller-owned integration code.
 
@@ -716,11 +747,12 @@ The trusted local config module, evaluator, improved evaluator, and transport ar
 
 M14's safety requirements focus on preserving existing semantic boundaries:
 
-- untrusted model/provider output must still cross M7/M8/M11/M13 validators;
-- saved session data must re-enter M10/M12 as untrusted data;
-- explicit decisions must remain fresh/current;
+- the public Gotcha root is bound before trusted config execution in `run`/`verify`;
+- untrusted model/provider output still crosses M7/M8/M11/M13 validators;
+- saved session data re-enters M10/M12 as untrusted data;
+- explicit decisions remain fresh/current;
 - no lazy re-capture of trusted-core authority is introduced by the CLI orchestration layer;
-- no M14 convenience cache may become semantic authority;
+- no M14 convenience cache becomes semantic authority;
 - terminal/TTY metadata is never treated as proof of a human.
 
 M14 MUST NOT add another primordial/authentication subsystem beside the package/runtime authority already established by M13/Round12.
@@ -735,19 +767,22 @@ Scope:
 
 - `init` command;
 - shared argument/config loading;
+- exact core-before-config initialization ordering for run/verify;
 - separate run-config and verify-config diagnostics;
 - prompt helper using Node-minimum-compatible `readline`;
 - `.gotcha` directory + ignore file;
-- unique/non-overwriting stack-safe local session writer/reader primitives;
+- unique/non-overwriting stack-safe order-preserving local session writer/reader primitives;
 - help text;
 - no model/evaluator execution yet beyond narrow fixtures.
 
 Definition of done:
 
 - existing `demo` behavior unchanged;
+- `init` does not require semantic core initialization;
 - init never overwrites user files;
 - generated starter preserves baseline-vs-improved evaluator guidance and exports no active placeholder improved evaluator;
-- session writer round-trips deep canonical data without recursive traversal overflow;
+- run/verify bind public API before config execution;
+- session writer round-trips deep canonical data without recursive traversal overflow or key reordering;
 - package/install proof covers the new CLI commands;
 - Node minimum compatibility preserved for existing/basic CLI surfaces.
 
@@ -799,13 +834,15 @@ Definition of done:
 
 M14 implementation is not complete until permanent tests prove at least:
 
-### CLI / init
+### CLI / initialization / init
 
 - existing `demo`, `--help`, and unknown-command behavior remain correct;
-- `init` creates only the documented starter paths;
+- `init` creates only the documented starter paths and does not require public core initialization;
 - `init` never overwrites existing config/ignore files;
 - generated config is CommonJS-loadable on the documented Node minimum;
 - generated config has no active placeholder `improvedEvaluator`;
+- run/verify capture public package entry points before the config module executes;
+- a config that mutates later ambient globals cannot become first-use public implementation authority through M14;
 - no `readline/promises` dependency raises the minimum Node version;
 - TTY/non-TTY status never creates a decision;
 - piped explicit answers exercise the same decision path as terminal answers;
@@ -826,14 +863,14 @@ M14 implementation is not complete until permanent tests prove at least:
 - contract rule acceptance has no default;
 - M7 edit changes only the supported statement field;
 - survivor selection has no default and cannot advance on blank/unknown selection;
-- displayed survivor IDs equal the first at-most-five exact bound `experiment.baseline.survivorOrderIds`;
+- displayed survivor IDs equal the first at-most-five exact bound `result.experiment.baseline.survivorOrderIds`;
 - protection acceptance has no default;
 - a stored session contains no reusable decision;
 - verify always shows a freshly prepared current draft and collects a fresh decision.
 
 ### Semantic delegation
 
-- M14 semantic orchestration imports/uses public package entry points rather than private alternate core implementations;
+- M14 semantic orchestration uses public package entry points rather than private alternate core implementations;
 - M14 does not mutate/re-rank M8 attack results;
 - no-active-rules stops before M8;
 - no-survivor stops before M13;
@@ -846,7 +883,8 @@ M14 implementation is not complete until permanent tests prove at least:
 
 - session top-level convenience envelope requires exact V1 kind/version/keys;
 - default session paths are unique and existing explicit targets are never silently overwritten;
-- 12,000-level supported replayable evidence writes/reads without JavaScript recursive traversal overflow;
+- 12,000-level supported replayable evidence writes/parses without JavaScript recursive traversal overflow;
+- nested Object own-key order and Array order reproduce exactly through session encoding + parse;
 - edited experiment/source/proposal JSON is rejected by the owning core boundary when invalid;
 - JSON that remains valid but changes the current draft is displayed as the changed current draft and requires a new decision;
 - malformed/truncated session never reaches evaluator/provider callbacks;
@@ -857,7 +895,7 @@ M14 implementation is not complete until permanent tests prove at least:
 
 - baseline `evaluator` and separate `improvedEvaluator` are both required for verification;
 - changed baseline behavior triggers the existing baseline mismatch/failure path before improved evaluator execution;
-- rejected protection executes neither evaluator;
+- rejected protection executes neither evaluator after valid M12 rejection completion;
 - baseline positive-control failure/mismatch prevents improved evaluator execution;
 - verify performs zero model/provider calls;
 - a verified run reports exact before/after counts and caught source;
@@ -884,17 +922,19 @@ gotcha-ai init
   -> fill in trusted local baseline evaluator/provider integration
 
 gotcha-ai run
+  -> public Gotcha API is already bound before config executes
   -> review Quality Contract
   -> attack current evaluator
-  -> see ranked Gotcha findings from the bound survivor order
+  -> see ranked Gotcha findings from exact bound survivor order
   -> explicitly select one survivor
   -> receive declarative protection proposal
-  -> save local resumable session
+  -> save local resumable session without depth/order regression
 
-human keeps baseline evaluator behavior available
-human implements approved stronger behavior as improvedEvaluator
+caller keeps baseline evaluator behavior available
+caller implements approved stronger behavior as improvedEvaluator
 
 gotcha-ai verify .gotcha/session-<uuid>.json
+  -> public Gotcha API is already bound before config executes
   -> requires only baseline + improved evaluator callbacks
   -> revalidate/reprepare current draft
   -> fresh explicit accept/edit/reject
