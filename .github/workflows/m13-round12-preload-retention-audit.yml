@@ -1,0 +1,94 @@
+name: M13 Round12 preload retention audit
+
+on:
+  push:
+    branches: [milestone-13-runtime-slice-a]
+    paths:
+      - .github/workflows/m13-round12-preload-retention-audit.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  retention:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Apply Round12 candidate
+        run: |
+          python3 scripts/qa/m13-round12-lazy-generation-remediation.py
+          python3 scripts/qa/m13-round12-lazy-generation-remediation-v2.py
+      - name: Probe non-root primordial retention
+        run: |
+          node - <<'NODE'
+          'use strict';
+          const { spawnSync } = require('node:child_process');
+          const targets = [
+            ['Object','create'],
+            ['Object','keys'],
+            ['Object','setPrototypeOf'],
+            ['Reflect','ownKeys'],
+            ['Reflect','deleteProperty'],
+            ['Reflect','construct'],
+            ['Number','isFinite'],
+            ['Number','isInteger'],
+            ['Array.prototype','map'],
+            ['Array.prototype','find'],
+            ['Array.prototype','push'],
+            ['Array.prototype','pop'],
+            ['Array.prototype','values'],
+            ['Array.prototype','keys'],
+            ['Array.prototype','entries'],
+            ['String.prototype','trim'],
+            ['String.prototype','startsWith'],
+            ['Set.prototype','has'],
+            ['Set.prototype','add'],
+            ['Map.prototype','get'],
+            ['Map.prototype','set'],
+            ['WeakSet.prototype','has'],
+            ['WeakSet.prototype','add'],
+            ['WeakSet.prototype','delete'],
+            ['WeakMap.prototype','get'],
+            ['WeakMap.prototype','set'],
+            ['JSON','stringify'],
+            ['JSON','parse']
+          ];
+          const failures = [];
+          for (const [holderExpr, key] of targets) {
+            const code = `
+              'use strict';
+              const holder = ${holderExpr};
+              const original = Object.getOwnPropertyDescriptor(holder, ${JSON.stringify(key)});
+              if (!original || typeof original.value !== 'function' || original.configurable !== true) process.exit(0);
+              let calls = 0;
+              const poison = new Proxy(original.value, {
+                apply(target, thisArg, args) {
+                  calls += 1;
+                  return Reflect.apply(target, thisArg, args);
+                }
+              });
+              Object.defineProperty(holder, ${JSON.stringify(key)}, { ...original, value: poison });
+              let api;
+              try { api = require('./src'); }
+              catch (error) { console.error('load', error); process.exit(81); }
+              Object.defineProperty(holder, ${JSON.stringify(key)}, original);
+              try { void api.runContractAttacks; } catch {}
+              try { api.createStructuredProviderAdapter({}); } catch {}
+              try { api.draftQualityContract({}); } catch {}
+              setImmediate(() => {
+                if (calls !== 0) {
+                  console.error(${JSON.stringify(holderExpr + '.' + key)}, calls);
+                  process.exit(91);
+                }
+              });
+            `;
+            const run = spawnSync(process.execPath, ['-e', code], { cwd: process.cwd(), encoding: 'utf8' });
+            if (run.status !== 0) failures.push({ target: holderExpr + '.' + key, status: run.status, stderr: run.stderr.trim() });
+          }
+          console.log(JSON.stringify(failures, null, 2));
+          if (failures.length !== 0) process.exit(1);
+          NODE
