@@ -175,7 +175,6 @@ function promptExplicit(options) {
   return new Promise((resolve, reject) => {
     const rl = readline.createInterface({ input, output, terminal: false });
     let settled = false;
-    let questionPending = false;
 
     function finishError(error) {
       if (settled) return;
@@ -184,45 +183,53 @@ function promptExplicit(options) {
       reject(error);
     }
 
-    function ask() {
-      if (settled) return;
-      questionPending = true;
-      rl.question(message, (answer) => {
-        questionPending = false;
-        if (settled) return;
-
-        let parsed;
-        try {
-          parsed = parse(answer);
-        } catch (error) {
-          finishError(error);
-          return;
-        }
-
-        if (parsed !== undefined && parsed !== null && parsed !== false) {
-          settled = true;
-          try { rl.close(); } catch {}
-          resolve(parsed === true ? answer : parsed);
-          return;
-        }
-
-        output.write(invalidMessage);
-        ask();
-      });
+    function writePrompt() {
+      try {
+        output.write(message);
+      } catch (error) {
+        finishError(error);
+      }
     }
+
+    rl.on("line", (answer) => {
+      if (settled) return;
+
+      let parsed;
+      try {
+        parsed = parse(answer);
+      } catch (error) {
+        finishError(error);
+        return;
+      }
+
+      if (parsed !== undefined && parsed !== null && parsed !== false) {
+        settled = true;
+        try { rl.close(); } catch {}
+        resolve(parsed === true ? answer : parsed);
+        return;
+      }
+
+      try {
+        output.write(invalidMessage);
+      } catch (error) {
+        finishError(error);
+        return;
+      }
+      writePrompt();
+    });
 
     rl.on("SIGINT", () => {
       finishError(new GuidedCancelledError());
     });
 
     rl.on("close", () => {
-      if (!settled && questionPending) {
+      if (!settled) {
         settled = true;
         reject(guidedError("Input ended before a required decision was provided."));
       }
     });
 
-    ask();
+    writePrompt();
   });
 }
 
