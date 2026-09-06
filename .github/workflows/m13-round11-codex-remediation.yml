@@ -6,8 +6,8 @@ on:
       - milestone-13-runtime-slice-a
     paths:
       - scripts/qa/m13-round11-codex-remediation.py
-      - scripts/qa/m13-round11-codex-remediation-v2.py
       - scripts/qa/m13-round11-codex-remediation-v3.py
+      - scripts/qa/m13-round11-codex-remediation-v4.py
       - .github/workflows/m13-round11-codex-remediation.yml
   workflow_dispatch:
 
@@ -29,11 +29,12 @@ jobs:
       - name: Apply Round11 patch
         run: |
           python3 scripts/qa/m13-round11-codex-remediation.py
-          python3 scripts/qa/m13-round11-codex-remediation-v2.py
           python3 scripts/qa/m13-round11-codex-remediation-v3.py
+          python3 scripts/qa/m13-round11-codex-remediation-v4.py
       - name: Syntax and diff hygiene
         run: |
           node --check src/runtime-authority.js
+          node --check src/ai-data-core.js
           node --check src/quality-contract.js
           node --check src/contract-quality-loop.js
           node --check test/m13-review-remediation.test.js
@@ -67,11 +68,12 @@ jobs:
       - name: Apply Round11 patch
         run: |
           python3 scripts/qa/m13-round11-codex-remediation.py
-          python3 scripts/qa/m13-round11-codex-remediation-v2.py
           python3 scripts/qa/m13-round11-codex-remediation-v3.py
+          python3 scripts/qa/m13-round11-codex-remediation-v4.py
       - name: Static guards
         run: |
           node --check src/runtime-authority.js
+          node --check src/ai-data-core.js
           node --check src/quality-contract.js
           node --check src/contract-quality-loop.js
           node --check test/m13-review-remediation.test.js
@@ -97,8 +99,8 @@ jobs:
       - name: Apply Round11 patch
         run: |
           python3 scripts/qa/m13-round11-codex-remediation.py
-          python3 scripts/qa/m13-round11-codex-remediation-v2.py
           python3 scripts/qa/m13-round11-codex-remediation-v3.py
+          python3 scripts/qa/m13-round11-codex-remediation-v4.py
       - name: Repeat focused authority suite
         run: |
           for i in 1 2 3; do
