@@ -1,0 +1,68 @@
+name: M13 Round11 materialize
+
+on:
+  push:
+    branches: [milestone-13-runtime-slice-a]
+    paths:
+      - .github/workflows/m13-round11-materialize.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: milestone-13-runtime-slice-a
+          fetch-depth: 0
+      - name: Apply proven Round11 candidate
+        run: |
+          python3 scripts/qa/m13-round11-codex-remediation.py
+          python3 scripts/qa/m13-round11-codex-remediation-v3.py
+          python3 scripts/qa/m13-round11-codex-remediation-v4.py
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("scripts/qa/m13-round11-codex-remediation-v5.py")
+          text = path.read_text()
+          old = 'end = runtime.find("\\n\\n// Node 14 has no util/types module.", start)'
+          new = 'end = runtime.find("\\n\\nfunction nativeProbe(", start)'
+          if old not in text:
+              raise SystemExit("Round11 v5 stale anchor not found")
+          text = text.replace(old, new, 1)
+          text = text.replace('    \'require("node:util")\',\n    \'require("util")\',\n', '', 1)
+          path.write_text(text)
+          PY
+          python3 scripts/qa/m13-round11-codex-remediation-v5.py
+          python3 scripts/qa/m13-round11-codex-remediation-v6.py
+          python3 scripts/qa/m13-round11-codex-remediation-v7.py
+          python3 scripts/qa/m13-round11-codex-remediation-v8.py
+      - name: Verify materialized tree and remove temporary QA
+        run: |
+          node --check src/runtime-authority.js
+          node --check src/legacy-ai-data-safe.js
+          node --check src/provider-adapter.js
+          node --check src/provider-adapter-m13.js
+          node --check src/contract-attacks-core.js
+          node --check src/ai-data-core.js
+          node --check test/m13-review-remediation.test.js
+          git diff --check
+          ! grep -q 'inspectorHasNodeInternalFunctionOrigin' src/runtime-authority.js
+          ! grep -q 'nodeMajorVersion' src/runtime-authority.js
+          ! grep -q 'getAuthenticatedBuiltinModule' src/runtime-authority.js
+          ! grep -q 'bootstrapOwnDataValue(process,' src/runtime-authority.js
+          ! grep -q 'require("./ai-data-core")' src/provider-adapter.js
+          ! grep -q 'require("./ai-data")' src/contract-attacks-core.js
+          git rm -f .github/workflows/m13-round11-*.yml scripts/qa/m13-round11-*.py
+          git diff --check
+      - name: Commit permanent remediation
+        run: |
+          git config user.name "AidaMichel"
+          git config user.email "126730924+AidaMichel@users.noreply.github.com"
+          git add src test
+          git add -u .github/workflows scripts/qa
+          git status --short
+          git commit -m "fix: close Round11 runtime authority gaps"
+          git push origin HEAD:milestone-13-runtime-slice-a
