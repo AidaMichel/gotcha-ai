@@ -11,12 +11,22 @@ function printHelp() {
   console.log("Usage:");
   console.log("  gotcha-ai demo");
   console.log("  gotcha-ai init [directory]");
+  console.log("  gotcha-ai run [--config path] [--session path]");
   console.log("  gotcha-ai --help");
 }
 
 function fail(message, exitCode) {
   console.error(message);
   process.exitCode = exitCode || 1;
+}
+
+function errorMessage(error, fallback) {
+  return (
+    error !== null &&
+    typeof error === "object" &&
+    typeof error.message === "string" &&
+    error.message.length > 0
+  ) ? error.message : fallback;
 }
 
 function runInit(args) {
@@ -35,15 +45,29 @@ function runInit(args) {
     console.log(`Config: ${path.relative(process.cwd(), result.configPath) || "gotcha.config.js"}`);
     console.log(`Sessions: ${path.relative(process.cwd(), path.dirname(result.ignorePath)) || ".gotcha"}`);
   } catch (error) {
-    const message =
-      error !== null &&
-      typeof error === "object" &&
-      typeof error.message === "string" &&
-      error.message.length > 0
-        ? error.message
-        : "Unable to initialize Gotcha project.";
-    fail(message);
+    fail(errorMessage(error, "Unable to initialize Gotcha project."));
   }
+}
+
+function runGuidedCommand(args) {
+  let runGuided;
+  try {
+    ({ runGuided } = require("../src/guided-run"));
+  } catch (error) {
+    fail(errorMessage(error, "Unable to load guided Gotcha run."));
+    return;
+  }
+
+  Promise.resolve()
+    .then(() => runGuided({ args }))
+    .catch((error) => {
+      fail(
+        errorMessage(error, "Guided Gotcha run failed."),
+        error && typeof error.exitCode === "number"
+          ? error.exitCode
+          : 1
+      );
+    });
 }
 
 const args = process.argv.slice(2);
@@ -61,6 +85,8 @@ if (
   require("../examples/quickstart");
 } else if (command === "init") {
   runInit(args.slice(1));
+} else if (command === "run") {
+  runGuidedCommand(args.slice(1));
 } else {
   console.error(
     `Unknown command: ${command}`
