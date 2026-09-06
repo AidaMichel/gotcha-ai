@@ -14,7 +14,7 @@ env:
   AUDIT_HEAD: 568050c660d1cd7ae211f0fbe2e7c9978bf7f8d5
 
 jobs:
-  inspector_binding_probe:
+  native_connection_protocol:
     strategy:
       fail-fast: false
       matrix:
@@ -27,56 +27,105 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-      - name: Probe native inspector binding under util poisoning
+      - name: Native Connection classifies without Session methods
         run: |
           node - <<'NODE'
-          const util = require('node:util');
-          let parentTypesCalls = 0;
-          const parentDesc = Object.getOwnPropertyDescriptor(util, 'types');
-          if (parentDesc && parentDesc.configurable) {
-            Object.defineProperty(util, 'types', {
-              configurable: true,
-              enumerable: parentDesc.enumerable,
-              get() { parentTypesCalls += 1; throw new Error('poison parent util.types'); }
-            });
-          }
-          const processBindingDesc = Object.getOwnPropertyDescriptor(process, 'binding');
-          let binding = null;
-          let error = null;
-          try {
-            binding = processBindingDesc && typeof processBindingDesc.value === 'function'
-              ? Reflect.apply(processBindingDesc.value, process, ['inspector'])
-              : null;
-          } catch (e) { error = e; }
-          const out = {
-            node: process.version,
-            parentTypesCalls,
-            bindingError: error && error.message,
-            processBinding: processBindingDesc && typeof processBindingDesc.value === 'function' ? {
-              writable: processBindingDesc.writable,
-              configurable: processBindingDesc.configurable,
-              enumerable: processBindingDesc.enumerable,
-              name: processBindingDesc.value.name,
-              length: processBindingDesc.value.length,
-              source: Function.prototype.toString.call(processBindingDesc.value)
-            } : null,
-            keys: [],
-            connection: null
-          };
-          try { out.keys = binding ? Reflect.ownKeys(binding).map(String) : []; } catch {}
-          if (binding) {
-            const d = Object.getOwnPropertyDescriptor(binding, 'Connection');
-            if (d && typeof d.value === 'function') {
-              const proto = d.value.prototype;
-              const dispatch = proto && Object.getOwnPropertyDescriptor(proto, 'dispatch');
-              const disconnect = proto && Object.getOwnPropertyDescriptor(proto, 'disconnect');
-              out.connection = {
-                name: d.value.name,
-                source: Function.prototype.toString.call(d.value),
-                dispatch: dispatch && typeof dispatch.value === 'function' ? Function.prototype.toString.call(dispatch.value) : null,
-                disconnect: disconnect && typeof disconnect.value === 'function' ? Function.prototype.toString.call(disconnect.value) : null
-              };
+          const inspector = require('node:inspector');
+          const proto = inspector.Session.prototype;
+          const saved = {};
+          let sessionCalls = 0;
+          for (const name of ['connect','disconnect','post']) {
+            const d = Object.getOwnPropertyDescriptor(proto, name);
+            saved[name] = d;
+            if (d && d.configurable) {
+              Object.defineProperty(proto, name, {
+                ...d,
+                value: function poisonedSessionMethod() {
+                  sessionCalls += 1;
+                  throw new Error('poisoned Session.' + name);
+                }
+              });
             }
           }
-          console.log(JSON.stringify(out));
+
+          const binding = process.binding('inspector');
+          const C = binding.Connection;
+          const dispatch = C.prototype.dispatch;
+          const disconnect = C.prototype.disconnect;
+          let nextId = 1;
+          const pending = new Map();
+          const connection = new C((raw) => {
+            const message = JSON.parse(raw);
+            if (message && message.id && pending.has(message.id)) {
+              const slot = pending.get(message.id);
+              slot.called = true;
+              slot.message = message;
+            }
+          });
+          function send(method, params) {
+            const id = nextId++;
+            const slot = { called: false, message: null };
+            pending.set(id, slot);
+            dispatch.call(connection, JSON.stringify({ id, method, params }));
+            pending.delete(id);
+            if (!slot.called || !slot.message || slot.message.error) {
+              throw new Error('CDP response unavailable for ' + method + ': ' + JSON.stringify(slot.message));
+            }
+            return slot.message.result;
+          }
+
+          globalThis.__gotchaAuditFn = require('node:util/types').isProxy;
+          const plain = send('Runtime.evaluate', {
+            expression: 'globalThis.__gotchaAuditFn',
+            generatePreview: false,
+            returnByValue: false
+          });
+          const plainRemote = plain.result;
+          const plainProps = send('Runtime.getProperties', {
+            objectId: plainRemote.objectId,
+            ownProperties: true,
+            generatePreview: false
+          });
+
+          const original = require('node:util/types').isProxy;
+          globalThis.__gotchaAuditFn = new Proxy(original, { apply(t,r,a){ return Reflect.apply(t,r,a); } });
+          const proxied = send('Runtime.evaluate', {
+            expression: 'globalThis.__gotchaAuditFn',
+            generatePreview: false,
+            returnByValue: false
+          });
+
+          globalThis.__gotchaAuditFn = original.bind(undefined);
+          const bound = send('Runtime.evaluate', {
+            expression: 'globalThis.__gotchaAuditFn',
+            generatePreview: false,
+            returnByValue: false
+          });
+          const boundRemote = bound.result;
+          const boundProps = send('Runtime.getProperties', {
+            objectId: boundRemote.objectId,
+            ownProperties: true,
+            generatePreview: false
+          });
+
+          disconnect.call(connection);
+          delete globalThis.__gotchaAuditFn;
+          for (const name of Object.keys(saved)) {
+            if (saved[name]) Object.defineProperty(proto, name, saved[name]);
+          }
+
+          const plainBoundSlots = (plainProps.internalProperties || []).filter(x => /Bound|TargetFunction/.test(x.name));
+          const boundSlots = (boundProps.internalProperties || []).filter(x => /Bound|TargetFunction/.test(x.name));
+          console.log(JSON.stringify({
+            node: process.version,
+            sessionCalls,
+            plainSubtype: plainRemote.subtype,
+            plainBoundSlots: plainBoundSlots.map(x => x.name),
+            proxySubtype: proxied.result && proxied.result.subtype,
+            boundSubtype: boundRemote.subtype,
+            boundSlots: boundSlots.map(x => x.name)
+          }));
+          if (sessionCalls !== 0) process.exit(91);
+          if (proxied.result.subtype !== 'proxy') process.exit(92);
+          if (boundSlots.length === 0) process.exit(93);
           NODE
