@@ -12,6 +12,7 @@ function printHelp() {
   console.log("  gotcha-ai demo");
   console.log("  gotcha-ai init [directory]");
   console.log("  gotcha-ai run [--config path] [--session path]");
+  console.log("  gotcha-ai verify <session-path> [--config path]");
   console.log("  gotcha-ai --help");
 }
 
@@ -49,25 +50,43 @@ function runInit(args) {
   }
 }
 
-function runGuidedCommand(args) {
-  let runGuided;
+function runAsyncGuided(load, args, loadFallback, runFallback) {
+  let commandFunction;
   try {
-    ({ runGuided } = require("../src/guided-run"));
+    commandFunction = load();
   } catch (error) {
-    fail(errorMessage(error, "Unable to load guided Gotcha run."));
+    fail(errorMessage(error, loadFallback));
     return;
   }
 
   Promise.resolve()
-    .then(() => runGuided({ args }))
+    .then(() => commandFunction({ args }))
     .catch((error) => {
       fail(
-        errorMessage(error, "Guided Gotcha run failed."),
+        errorMessage(error, runFallback),
         error && typeof error.exitCode === "number"
           ? error.exitCode
           : 1
       );
     });
+}
+
+function runGuidedCommand(args) {
+  runAsyncGuided(
+    () => require("../src/guided-run").runGuided,
+    args,
+    "Unable to load guided Gotcha run.",
+    "Guided Gotcha run failed."
+  );
+}
+
+function runVerifyCommand(args) {
+  runAsyncGuided(
+    () => require("../src/guided-verify").runGuidedVerify,
+    args,
+    "Unable to load guided Gotcha verification.",
+    "Guided Gotcha verification failed."
+  );
 }
 
 const args = process.argv.slice(2);
@@ -87,14 +106,10 @@ if (
   runInit(args.slice(1));
 } else if (command === "run") {
   runGuidedCommand(args.slice(1));
+} else if (command === "verify") {
+  runVerifyCommand(args.slice(1));
 } else {
-  console.error(
-    `Unknown command: ${command}`
-  );
-
-  console.error(
-    "Run `gotcha-ai --help` for usage."
-  );
-
+  console.error(`Unknown command: ${command}`);
+  console.error("Run `gotcha-ai --help` for usage.");
   process.exitCode = 1;
 }
