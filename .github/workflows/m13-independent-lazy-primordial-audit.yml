@@ -1,67 +1,80 @@
-name: M13 independent lazy primordial audit
+name: M13 trusted-generation lazy binding validation
 
 on:
   push:
     branches: [milestone-13-runtime-slice-a]
     paths:
       - .github/workflows/m13-independent-lazy-primordial-audit.yml
+      - scripts/qa/m13-round12-lazy-generation-remediation.py
   workflow_dispatch:
 
 permissions:
   contents: read
 
-env:
-  AUDIT_HEAD: cf997fe3d846a8f9b6db3c999df75b2685afc2a7
-
 jobs:
-  lazy_primordial_poison:
+  supported:
     strategy:
       fail-fast: false
       matrix:
-        node: ["20.0.0", "20.20.2", "22.0.0", "22", "24"]
+        node: ["18.20.8", "20.0.0", "20.20.2", "22.0.0", "22", "24"]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ env.AUDIT_HEAD }}
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
+      - name: Apply Round12 patch
+        run: python3 scripts/qa/m13-round12-lazy-generation-remediation.py
+      - name: Syntax and static hygiene
+        run: |
+          node --check src/index.js
+          node --check src/contract-attacks-core.js
+          node --check src/provider-adapter-m13.js
+          node --check test/m13-review-remediation.test.js
+          git diff --check
+          ! grep -q 'return require(modulePath)\[name\]' src/index.js
       - name: Post-load mutable primordials never become lazy authority
         run: |
           node - <<'NODE'
           'use strict';
           const api = require('./src');
-          const originalGOPD = Object.getOwnPropertyDescriptor;
-          const originalGOPDS = Object.getOwnPropertyDescriptors;
-          const originalGetProto = Object.getPrototypeOf;
-          const originalReflectApply = Reflect.apply;
-          let calls = 0;
-          function poison(name, original) {
-            return function (...args) {
-              calls += 1;
-              return original(...args);
-            };
-          }
-          Object.getOwnPropertyDescriptor = poison('gopd', originalGOPD);
-          Object.getOwnPropertyDescriptors = poison('gopds', originalGOPDS);
-          Object.getPrototypeOf = poison('getproto', originalGetProto);
-          Reflect.apply = function (...args) {
-            calls += 1;
-            return originalReflectApply(...args);
+          const originals = {
+            gopd: Object.getOwnPropertyDescriptor,
+            gopds: Object.getOwnPropertyDescriptors,
+            getProto: Object.getPrototypeOf,
+            apply: Reflect.apply
           };
-          let accessError = null;
-          try {
-            void api.runContractAttacks;
-            void api.createStructuredProviderAdapter;
-          } catch (error) {
-            accessError = error;
-          }
-          const accessCalls = calls;
-          Object.getOwnPropertyDescriptor = originalGOPD;
-          Object.getOwnPropertyDescriptors = originalGOPDS;
-          Object.getPrototypeOf = originalGetProto;
-          Reflect.apply = originalReflectApply;
-          console.log(JSON.stringify({ node: process.version, accessCalls, accessError: accessError && accessError.message }));
-          if (accessCalls !== 0) process.exit(91);
+          let calls = 0;
+          Object.getOwnPropertyDescriptor = function (...args) { calls += 1; return originals.gopd(...args); };
+          Object.getOwnPropertyDescriptors = function (...args) { calls += 1; return originals.gopds(...args); };
+          Object.getPrototypeOf = function (...args) { calls += 1; return originals.getProto(...args); };
+          Reflect.apply = function (...args) { calls += 1; return originals.apply(...args); };
+          void api.runContractAttacks;
+          void api.createStructuredProviderAdapter;
+          const observed = calls;
+          Object.getOwnPropertyDescriptor = originals.gopd;
+          Object.getOwnPropertyDescriptors = originals.gopds;
+          Object.getPrototypeOf = originals.getProto;
+          Reflect.apply = originals.apply;
+          console.log(JSON.stringify({ node: process.version, observed }));
+          if (observed !== 0) process.exit(91);
           NODE
+      - name: Focused security and compatibility
+        run: node --test test/m13-review-remediation.test.js test/runtime-authority.test.js test/provider-adapter.test.js test/provider-adapter-m13.test.js test/contract-attacks.test.js test/m8-runtime-brand-authority.test.js
+      - name: Full repository suite
+        run: npm test
+
+  node22_stress:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: python3 scripts/qa/m13-round12-lazy-generation-remediation.py
+      - name: Repeat focused authority suite
+        run: |
+          for i in 1 2 3; do
+            echo "Round12 stress pass $i"
+            node --test test/m13-review-remediation.test.js test/runtime-authority.test.js test/provider-adapter.test.js test/provider-adapter-m13.test.js test/contract-attacks.test.js test/m8-runtime-brand-authority.test.js
+          done
