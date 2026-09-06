@@ -1,0 +1,55 @@
+name: M13 Round12 compatibility
+
+on:
+  push:
+    branches: [milestone-13-runtime-slice-a]
+    paths:
+      - .github/workflows/m13-round12-compatibility.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compatibility:
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["14.21.3", "16.20.2"]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Apply Round12 candidate
+        run: |
+          python3 scripts/qa/m13-round12-lazy-generation-remediation.py
+          python3 scripts/qa/m13-round12-lazy-generation-remediation-v2.py
+          python3 scripts/qa/m13-round12-lazy-generation-remediation-v3.py
+      - name: Syntax and bootstrap
+        run: |
+          node --check src/package-authority.js
+          node --check src/index.js
+          node --check src/contract-attacks-core.js
+          node --check src/provider-adapter-m13.js
+          git diff --check
+          node - <<'NODE'
+          const api = require('./src');
+          if (!api || typeof api !== 'object') throw new Error('root API unavailable');
+          NODE
+      - name: Node 14 historical fail-closed contract
+        if: matrix.node == '14.21.3'
+        run: |
+          node - <<'NODE'
+          const api = require('./src');
+          const authority = require('./src/runtime-authority');
+          if (authority.consumerPrimordialsAvailable !== false) throw new Error('Node14 authority contract changed');
+          Promise.resolve(api.runContractAttacks({})).then(
+            () => { throw new Error('Node14 M8 unexpectedly executed'); },
+            () => {}
+          );
+          NODE
+      - name: Node 16 focused compatibility
+        if: matrix.node == '16.20.2'
+        run: node --test test/contract-attacks.test.js test/provider-adapter.test.js test/provider-adapter-m13.test.js test/m13-review-remediation.test.js
