@@ -5,7 +5,7 @@ const path = require("node:path");
 const {
   GuidedInputError,
   loadConfigAfterPublicApi,
-  promptExplicit
+  createExplicitPromptSession
 } = require("./guided-cli-foundation");
 const {
   SESSION_VERSION,
@@ -23,13 +23,9 @@ function parseRunArguments(args) {
 
   for (let index = 0; index < args.length; index += 1) {
     const token = args[index];
-
     if (token !== "--config" && token !== "--session") {
-      throw guidedError(
-        "Usage: gotcha-ai run [--config path] [--session path]"
-      );
+      throw guidedError("Usage: gotcha-ai run [--config path] [--session path]");
     }
-
     if (index + 1 >= args.length) {
       throw guidedError(`${token} requires a path.`);
     }
@@ -50,7 +46,6 @@ function parseRunArguments(args) {
       }
       sessionPath = value;
     }
-
     index += 1;
   }
 
@@ -61,7 +56,6 @@ function requireRunConfigShape(config) {
   if (config === null || typeof config !== "object") {
     throw guidedError("Gotcha config must export an object.");
   }
-
   if (!Object.prototype.hasOwnProperty.call(config, "task")) {
     throw guidedError("Gotcha config is missing task.");
   }
@@ -91,36 +85,30 @@ function requireRunConfigShape(config) {
   ) {
     throw guidedError("Gotcha config is missing provider.");
   }
-  if (typeof config.provider.transport !== "function") {
-    throw guidedError("Gotcha config provider.transport must be a function.");
-  }
   if (!Object.prototype.hasOwnProperty.call(config.provider, "model")) {
     throw guidedError("Gotcha config is missing provider.model.");
   }
-
+  if (typeof config.provider.transport !== "function") {
+    throw guidedError("Gotcha config provider.transport must be a function.");
+  }
   return config;
 }
 
 function createRunAdapters(publicApi, provider) {
-  const base = {
-    transport: provider.transport,
-    model: provider.model
-  };
-
   return {
     qualityContract: publicApi.createStructuredProviderAdapter({
-      transport: base.transport,
-      model: base.model,
+      transport: provider.transport,
+      model: provider.model,
       mode: "quality-contract"
     }),
     contractAttacks: publicApi.createStructuredProviderAdapter({
-      transport: base.transport,
-      model: base.model,
+      transport: provider.transport,
+      model: provider.model,
       mode: "contract-attacks"
     }),
     contractProtection: publicApi.createStructuredProviderAdapter({
-      transport: base.transport,
-      model: base.model,
+      transport: provider.transport,
+      model: provider.model,
       mode: "contract-protection"
     })
   };
@@ -139,7 +127,6 @@ async function collectContractDecisions(draft, io) {
 
   for (let index = 0; index < draft.rules.length; index += 1) {
     const rule = draft.rules[index];
-
     writeLine(io.output, "");
     writeLine(io.output, `QUALITY CONTRACT RULE ${index + 1}/${draft.rules.length}`);
     writeLine(io.output, `ID: ${rule.id}`);
@@ -150,8 +137,6 @@ async function collectContractDecisions(draft, io) {
     writeLine(io.output, `Rationale: ${rule.rationale}`);
 
     const decision = await io.prompt({
-      input: io.input,
-      output: io.output,
       message: "Decision [accept/edit/reject]: ",
       invalidMessage: "Choose accept, edit, or reject explicitly.\n",
       parse(answer) {
@@ -166,8 +151,6 @@ async function collectContractDecisions(draft, io) {
 
     if (decision === "edit") {
       const statement = await io.prompt({
-        input: io.input,
-        output: io.output,
         message: "Edited statement: ",
         invalidMessage: "Enter a non-empty edited statement.\n",
         parse(answer) {
@@ -175,7 +158,6 @@ async function collectContractDecisions(draft, io) {
           return value.length > 0 ? value : null;
         }
       });
-
       decisions.push({
         ruleId: rule.id,
         decision: "edit",
@@ -194,7 +176,6 @@ async function collectContractDecisions(draft, io) {
 
 function displayedSurvivors(result) {
   const experiment = result.experiment;
-
   if (
     experiment === null ||
     typeof experiment !== "object" ||
@@ -226,11 +207,7 @@ function displayedSurvivors(result) {
     displayed.push({ rank: index + 1, id, attack });
   }
 
-  return {
-    displayed,
-    total: ids.length,
-    experiment
-  };
+  return { displayed, total: ids.length, experiment };
 }
 
 function presentSurvivors(survivors, output) {
@@ -258,9 +235,7 @@ function presentSurvivors(survivors, output) {
 }
 
 async function selectSurvivor(survivors, io) {
-  const selectedId = await io.prompt({
-    input: io.input,
-    output: io.output,
+  return io.prompt({
     message: "Select a finding by displayed rank or exact attack ID: ",
     invalidMessage: "Select one displayed finding explicitly.\n",
     parse(answer) {
@@ -279,12 +254,9 @@ async function selectSurvivor(survivors, io) {
           return value;
         }
       }
-
       return null;
     }
   });
-
-  return selectedId;
 }
 
 function findDisplayedAttack(survivors, sourceAttackId) {
@@ -300,134 +272,145 @@ async function runGuided(options = {}) {
   const args = parseRunArguments(options.args || []);
   const input = options.input || process.stdin;
   const output = options.output || process.stdout;
-  const prompt = options.prompt || promptExplicit;
   const cwd = path.resolve(options.cwd || process.cwd());
-
   const configSelection =
     args.configPath === undefined
       ? path.join(cwd, "gotcha.config.js")
       : path.resolve(cwd, args.configPath);
 
+  // This helper captures the public Gotcha root before it executes the config.
   const loaded = loadConfigAfterPublicApi(configSelection);
   const config = requireRunConfigShape(loaded.config);
   const publicApi = loaded.publicApi;
-  const adapters = createRunAdapters(publicApi, config.provider);
-  const io = { input, output, prompt };
+  const promptSession =
+    typeof options.prompt === "function"
+      ? null
+      : createExplicitPromptSession({ input, output });
+  const prompt =
+    typeof options.prompt === "function"
+      ? options.prompt
+      : promptSession.prompt;
+  const io = { output, prompt };
 
-  writeLine(output, "DRAFTING QUALITY CONTRACT");
-  const draft = await publicApi.draftQualityContract({
-    task: config.task,
-    examples: config.examples,
-    generator: adapters.qualityContract
-  });
+  try {
+    const adapters = createRunAdapters(publicApi, config.provider);
 
-  const decisions = await collectContractDecisions(draft, io);
-  const confirmed = publicApi.confirmQualityContract({
-    draft,
-    decisions
-  });
+    writeLine(output, "DRAFTING QUALITY CONTRACT");
+    const draft = await publicApi.draftQualityContract({
+      task: config.task,
+      examples: config.examples,
+      generator: adapters.qualityContract
+    });
 
-  if (confirmed.status === "no-active-rules") {
+    const decisions = await collectContractDecisions(draft, io);
+    const confirmed = publicApi.confirmQualityContract({ draft, decisions });
+
+    if (confirmed.status === "no-active-rules") {
+      writeLine(output, "");
+      writeLine(output, "NO ACTIVE RULES");
+      writeLine(
+        output,
+        "No confirmed quality rules remain, so Gotcha will not attack this case."
+      );
+      return { state: "no-active-rules", sessionPath: null };
+    }
+
     writeLine(output, "");
-    writeLine(output, "NO ACTIVE RULES");
-    writeLine(output, "No confirmed quality rules remain, so Gotcha will not attack this case.");
-    return {
-      state: "no-active-rules",
-      sessionPath: null
-    };
-  }
+    writeLine(output, "ATTACKING CURRENT EVALUATOR");
+    const attackResult = await publicApi.runContractAttacks({
+      contract: confirmed,
+      input: config.case.input,
+      expectedOutput: config.case.expectedOutput,
+      evaluator: config.evaluator,
+      generator: adapters.contractAttacks
+    });
 
-  writeLine(output, "");
-  writeLine(output, "ATTACKING CURRENT EVALUATOR");
-  const attackResult = await publicApi.runContractAttacks({
-    contract: confirmed,
-    input: config.case.input,
-    expectedOutput: config.case.expectedOutput,
-    evaluator: config.evaluator,
-    generator: adapters.contractAttacks
-  });
+    const survivors = displayedSurvivors(attackResult);
+    if (survivors.total === 0) {
+      writeLine(output, "");
+      writeLine(output, "NO SURVIVING BLIND SPOT FOUND");
+      writeLine(
+        output,
+        "Gotcha found no generated attack that survived this evaluator run."
+      );
+      writeLine(output, "This does not prove the evaluator is globally correct.");
+      return { state: "no-survivor", sessionPath: null };
+    }
 
-  const survivors = displayedSurvivors(attackResult);
-  if (survivors.total === 0) {
+    presentSurvivors(survivors, output);
+    const sourceAttackId = await selectSurvivor(survivors, io);
+    const selectedAttack = findDisplayedAttack(survivors, sourceAttackId);
+
     writeLine(output, "");
-    writeLine(output, "NO SURVIVING BLIND SPOT FOUND");
-    writeLine(output, "Gotcha found no generated attack that survived this evaluator run.");
-    writeLine(output, "This does not prove the evaluator is globally correct.");
-    return {
-      state: "no-survivor",
-      sessionPath: null
+    writeLine(output, `SELECTED FINDING: ${sourceAttackId}`);
+    writeLine(output, "GENERATING PROPOSED PROTECTION");
+
+    const generated = await publicApi.generateContractProtectionProposal({
+      experiment: survivors.experiment,
+      sourceAttackId,
+      generator: adapters.contractProtection
+    });
+
+    if (
+      generated === null ||
+      typeof generated !== "object" ||
+      generated.state !== "proposal-ready" ||
+      generated.proposal === null ||
+      typeof generated.proposal !== "object"
+    ) {
+      throw guidedError("Gotcha did not return a proposal-ready protection result.");
+    }
+
+    const proposal = generated.proposal;
+    writeLine(output, "");
+    writeLine(output, "PROPOSED PROTECTION");
+    writeLine(output, `Statement: ${proposal.protection.statement}`);
+    writeLine(output, `Rationale: ${proposal.protection.rationale}`);
+    writeLine(output, "This proposal has not been applied or verified.");
+
+    const session = {
+      version: SESSION_VERSION,
+      kind: SESSION_KIND,
+      experiment: survivors.experiment,
+      sourceAttackId,
+      proposal
     };
+
+    const sessionPath = writeSession(session, {
+      baseDirectory: cwd,
+      sessionPath:
+        args.sessionPath === undefined
+          ? undefined
+          : path.resolve(cwd, args.sessionPath)
+    });
+
+    writeLine(output, "");
+    writeLine(output, `SESSION SAVED: ${sessionPath}`);
+    writeLine(
+      output,
+      "Session data contains local evaluation evidence and may be sensitive project data."
+    );
+    writeLine(
+      output,
+      "Keep the baseline evaluator unchanged and add stronger behavior separately as improvedEvaluator."
+    );
+    writeLine(
+      output,
+      `Command: gotcha-ai verify ${JSON.stringify(sessionPath)} --config ${JSON.stringify(loaded.configPath)}`
+    );
+
+    return {
+      state: "session-written",
+      sourceAttackId,
+      selectedAttack,
+      proposal,
+      sessionPath
+    };
+  } finally {
+    if (promptSession !== null) {
+      promptSession.close();
+    }
   }
-
-  presentSurvivors(survivors, output);
-  const sourceAttackId = await selectSurvivor(survivors, io);
-  const selectedAttack = findDisplayedAttack(survivors, sourceAttackId);
-
-  writeLine(output, "");
-  writeLine(output, `SELECTED FINDING: ${sourceAttackId}`);
-  writeLine(output, "GENERATING PROPOSED PROTECTION");
-
-  const generated = await publicApi.generateContractProtectionProposal({
-    experiment: survivors.experiment,
-    sourceAttackId,
-    generator: adapters.contractProtection
-  });
-
-  if (
-    generated === null ||
-    typeof generated !== "object" ||
-    generated.state !== "proposal-ready" ||
-    generated.proposal === null ||
-    typeof generated.proposal !== "object"
-  ) {
-    throw guidedError("Gotcha did not return a proposal-ready protection result.");
-  }
-
-  const proposal = generated.proposal;
-  writeLine(output, "");
-  writeLine(output, "PROPOSED PROTECTION");
-  writeLine(output, `Statement: ${proposal.protection.statement}`);
-  writeLine(output, `Rationale: ${proposal.protection.rationale}`);
-  writeLine(output, "This proposal has not been applied or verified.");
-
-  const session = {
-    version: SESSION_VERSION,
-    kind: SESSION_KIND,
-    experiment: survivors.experiment,
-    sourceAttackId,
-    proposal
-  };
-
-  const sessionPath = writeSession(session, {
-    baseDirectory: cwd,
-    sessionPath:
-      args.sessionPath === undefined
-        ? undefined
-        : path.resolve(cwd, args.sessionPath)
-  });
-
-  writeLine(output, "");
-  writeLine(output, `SESSION SAVED: ${sessionPath}`);
-  writeLine(
-    output,
-    "Session data contains local evaluation evidence and may be sensitive project data."
-  );
-  writeLine(
-    output,
-    "Next: keep the baseline evaluator unchanged, add a separate improvedEvaluator, then verify this session."
-  );
-  writeLine(
-    output,
-    `Command: gotcha-ai verify ${JSON.stringify(sessionPath)} --config ${JSON.stringify(loaded.configPath)}`
-  );
-
-  return {
-    state: "session-written",
-    sourceAttackId,
-    selectedAttack,
-    proposal,
-    sessionPath
-  };
 }
 
 module.exports = {
