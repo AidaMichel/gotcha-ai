@@ -27,11 +27,25 @@ function primitiveJson(value) {
     return JSON.stringify(value);
   }
 
-  if (typeof value === "number" && Number.isFinite(value)) {
+  if (
+    typeof value === "number" &&
+    Number.isFinite(value) &&
+    !Object.is(value, -0)
+  ) {
     return JSON.stringify(value);
   }
 
   throw sessionError("Session contains unsupported data.");
+}
+
+function ordinaryEnumerableDataDescriptor(descriptor) {
+  return (
+    descriptor !== undefined &&
+    Object.prototype.hasOwnProperty.call(descriptor, "value") &&
+    !Object.prototype.hasOwnProperty.call(descriptor, "get") &&
+    !Object.prototype.hasOwnProperty.call(descriptor, "set") &&
+    descriptor.enumerable === true
+  );
 }
 
 function recordEntries(value) {
@@ -46,13 +60,7 @@ function recordEntries(value) {
     }
 
     const descriptor = descriptors[key];
-    if (
-      descriptor === undefined ||
-      !("value" in descriptor) ||
-      "get" in descriptor ||
-      "set" in descriptor ||
-      descriptor.enumerable !== true
-    ) {
+    if (!ordinaryEnumerableDataDescriptor(descriptor)) {
       throw sessionError("Session records must contain enumerable data properties only.");
     }
 
@@ -78,13 +86,7 @@ function arrayEntries(value) {
       throw sessionError("Session arrays must preserve ordinary index order.");
     }
     const descriptor = descriptors[key];
-    if (
-      descriptor === undefined ||
-      !("value" in descriptor) ||
-      "get" in descriptor ||
-      "set" in descriptor ||
-      descriptor.enumerable !== true
-    ) {
+    if (!ordinaryEnumerableDataDescriptor(descriptor)) {
       throw sessionError("Session arrays must contain enumerable data elements only.");
     }
     entries[index] = descriptor.value;
@@ -163,18 +165,23 @@ function exactSessionEnvelope(value) {
     return false;
   }
 
-  const keys = Object.keys(value);
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const keys = Reflect.ownKeys(descriptors);
   if (keys.length !== SESSION_KEYS.length) return false;
 
   for (let index = 0; index < SESSION_KEYS.length; index += 1) {
-    if (!Object.prototype.hasOwnProperty.call(value, SESSION_KEYS[index])) {
+    const key = SESSION_KEYS[index];
+    if (
+      keys[index] !== key ||
+      !ordinaryEnumerableDataDescriptor(descriptors[key])
+    ) {
       return false;
     }
   }
 
   return (
-    value.version === SESSION_VERSION &&
-    value.kind === SESSION_KIND
+    descriptors.version.value === SESSION_VERSION &&
+    descriptors.kind.value === SESSION_KIND
   );
 }
 
