@@ -5,6 +5,7 @@ on:
     branches: [milestone-13-runtime-slice-a]
     paths:
       - .github/workflows/m13-round12-preload-retention-audit.yml
+      - scripts/qa/m13-round12-lazy-generation-remediation-v3.py
   workflow_dispatch:
 
 permissions:
@@ -22,6 +23,7 @@ jobs:
         run: |
           python3 scripts/qa/m13-round12-lazy-generation-remediation.py
           python3 scripts/qa/m13-round12-lazy-generation-remediation-v2.py
+          python3 scripts/qa/m13-round12-lazy-generation-remediation-v3.py
       - name: Probe non-root primordial retention
         run: |
           node - <<'NODE'
