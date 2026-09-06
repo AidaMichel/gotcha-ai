@@ -1,4 +1,4 @@
-name: M13 independent Inspector authority audit
+name: M13 independent authority audit
 
 on:
   push:
@@ -14,7 +14,7 @@ env:
   AUDIT_HEAD: 568050c660d1cd7ae211f0fbe2e7c9978bf7f8d5
 
 jobs:
-  util_sources:
+  binding_probe:
     strategy:
       fail-fast: false
       matrix:
@@ -27,13 +27,62 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-      - name: Print util/types callable identities
+      - name: Probe process binding under poisoned util exports
         run: |
           node - <<'NODE'
+          const util = require('node:util');
           const types = require('node:util/types');
-          const names = ['isProxy','isPromise','isDate','isRegExp','isMap','isSet','isNativeError','isAnyArrayBuffer','isBoxedPrimitive','isArgumentsObject','isGeneratorObject','isModuleNamespaceObject','isMapIterator','isSetIterator','isExternal'];
-          for (const name of names) {
-            const fn = types[name];
-            console.log(JSON.stringify({ name, fnName: fn && fn.name, length: fn && fn.length, source: typeof fn === 'function' ? Function.prototype.toString.call(fn) : null }));
+          let parentTypesCalls = 0;
+          const parentDesc = Object.getOwnPropertyDescriptor(util, 'types');
+          if (parentDesc && parentDesc.configurable) {
+            Object.defineProperty(util, 'types', {
+              configurable: true,
+              enumerable: parentDesc.enumerable,
+              get() { parentTypesCalls += 1; throw new Error('poison parent util.types'); }
+            });
           }
+          let isProxyCalls = 0;
+          const proxyDesc = Object.getOwnPropertyDescriptor(types, 'isProxy');
+          if (proxyDesc && proxyDesc.configurable) {
+            const original = proxyDesc.value;
+            Object.defineProperty(types, 'isProxy', {
+              ...proxyDesc,
+              value: new Proxy(original, {
+                apply(target, receiver, args) {
+                  isProxyCalls += 1;
+                  return Reflect.apply(target, receiver, args);
+                }
+              })
+            });
+          }
+          const processDesc = Object.getOwnPropertyDescriptor(globalThis, 'process');
+          const processValue = processDesc && 'value' in processDesc ? processDesc.value : null;
+          const bindingDesc = processValue && Object.getOwnPropertyDescriptor(processValue, 'binding');
+          let binding = null;
+          let error = null;
+          try {
+            binding = bindingDesc && typeof bindingDesc.value === 'function'
+              ? Reflect.apply(bindingDesc.value, processValue, ['util'])
+              : null;
+          } catch (e) { error = e; }
+          let keys = [];
+          try { keys = binding ? Reflect.ownKeys(binding).map(String) : []; } catch {}
+          const candidates = {};
+          for (const name of ['isProxy','isPromise','isDate','isRegExp','isMap','isSet']) {
+            let d;
+            try { d = binding && Object.getOwnPropertyDescriptor(binding, name); } catch {}
+            candidates[name] = d && typeof d.value === 'function' ? {
+              name: d.value.name,
+              length: d.value.length,
+              source: Function.prototype.toString.call(d.value)
+            } : null;
+          }
+          console.log(JSON.stringify({
+            node: process.version,
+            parentTypesCalls,
+            isProxyCalls,
+            bindingError: error && error.message,
+            bindingKeys: keys,
+            candidates
+          }));
           NODE
