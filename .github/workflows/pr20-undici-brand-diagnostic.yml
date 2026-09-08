@@ -1,4 +1,4 @@
-name: PR20 Undici brand diagnostic
+name: PR20 Undici prototype restoration diagnostic
 
 on:
   push:
@@ -10,19 +10,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: [20, 24, 26]
+        node: [20, 22, 24, 26]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-      - name: Inspect rewritten brands
-        shell: bash
+      - name: Test temporary authenticated prototype restoration
         run: |
           node <<'NODE'
           "use strict";
-          const make = {
+          const makers = {
             Headers: () => new Headers(),
             FormData: () => new FormData(),
             Request: () => new Request("https://example.com/"),
@@ -34,45 +33,37 @@ jobs:
             Request: ["getter", "url", []],
             Response: ["getter", "status", []]
           };
-          for (const name of Object.keys(make)) {
-            if (typeof globalThis[name] !== "function") continue;
+          for (const [name, make] of Object.entries(makers)) {
             const C = globalThis[name];
-            const value = make[name]();
-            const keysBefore = Reflect.ownKeys(value);
-            const symbolInfo = keysBefore
-              .filter((k) => typeof k === "symbol")
-              .map((k) => {
-                const d = Object.getOwnPropertyDescriptor(value, k);
-                return {
-                  key: String(k),
-                  enumerable: d && d.enumerable,
-                  configurable: d && d.configurable,
-                  writable: d && "writable" in d ? d.writable : null,
-                  valueType: d && "value" in d ? typeof d.value : "accessor"
-                };
-              });
-            const [kind, property, args] = probes[name];
-            const d = Object.getOwnPropertyDescriptor(C.prototype, property);
-            const callable = kind === "getter" ? d.get : d.value;
-            const tryProbe = () => {
+            if (typeof C !== "function") continue;
+            const [kind, key, args] = probes[name];
+            const d = Object.getOwnPropertyDescriptor(C.prototype, key);
+            const fn = kind === "getter" ? d.get : d.value;
+            function testReceiver(receiver) {
+              const original = Object.getPrototypeOf(receiver);
+              Object.setPrototypeOf(receiver, C.prototype);
+              let result;
               try {
-                const result = Reflect.apply(callable, value, args);
-                return { ok: true, type: typeof result, value: typeof result === "object" ? "[object]" : String(result) };
+                const output = Reflect.apply(fn, receiver, args);
+                result = { ok: true, type: typeof output };
               } catch (error) {
-                return { ok: false, name: error && error.name, message: error && error.message };
+                result = { ok: false, name: error && error.name, message: error && error.message };
+              } finally {
+                Object.setPrototypeOf(receiver, original);
               }
-            };
-            const beforeProbe = tryProbe();
-            Object.setPrototypeOf(value, Object.prototype);
-            const afterProbe = tryProbe();
+              return {
+                result,
+                restored: Object.getPrototypeOf(receiver) === original
+              };
+            }
+            const genuine = make();
+            Object.setPrototypeOf(genuine, Object.prototype);
+            const plain = {};
             console.log(JSON.stringify({
               node: process.version,
               name,
-              constructorLength: C.length,
-              ownKeys: keysBefore.map(String),
-              symbols: symbolInfo,
-              beforeProbe,
-              afterProbe
+              genuine: testReceiver(genuine),
+              plain: testReceiver(plain)
             }));
           }
           NODE
