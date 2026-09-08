@@ -22,6 +22,7 @@ jobs:
         run: python3 .github/scripts/pr20_remediate.py
       - name: Diagnose retained authority
         run: |
+          GOTCHA_PR20_DIAGNOSTIC=1 node -e "require('./src/ai-data-core')"
           node <<'NODE'
           const p = require('./src/package-authority');
           const r = require('./src/runtime-authority');
