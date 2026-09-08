@@ -1,0 +1,69 @@
+name: PR20 Undici shield diagnostic
+
+on:
+  push:
+    branches:
+      - fix/pr20-late-m8-undici
+
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22, 24, 26]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Test exact-target hasInstance shield
+        shell: bash
+        run: |
+          node <<'NODE'
+          "use strict";
+          const makers = {
+            Headers: () => new Headers(),
+            FormData: () => new FormData(),
+            Request: () => new Request("https://example.com/"),
+            Response: () => new Response("ok")
+          };
+          const probes = {
+            Headers: ["method", "get", ["x"]],
+            FormData: ["method", "get", ["x"]],
+            Request: ["getter", "url", []],
+            Response: ["getter", "status", []]
+          };
+          for (const [name, make] of Object.entries(makers)) {
+            const C = globalThis[name];
+            if (typeof C !== "function") continue;
+            const [kind, key, args] = probes[name];
+            const d = Object.getOwnPropertyDescriptor(C.prototype, key);
+            const fn = kind === "getter" ? d.get : d.value;
+            const genuine = make();
+            const plain = {};
+            Object.setPrototypeOf(genuine, Object.prototype);
+            function invoke(receiver) {
+              try {
+                const result = Reflect.apply(fn, receiver, args);
+                return { ok: true, type: typeof result };
+              } catch (e) {
+                return { ok: false, name: e && e.name, message: e && e.message };
+              }
+            }
+            const before = { genuine: invoke(genuine), plain: invoke(plain) };
+            const old = Object.getOwnPropertyDescriptor(C, Symbol.hasInstance);
+            Object.defineProperty(C, Symbol.hasInstance, {
+              value(candidate) { return candidate === genuine; },
+              configurable: true
+            });
+            let shielded;
+            try {
+              shielded = { genuine: invoke(genuine), plain: invoke(plain) };
+            } finally {
+              if (old === undefined) delete C[Symbol.hasInstance];
+              else Object.defineProperty(C, Symbol.hasInstance, old);
+            }
+            console.log(JSON.stringify({ node: process.version, name, before, shielded }));
+          }
+          NODE
