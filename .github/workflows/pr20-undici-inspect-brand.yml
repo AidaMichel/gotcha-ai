@@ -1,0 +1,58 @@
+name: PR20 Undici inspect brand
+
+on:
+  push:
+    branches:
+      - fix/pr20-late-m8-undici
+
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22, 24, 26]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Verify custom inspectors as private-brand probes
+        shell: bash
+        run: |
+          node <<'NODE'
+          "use strict";
+          const inspectKey = Symbol.for("nodejs.util.inspect.custom");
+          const makers = {
+            Headers: () => new Headers({ a: "b" }),
+            FormData: () => { const v = new FormData(); v.append("a", "b"); return v; },
+            Request: () => new Request("https://example.com/"),
+            Response: () => new Response("ok")
+          };
+          for (const [name, make] of Object.entries(makers)) {
+            const C = globalThis[name];
+            if (typeof C !== "function") continue;
+            const d = Object.getOwnPropertyDescriptor(C.prototype, inspectKey);
+            const fn = d && d.value;
+            const genuine = make();
+            const plain = {};
+            Object.setPrototypeOf(genuine, Object.prototype);
+            function call(receiver) {
+              if (typeof fn !== "function") return { missing: true };
+              try {
+                const result = Reflect.apply(fn, receiver, [0, {}, () => ""]);
+                return { ok: true, resultType: typeof result };
+              } catch (e) {
+                return { ok: false, name: e && e.name, message: e && e.message };
+              }
+            }
+            console.log(JSON.stringify({
+              node: process.version,
+              name,
+              methodName: typeof fn === "function" ? fn.name : null,
+              methodLength: typeof fn === "function" ? fn.length : null,
+              genuine: call(genuine),
+              plain: call(plain)
+            }));
+          }
+          NODE
