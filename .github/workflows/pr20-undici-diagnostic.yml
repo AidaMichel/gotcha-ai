@@ -1,45 +1,41 @@
-name: PR20 Undici diagnostic
+name: PR20 remediation proof
 
 on:
   push:
     branches:
       - fix/pr20-late-m8-undici
 
+permissions:
+  contents: write
+
 jobs:
-  probe:
-    strategy:
-      fail-fast: false
-      matrix:
-        node: [20, 22, 24, 26]
+  prove:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node }}
-      - name: Print Undici prototype metadata
-        shell: bash
+          node-version: 24
+      - name: Apply bounded remediation
+        run: python3 .github/scripts/pr20_remediate.py
+      - name: Focused proof
         run: |
-          node <<'NODE'
-          "use strict";
-          for (const name of ["Headers", "FormData", "Request", "Response"]) {
-            const C = globalThis[name];
-            console.log(`=== ${name} ===`);
-            if (typeof C !== "function") {
-              console.log("missing");
-              continue;
-            }
-            console.log("constructor.length", C.length, "name", JSON.stringify(C.name));
-            for (const key of Reflect.ownKeys(C.prototype)) {
-              if (key === "constructor") continue;
-              const d = Object.getOwnPropertyDescriptor(C.prototype, key);
-              if (!d) continue;
-              if (typeof d.value === "function") {
-                console.log("method", String(key), "length", d.value.length, "name", JSON.stringify(d.value.name));
-              }
-              if (typeof d.get === "function") {
-                console.log("getter", String(key), "length", d.get.length, "name", JSON.stringify(d.get.name));
-              }
-            }
-          }
-          NODE
+          node --check src/ai-data-core.js
+          node --check test/m8-pr20-late-undici.test.js
+          node --test test/m8-pr20-late-undici.test.js test/m8-runtime-brand-authority.test.js
+          git diff --check
+      - name: Full repository proof
+        run: npm test
+      - name: Commit only after proof
+        run: |
+          if git diff --quiet -- src/ai-data-core.js test/m8-pr20-late-undici.test.js; then
+            echo "Production remediation already committed."
+            exit 0
+          fi
+          git config user.name "AidaMichel"
+          git config user.email "126730924+AidaMichel@users.noreply.github.com"
+          git add src/ai-data-core.js test/m8-pr20-late-undici.test.js
+          git commit -m "fix: close late PR20 Undici brand bypasses"
+          git push origin HEAD:fix/pr20-late-m8-undici
