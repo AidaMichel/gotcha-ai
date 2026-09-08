@@ -1,5 +1,7 @@
 from pathlib import Path
 
+# Temporary proof applicator for the isolated PR20 remediation branch.
+
 
 def replace_once(path, old, new, label):
     text = path.read_text()
