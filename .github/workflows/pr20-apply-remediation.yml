@@ -1,4 +1,5 @@
 name: PR20 apply remediation
+# Triggered after initial diagnostic validation.
 
 on:
   workflow_dispatch:
