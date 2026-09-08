@@ -11,6 +11,7 @@ if (
   // these fields and therefore never load a rejected host graph.
   module.exports = {
     objectFreeze(value) { return value; },
+    objectSetPrototypeOf: null,
     functionToString: null,
     consumerPrimordialsAvailable: false,
     consumerPrimordials: { functionToString: null },
@@ -1356,6 +1357,7 @@ const consumerPrimordials = consumerPrimordialsBundleAvailable
 
 const exported = {
   objectFreeze: pristineObjectFreeze,
+  objectSetPrototypeOf: packageAuthority.ObjectSetPrototypeOf,
   functionToString: pristineFunctionToString,
   consumerPrimordialsAvailable,
   consumerPrimordials,

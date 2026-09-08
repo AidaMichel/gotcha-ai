@@ -50,6 +50,9 @@ const getOwnPropertyDescriptor =
 const getPrototypeOf =
   Object.getPrototypeOf;
 
+const setPrototypeOf =
+  runtimeAuthority.objectSetPrototypeOf;
+
 const ownKeys =
   Reflect.ownKeys;
 
@@ -1139,6 +1142,8 @@ function resolveRequiredUndiciConstructor(
 
 function captureRequiredUndiciProbe(
   constructorName,
+  expectedConstructorLength,
+  alternateExpectedConstructorLength,
   propertyName,
   kind,
   expectedLength,
@@ -1170,10 +1175,20 @@ function captureRequiredUndiciProbe(
 
   if (
     constructor === null ||
-    !hasExpectedCallableMetadata(
-      constructor,
-      constructorName,
-      0
+    !(
+      hasExpectedCallableMetadata(
+        constructor,
+        constructorName,
+        expectedConstructorLength
+      ) ||
+      (
+        alternateExpectedConstructorLength !== null &&
+        hasExpectedCallableMetadata(
+          constructor,
+          constructorName,
+          alternateExpectedConstructorLength
+        )
+      )
     ) ||
     !sourceBelongsToUndiciBundle(
       constructor
@@ -1251,6 +1266,7 @@ function captureRequiredUndiciProbe(
 
   return {
     constructor,
+    prototype,
     method: callable,
     args
   };
@@ -2204,24 +2220,69 @@ const trustedHostBrandMethods =
 const headersBrandProbe =
   captureRequiredUndiciProbe(
     "Headers",
+    0,
+    null,
     "get",
     "method",
     1,
     ["__gotcha_brand_probe__"]
   );
 
+const formDataBrandProbe =
+  captureRequiredUndiciProbe(
+    "FormData",
+    0,
+    1,
+    "get",
+    "method",
+    1,
+    ["__gotcha_brand_probe__"]
+  );
+
+const requestBrandProbe =
+  captureRequiredUndiciProbe(
+    "Request",
+    1,
+    null,
+    "url",
+    "getter",
+    0,
+    []
+  );
+
+const responseBrandProbe =
+  captureRequiredUndiciProbe(
+    "Response",
+    0,
+    null,
+    "status",
+    "getter",
+    0,
+    []
+  );
+
 const additionalHostBrandMethodAuthorityAvailable =
   !undiciRuntimeExpected ||
   (
     undiciHostBrandAuthorityAvailable &&
-    headersBrandProbe !== null
+    headersBrandProbe !== null &&
+    formDataBrandProbe !== null &&
+    requestBrandProbe !== null &&
+    responseBrandProbe !== null &&
+    typeof setPrototypeOf === "function"
   );
 
 const additionalHostBrandMethodProbes =
   objectFreeze(
-    headersBrandProbe === null
+    !additionalHostBrandMethodAuthorityAvailable ||
+    !undiciRuntimeExpected
       ? []
-      : [headersBrandProbe]
+      : [
+          headersBrandProbe,
+          formDataBrandProbe,
+          requestBrandProbe,
+          responseBrandProbe
+        ]
   );
 
 const pristineWeakRefConstructor =
@@ -2619,6 +2680,66 @@ function probeAdditionalHostBrand(
 
     return true;
   } catch {}
+
+  if (typeof setPrototypeOf !== "function") {
+    throw hostBrandAuthorityError();
+  }
+
+  let originalPrototype;
+
+  try {
+    originalPrototype =
+      getPrototypeOf(value);
+  } catch {
+    throw hostBrandAuthorityError();
+  }
+
+  let prototypeInstalled = false;
+
+  try {
+    reflectApply(
+      setPrototypeOf,
+      undefined,
+      [value, probe.prototype]
+    );
+    prototypeInstalled = true;
+
+    try {
+      reflectApply(
+        probe.method,
+        value,
+        probe.args
+      );
+
+      return true;
+    } catch {}
+  } catch {}
+  finally {
+    if (prototypeInstalled) {
+      try {
+        reflectApply(
+          setPrototypeOf,
+          undefined,
+          [value, originalPrototype]
+        );
+      } catch {
+        throw hostBrandAuthorityError();
+      }
+
+      let restoredPrototype;
+
+      try {
+        restoredPrototype =
+          getPrototypeOf(value);
+      } catch {
+        throw hostBrandAuthorityError();
+      }
+
+      if (restoredPrototype !== originalPrototype) {
+        throw hostBrandAuthorityError();
+      }
+    }
+  }
 
   let previousHasInstanceDescriptor;
 
