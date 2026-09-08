@@ -1,158 +1,329 @@
 from pathlib import Path
 
-source = Path("src/ai-data-core.js")
-text = source.read_text()
 
-old = '''function isStructuredCloneProbeSafe(
+def replace_once(path, old, new, label):
+    text = path.read_text()
+    if new in text:
+        return
+    if text.count(old) != 1:
+        raise SystemExit(f"{label} is missing or ambiguous")
+    path.write_text(text.replace(old, new, 1))
+
+
+package_authority = Path("src/package-authority.js")
+replace_once(
+    package_authority,
+    '''const ObjectGetPrototypeOf = captureNativeDataFunction(
+  ObjectConstructor,
+  "getPrototypeOf",
+  "function getPrototypeOf() { [native code] }"
+);
+const ObjectDefineProperty = captureNativeDataFunction(''',
+    '''const ObjectGetPrototypeOf = captureNativeDataFunction(
+  ObjectConstructor,
+  "getPrototypeOf",
+  "function getPrototypeOf() { [native code] }"
+);
+const ObjectSetPrototypeOf = captureNativeDataFunction(
+  ObjectConstructor,
+  "setPrototypeOf",
+  "function setPrototypeOf() { [native code] }"
+);
+const ObjectDefineProperty = captureNativeDataFunction(''',
+    "package Object.setPrototypeOf capture",
+)
+replace_once(
+    package_authority,
+    '''  typeof ObjectGetPrototypeOf === "function" &&
+  typeof ObjectDefineProperty === "function" &&''',
+    '''  typeof ObjectGetPrototypeOf === "function" &&
+  typeof ObjectSetPrototypeOf === "function" &&
+  typeof ObjectDefineProperty === "function" &&''',
+    "package Object.setPrototypeOf mandatory authority",
+)
+replace_once(
+    package_authority,
+    '''  ObjectGetOwnPropertyDescriptor,
+  ObjectGetPrototypeOf,
+  ObjectDefineProperty,''',
+    '''  ObjectGetOwnPropertyDescriptor,
+  ObjectGetPrototypeOf,
+  ObjectSetPrototypeOf,
+  ObjectDefineProperty,''',
+    "package Object.setPrototypeOf export",
+)
+
+runtime_authority = Path("src/runtime-authority.js")
+replace_once(
+    runtime_authority,
+    '''    objectFreeze(value) { return value; },
+    functionToString: null,''',
+    '''    objectFreeze(value) { return value; },
+    objectSetPrototypeOf: null,
+    functionToString: null,''',
+    "runtime unavailable Object.setPrototypeOf authority",
+)
+replace_once(
+    runtime_authority,
+    '''const exported = {
+  objectFreeze: pristineObjectFreeze,
+  functionToString: pristineFunctionToString,''',
+    '''const exported = {
+  objectFreeze: pristineObjectFreeze,
+  objectSetPrototypeOf: packageAuthority.ObjectSetPrototypeOf,
+  functionToString: pristineFunctionToString,''',
+    "runtime Object.setPrototypeOf export",
+)
+
+source = Path("src/ai-data-core.js")
+replace_once(
+    source,
+    '''const getPrototypeOf =
+  Object.getPrototypeOf;
+
+const ownKeys =''',
+    '''const getPrototypeOf =
+  Object.getPrototypeOf;
+
+const setPrototypeOf =
+  runtimeAuthority.objectSetPrototypeOf;
+
+const ownKeys =''',
+    "AI-data setPrototypeOf authority binding",
+)
+replace_once(
+    source,
+    '''function captureRequiredUndiciProbe(
+  constructorName,
+  propertyName,
+  kind,
+  expectedLength,
+  args
+) {''',
+    '''function captureRequiredUndiciProbe(
+  constructorName,
+  expectedConstructorLength,
+  propertyName,
+  kind,
+  expectedLength,
+  args
+) {''',
+    "Undici capture signature",
+)
+replace_once(
+    source,
+    '''    !hasExpectedCallableMetadata(
+      constructor,
+      constructorName,
+      0
+    ) ||''',
+    '''    !hasExpectedCallableMetadata(
+      constructor,
+      constructorName,
+      expectedConstructorLength
+    ) ||''',
+    "Undici constructor metadata",
+)
+replace_once(
+    source,
+    '''  return {
+    constructor,
+    method: callable,
+    args
+  };
+}''',
+    '''  return {
+    constructor,
+    prototype,
+    method: callable,
+    args
+  };
+}''',
+    "Undici probe prototype retention",
+)
+replace_once(
+    source,
+    '''const headersBrandProbe =
+  captureRequiredUndiciProbe(
+    "Headers",
+    "get",
+    "method",
+    1,
+    ["__gotcha_brand_probe__"]
+  );
+
+const additionalHostBrandMethodAuthorityAvailable =
+  !undiciRuntimeExpected ||
+  (
+    undiciHostBrandAuthorityAvailable &&
+    headersBrandProbe !== null
+  );
+
+const additionalHostBrandMethodProbes =
+  objectFreeze(
+    headersBrandProbe === null
+      ? []
+      : [headersBrandProbe]
+  );''',
+    '''const headersBrandProbe =
+  captureRequiredUndiciProbe(
+    "Headers",
+    0,
+    "get",
+    "method",
+    1,
+    ["__gotcha_brand_probe__"]
+  );
+
+const formDataBrandProbe =
+  captureRequiredUndiciProbe(
+    "FormData",
+    1,
+    "get",
+    "method",
+    1,
+    ["__gotcha_brand_probe__"]
+  );
+
+const requestBrandProbe =
+  captureRequiredUndiciProbe(
+    "Request",
+    1,
+    "url",
+    "getter",
+    0,
+    []
+  );
+
+const responseBrandProbe =
+  captureRequiredUndiciProbe(
+    "Response",
+    0,
+    "status",
+    "getter",
+    0,
+    []
+  );
+
+const additionalHostBrandMethodAuthorityAvailable =
+  !undiciRuntimeExpected ||
+  (
+    undiciHostBrandAuthorityAvailable &&
+    headersBrandProbe !== null &&
+    formDataBrandProbe !== null &&
+    requestBrandProbe !== null &&
+    responseBrandProbe !== null &&
+    typeof setPrototypeOf === "function"
+  );
+
+const additionalHostBrandMethodProbes =
+  objectFreeze(
+    !additionalHostBrandMethodAuthorityAvailable ||
+    !undiciRuntimeExpected
+      ? []
+      : [
+          headersBrandProbe,
+          formDataBrandProbe,
+          requestBrandProbe,
+          responseBrandProbe
+        ]
+  );''',
+    "Undici probe set",
+)
+replace_once(
+    source,
+    '''function probeAdditionalHostBrand(
+  probe,
   value
 ) {
-  if (
-    value === null ||
-    typeof value !== "object" ||
-    runtimeAuthority.isProxy(value)
-  ) {
-    return false;
+  try {
+    reflectApply(
+      probe.method,
+      value,
+      probe.args
+    );
+
+    return true;
+  } catch {}
+
+  let previousHasInstanceDescriptor;''',
+    '''function probeAdditionalHostBrand(
+  probe,
+  value
+) {
+  try {
+    reflectApply(
+      probe.method,
+      value,
+      probe.args
+    );
+
+    return true;
+  } catch {}
+
+  if (typeof setPrototypeOf !== "function") {
+    throw hostBrandAuthorityError();
   }
 
-  let descriptors;
+  let originalPrototype;
 
   try {
-    descriptors =
-      getOwnPropertyDescriptors(
-        value
-      );
+    originalPrototype =
+      getPrototypeOf(value);
   } catch {
-    return false;
+    throw hostBrandAuthorityError();
   }
 
-  for (
-    const key of ownKeys(descriptors)
-  ) {
-    if (typeof key === "symbol") {
-      return false;
-    }
+  let prototypeInstalled = false;
 
-    const descriptor =
-      descriptors[key];
-
-    if (
-      "get" in descriptor ||
-      "set" in descriptor
-    ) {
-      return false;
-    }
-
-    const child =
-      descriptor.value;
-
-    if (
-      typeof child === "function" ||
-      typeof child === "symbol" ||
-      (
-        child !== null &&
-        typeof child === "object"
-      )
-    ) {
-      return false;
-    }
-  }
-
-  return true;
-}
-'''
-
-new = '''function isStructuredCloneProbeSafe(
-  value
-) {
-  if (
-    value === null ||
-    typeof value !== "object" ||
-    runtimeAuthority.isProxy(value)
-  ) {
-    return false;
-  }
-
-  const pending = [value];
-  const seen = new WeakSetConstructor();
-
-  while (pending.length > 0) {
-    const current = pending.pop();
-
-    if (
-      current === null ||
-      typeof current !== "object" ||
-      runtimeAuthority.isProxy(current)
-    ) {
-      return false;
-    }
-
-    if (seen.has(current)) {
-      continue;
-    }
-
-    seen.add(current);
-
-    let descriptors;
+  try {
+    reflectApply(
+      setPrototypeOf,
+      undefined,
+      [value, probe.prototype]
+    );
+    prototypeInstalled = true;
 
     try {
-      descriptors =
-        getOwnPropertyDescriptors(
-          current
+      reflectApply(
+        probe.method,
+        value,
+        probe.args
+      );
+
+      return true;
+    } catch {}
+  } catch {}
+  finally {
+    if (prototypeInstalled) {
+      try {
+        reflectApply(
+          setPrototypeOf,
+          undefined,
+          [value, originalPrototype]
         );
-    } catch {
-      return false;
-    }
-
-    for (
-      const key of ownKeys(descriptors)
-    ) {
-      if (typeof key === "symbol") {
-        return false;
+      } catch {
+        throw hostBrandAuthorityError();
       }
 
-      const descriptor =
-        descriptors[key];
+      let restoredPrototype;
 
-      if (
-        "get" in descriptor ||
-        "set" in descriptor
-      ) {
-        return false;
+      try {
+        restoredPrototype =
+          getPrototypeOf(value);
+      } catch {
+        throw hostBrandAuthorityError();
       }
 
-      const child =
-        descriptor.value;
-      const childType =
-        typeof child;
-
-      if (
-        childType === "function" ||
-        childType === "symbol" ||
-        childType === "bigint" ||
-        childType === "undefined"
-      ) {
-        return false;
-      }
-
-      if (
-        child !== null &&
-        childType === "object"
-      ) {
-        pending.push(child);
+      if (restoredPrototype !== originalPrototype) {
+        throw hostBrandAuthorityError();
       }
     }
   }
 
-  return true;
-}
-'''
-
-if old in text:
-    if text.count(old) != 1:
-        raise SystemExit("structured-clone safety block is ambiguous")
-    source.write_text(text.replace(old, new, 1))
-elif new not in text:
-    raise SystemExit("structured-clone safety block not recognized")
+  let previousHasInstanceDescriptor;''',
+    "authenticated Undici prototype restoration probe",
+)
 
 test = Path("test/m8-pr20-late-undici.test.js")
 test.write_text(r'''"use strict";
@@ -183,18 +354,20 @@ for (const name of ["Headers", "FormData", "Request", "Response"]) {
       else value = new Constructor();
       value.foo = { nested: true };
       Object.setPrototypeOf(value, Object.prototype);
+      const rewrittenPrototype = Object.getPrototypeOf(value);
       assert.throws(() => cloneAiData(value), /unsupported runtime object|Host brand probe authority/);
+      assert.equal(Object.getPrototypeOf(value), rewrittenPrototype);
     `);
   });
 }
 
-test("nested safe plain data remains cloneable", () => {
+test("ordinary nested data remains cloneable and is not mistaken for an Undici brand", () => {
   const { cloneAiData } = require(aiDataPath);
   const value = { foo: { nested: true, list: [1, { ok: "yes" }] } };
   assert.deepEqual(cloneAiData(value), value);
 });
 
-test("unsafe nested accessors are never observed by the structured-clone probe", () => {
+test("unsafe nested accessors are rejected without getter execution", () => {
   runIsolated(`
     "use strict";
     const assert = require("node:assert/strict");
