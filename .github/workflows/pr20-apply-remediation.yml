@@ -1,0 +1,157 @@
+name: PR20 apply remediation
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - fix/pr20-late-m8-undici
+    paths:
+      - .github/workflows/pr20-apply-remediation.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/pr20-late-m8-undici
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Apply bounded remediation and permanent regressions
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path("src/ai-data-core.js")
+          text = path.read_text()
+
+          old = '''function isStructuredCloneProbeSafe(\n  value\n) {\n  if (\n    value === null ||\n    typeof value !== "object" ||\n    runtimeAuthority.isProxy(value)\n  ) {\n    return false;\n  }\n\n  let descriptors;\n\n  try {\n    descriptors =\n      getOwnPropertyDescriptors(\n        value\n      );\n  } catch {\n    return false;\n  }\n\n  for (\n    const key of ownKeys(descriptors)\n  ) {\n    if (typeof key === "symbol") {\n      return false;\n    }\n\n    const descriptor =\n      descriptors[key];\n\n    if (\n      "get" in descriptor ||\n      "set" in descriptor\n    ) {\n      return false;\n    }\n\n    const child =\n      descriptor.value;\n\n    if (\n      typeof child === "function" ||\n      typeof child === "symbol" ||\n      (\n        child !== null &&\n        typeof child === "object"\n      )\n    ) {\n      return false;\n    }\n  }\n\n  return true;\n}\n'''
+
+          new = '''function isStructuredCloneProbeSafe(\n  value\n) {\n  if (\n    value === null ||\n    typeof value !== "object" ||\n    runtimeAuthority.isProxy(value)\n  ) {\n    return false;\n  }\n\n  const pending = [value];\n  const seen = new WeakSetConstructor();\n\n  while (pending.length > 0) {\n    const current = pending.pop();\n\n    if (\n      current === null ||\n      typeof current !== "object" ||\n      runtimeAuthority.isProxy(current)\n    ) {\n      return false;\n    }\n\n    if (seen.has(current)) {\n      continue;\n    }\n\n    seen.add(current);\n\n    let descriptors;\n\n    try {\n      descriptors =\n        getOwnPropertyDescriptors(\n          current\n        );\n    } catch {\n      return false;\n    }\n\n    for (\n      const key of ownKeys(descriptors)\n    ) {\n      if (typeof key === "symbol") {\n        return false;\n      }\n\n      const descriptor =\n        descriptors[key];\n\n      if (\n        "get" in descriptor ||\n        "set" in descriptor\n      ) {\n        return false;\n      }\n\n      const child =\n        descriptor.value;\n      const childType =\n        typeof child;\n\n      if (\n        childType === "function" ||\n        childType === "symbol" ||\n        childType === "bigint" ||\n        childType === "undefined"\n      ) {\n        return false;\n      }\n\n      if (\n        child !== null &&\n        childType === "object"\n      ) {\n        pending.push(child);\n      }\n    }\n  }\n\n  return true;\n}\n'''
+
+          if text.count(old) != 1:
+              raise SystemExit(f"expected one structured-clone safety block, found {text.count(old)}")
+          path.write_text(text.replace(old, new, 1))
+
+          test = Path("test/m8-pr20-late-undici.test.js")
+          test.write_text(r'''"use strict";
+
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const { spawnSync } = require("node:child_process");
+const path = require("node:path");
+
+const aiDataPath = path.resolve(
+  __dirname,
+  "../src/ai-data.js"
+);
+
+function runIsolated(source) {
+  const child = spawnSync(
+    process.execPath,
+    ["-e", source],
+    { encoding: "utf8" }
+  );
+
+  assert.equal(
+    child.status,
+    0,
+    child.stderr || child.stdout
+  );
+}
+
+for (const name of [
+  "Headers",
+  "FormData",
+  "Request",
+  "Response"
+]) {
+  test(`prototype-rewritten ${name} with nested own data fails closed`, () => {
+    runIsolated(`
+      "use strict";
+      const assert = require("node:assert/strict");
+      const { cloneAiData } = require(${JSON.stringify(aiDataPath)});
+
+      const Constructor = globalThis[${JSON.stringify(name)}];
+      if (typeof Constructor !== "function") process.exit(0);
+
+      let value;
+      if (${JSON.stringify(name)} === "Request") {
+        value = new Constructor("https://example.com/");
+      } else if (${JSON.stringify(name)} === "Response") {
+        value = new Constructor("ok");
+      } else {
+        value = new Constructor();
+      }
+
+      value.foo = { nested: true };
+      Object.setPrototypeOf(value, Object.prototype);
+
+      assert.throws(
+        () => cloneAiData(value),
+        /unsupported runtime object|Host brand probe authority/
+      );
+    `);
+  });
+}
+
+test("nested safe plain data remains cloneable", () => {
+  const { cloneAiData } = require(aiDataPath);
+  assert.deepEqual(
+    cloneAiData({
+      foo: {
+        nested: true,
+        list: [1, { ok: "yes" }]
+      }
+    }),
+    {
+      foo: {
+        nested: true,
+        list: [1, { ok: "yes" }]
+      }
+    }
+  );
+});
+
+test("unsafe nested data is not observed by the structured-clone probe", () => {
+  runIsolated(`
+    "use strict";
+    const assert = require("node:assert/strict");
+    const { cloneAiData } = require(${JSON.stringify(aiDataPath)});
+
+    let getterCalls = 0;
+    const nested = {};
+    Object.defineProperty(nested, "danger", {
+      enumerable: true,
+      get() {
+        getterCalls += 1;
+        throw new Error("getter executed");
+      }
+    });
+
+    assert.throws(() => cloneAiData({ nested }));
+    assert.equal(getterCalls, 0);
+  `);
+});
+''')
+          PY
+
+          node --check src/ai-data-core.js
+          node --check test/m8-pr20-late-undici.test.js
+          node --test test/m8-pr20-late-undici.test.js test/m8-runtime-brand-authority.test.js
+          npm test
+          git diff --check
+      - name: Commit proven remediation
+        shell: bash
+        run: |
+          git config user.name "AidaMichel"
+          git config user.email "126730924+AidaMichel@users.noreply.github.com"
+          git add src/ai-data-core.js test/m8-pr20-late-undici.test.js
+          git commit -m "fix: close late PR20 Undici brand bypasses"
+          git push origin HEAD:fix/pr20-late-m8-undici
