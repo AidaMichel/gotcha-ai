@@ -1,69 +1,118 @@
-name: PR20 Undici shield diagnostic
+name: PR20 remediation proof
 
 on:
   push:
     branches:
       - fix/pr20-late-m8-undici
 
+permissions:
+  contents: write
+
 jobs:
-  probe:
-    strategy:
-      fail-fast: false
-      matrix:
-        node: [20, 22, 24, 26]
+  remediate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node }}
-      - name: Test exact-target hasInstance shield
+          node-version: 24
+      - name: Apply bounded structured-clone safety remediation
         shell: bash
         run: |
-          node <<'NODE'
-          "use strict";
-          const makers = {
-            Headers: () => new Headers(),
-            FormData: () => new FormData(),
-            Request: () => new Request("https://example.com/"),
-            Response: () => new Response("ok")
-          };
-          const probes = {
-            Headers: ["method", "get", ["x"]],
-            FormData: ["method", "get", ["x"]],
-            Request: ["getter", "url", []],
-            Response: ["getter", "status", []]
-          };
-          for (const [name, make] of Object.entries(makers)) {
-            const C = globalThis[name];
-            if (typeof C !== "function") continue;
-            const [kind, key, args] = probes[name];
-            const d = Object.getOwnPropertyDescriptor(C.prototype, key);
-            const fn = kind === "getter" ? d.get : d.value;
-            const genuine = make();
-            const plain = {};
-            Object.setPrototypeOf(genuine, Object.prototype);
-            function invoke(receiver) {
-              try {
-                const result = Reflect.apply(fn, receiver, args);
-                return { ok: true, type: typeof result };
-              } catch (e) {
-                return { ok: false, name: e && e.name, message: e && e.message };
-              }
-            }
-            const before = { genuine: invoke(genuine), plain: invoke(plain) };
-            const old = Object.getOwnPropertyDescriptor(C, Symbol.hasInstance);
-            Object.defineProperty(C, Symbol.hasInstance, {
-              value(candidate) { return candidate === genuine; },
-              configurable: true
-            });
-            let shielded;
-            try {
-              shielded = { genuine: invoke(genuine), plain: invoke(plain) };
-            } finally {
-              if (old === undefined) delete C[Symbol.hasInstance];
-              else Object.defineProperty(C, Symbol.hasInstance, old);
-            }
-            console.log(JSON.stringify({ node: process.version, name, before, shielded }));
-          }
-          NODE
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path("src/ai-data-core.js")
+          text = path.read_text()
+          old = '''function isStructuredCloneProbeSafe(\n  value\n) {\n  if (\n    value === null ||\n    typeof value !== "object" ||\n    runtimeAuthority.isProxy(value)\n  ) {\n    return false;\n  }\n\n  let descriptors;\n\n  try {\n    descriptors =\n      getOwnPropertyDescriptors(\n        value\n      );\n  } catch {\n    return false;\n  }\n\n  for (\n    const key of ownKeys(descriptors)\n  ) {\n    if (typeof key === "symbol") {\n      return false;\n    }\n\n    const descriptor =\n      descriptors[key];\n\n    if (\n      "get" in descriptor ||\n      "set" in descriptor\n    ) {\n      return false;\n    }\n\n    const child =\n      descriptor.value;\n\n    if (\n      typeof child === "function" ||\n      typeof child === "symbol" ||\n      (\n        child !== null &&\n        typeof child === "object"\n      )\n    ) {\n      return false;\n    }\n  }\n\n  return true;\n}\n'''
+          new = '''function isStructuredCloneProbeSafe(\n  value\n) {\n  if (\n    value === null ||\n    typeof value !== "object" ||\n    runtimeAuthority.isProxy(value)\n  ) {\n    return false;\n  }\n\n  const pending = [value];\n  const seen = new WeakSetConstructor();\n\n  while (pending.length > 0) {\n    const current = pending.pop();\n\n    if (\n      current === null ||\n      typeof current !== "object" ||\n      runtimeAuthority.isProxy(current)\n    ) {\n      return false;\n    }\n\n    if (seen.has(current)) {\n      continue;\n    }\n\n    seen.add(current);\n\n    let descriptors;\n\n    try {\n      descriptors =\n        getOwnPropertyDescriptors(\n          current\n        );\n    } catch {\n      return false;\n    }\n\n    for (\n      const key of ownKeys(descriptors)\n    ) {\n      if (typeof key === "symbol") {\n        return false;\n      }\n\n      const descriptor =\n        descriptors[key];\n\n      if (\n        "get" in descriptor ||\n        "set" in descriptor\n      ) {\n        return false;\n      }\n\n      const child =\n        descriptor.value;\n      const childType =\n        typeof child;\n\n      if (\n        childType === "function" ||\n        childType === "symbol" ||\n        childType === "bigint" ||\n        childType === "undefined"\n      ) {\n        return false;\n      }\n\n      if (\n        child !== null &&\n        childType === "object"\n      ) {\n        pending.push(child);\n      }\n    }\n  }\n\n  return true;\n}\n'''
+
+          if old in text:
+              if text.count(old) != 1:
+                  raise SystemExit("structured-clone safety block is ambiguous")
+              path.write_text(text.replace(old, new, 1))
+          elif new not in text:
+              raise SystemExit("structured-clone safety block not recognized")
+
+          test = Path("test/m8-pr20-late-undici.test.js")
+          test.write_text(r'''"use strict";
+
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const { spawnSync } = require("node:child_process");
+const path = require("node:path");
+
+const aiDataPath = path.resolve(__dirname, "../src/ai-data.js");
+
+function runIsolated(source) {
+  const child = spawnSync(process.execPath, ["-e", source], { encoding: "utf8" });
+  assert.equal(child.status, 0, child.stderr || child.stdout);
+}
+
+for (const name of ["Headers", "FormData", "Request", "Response"]) {
+  test(`prototype-rewritten ${name} with nested own data fails closed`, () => {
+    runIsolated(`
+      "use strict";
+      const assert = require("node:assert/strict");
+      const { cloneAiData } = require(${JSON.stringify(aiDataPath)});
+      const Constructor = globalThis[${JSON.stringify(name)}];
+      if (typeof Constructor !== "function") process.exit(0);
+      let value;
+      if (${JSON.stringify(name)} === "Request") value = new Constructor("https://example.com/");
+      else if (${JSON.stringify(name)} === "Response") value = new Constructor("ok");
+      else value = new Constructor();
+      value.foo = { nested: true };
+      Object.setPrototypeOf(value, Object.prototype);
+      assert.throws(() => cloneAiData(value), /unsupported runtime object|Host brand probe authority/);
+    `);
+  });
+}
+
+test("nested safe plain data remains cloneable", () => {
+  const { cloneAiData } = require(aiDataPath);
+  const value = { foo: { nested: true, list: [1, { ok: "yes" }] } };
+  assert.deepEqual(cloneAiData(value), value);
+});
+
+test("unsafe nested accessors are never observed by the structured-clone probe", () => {
+  runIsolated(`
+    "use strict";
+    const assert = require("node:assert/strict");
+    const { cloneAiData } = require(${JSON.stringify(aiDataPath)});
+    let getterCalls = 0;
+    const nested = {};
+    Object.defineProperty(nested, "danger", {
+      enumerable: true,
+      get() {
+        getterCalls += 1;
+        throw new Error("getter executed");
+      }
+    });
+    assert.throws(() => cloneAiData({ nested }));
+    assert.equal(getterCalls, 0);
+  `);
+});
+''')
+          PY
+      - name: Prove focused and full repository behavior
+        shell: bash
+        run: |
+          node --check src/ai-data-core.js
+          node --check test/m8-pr20-late-undici.test.js
+          node --test test/m8-pr20-late-undici.test.js test/m8-runtime-brand-authority.test.js
+          npm test
+          git diff --check
+      - name: Commit only after proof
+        shell: bash
+        run: |
+          if git diff --quiet -- src/ai-data-core.js test/m8-pr20-late-undici.test.js; then
+            echo "Production remediation already committed; no-op validation."
+            exit 0
+          fi
+          git config user.name "AidaMichel"
+          git config user.email "126730924+AidaMichel@users.noreply.github.com"
+          git add src/ai-data-core.js test/m8-pr20-late-undici.test.js
+          git commit -m "fix: close late PR20 Undici brand bypasses"
+          git push origin HEAD:fix/pr20-late-m8-undici
