@@ -26,11 +26,28 @@ jobs:
           node <<'NODE'
           const p = require('./src/package-authority');
           const r = require('./src/runtime-authority');
+          const C = globalThis.FormData;
+          const cd = Object.getOwnPropertyDescriptor(C.prototype, 'constructor');
+          const md = Object.getOwnPropertyDescriptor(C.prototype, 'get');
+          const nativeSource = process.binding('natives')['internal/deps/undici/undici'];
+          const csrc = Function.prototype.toString.call(C);
+          const msrc = Function.prototype.toString.call(md.value);
           console.log(JSON.stringify({
             packageAvailable: p.available,
             packageSetPrototypeOf: typeof p.ObjectSetPrototypeOf,
             runtimeSetPrototypeOf: typeof r.objectSetPrototypeOf,
-            consumerAvailable: r.consumerPrimordialsAvailable
+            consumerAvailable: r.consumerPrimordialsAvailable,
+            formData: {
+              name: C.name,
+              length: C.length,
+              constructorDescriptorMatches: cd && cd.value === C,
+              methodName: md && md.value && md.value.name,
+              methodLength: md && md.value && md.value.length,
+              constructorSourceInBundle: typeof nativeSource === 'string' && nativeSource.includes(csrc),
+              methodSourceInBundle: typeof nativeSource === 'string' && nativeSource.includes(msrc),
+              constructorSource: csrc,
+              methodSource: msrc
+            }
           }));
           NODE
       - name: Focused proof
