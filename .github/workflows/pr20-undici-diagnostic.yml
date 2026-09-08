@@ -20,6 +20,18 @@ jobs:
           node-version: 24
       - name: Apply bounded remediation
         run: python3 .github/scripts/pr20_remediate.py
+      - name: Diagnose retained authority
+        run: |
+          node <<'NODE'
+          const p = require('./src/package-authority');
+          const r = require('./src/runtime-authority');
+          console.log(JSON.stringify({
+            packageAvailable: p.available,
+            packageSetPrototypeOf: typeof p.ObjectSetPrototypeOf,
+            runtimeSetPrototypeOf: typeof r.objectSetPrototypeOf,
+            consumerAvailable: r.consumerPrimordialsAvailable
+          }));
+          NODE
       - name: Focused proof
         run: |
           node --check src/package-authority.js
