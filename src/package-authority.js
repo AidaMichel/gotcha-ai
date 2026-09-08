@@ -122,6 +122,11 @@ const ObjectGetPrototypeOf = captureNativeDataFunction(
   "getPrototypeOf",
   "function getPrototypeOf() { [native code] }"
 );
+const ObjectSetPrototypeOf = captureNativeDataFunction(
+  ObjectConstructor,
+  "setPrototypeOf",
+  "function setPrototypeOf() { [native code] }"
+);
 const ObjectDefineProperty = captureNativeDataFunction(
   ObjectConstructor,
   "defineProperty",
@@ -267,6 +272,7 @@ const mandatoryAuthorityAvailable = (
   ObjectPrototype !== null &&
   typeof ObjectGetOwnPropertyDescriptor === "function" &&
   typeof ObjectGetPrototypeOf === "function" &&
+  typeof ObjectSetPrototypeOf === "function" &&
   typeof ObjectDefineProperty === "function" &&
   typeof ObjectCreate === "function" &&
   typeof ObjectFreeze === "function" &&
@@ -307,6 +313,7 @@ const authority = {
   ReflectApply,
   ObjectGetOwnPropertyDescriptor,
   ObjectGetPrototypeOf,
+  ObjectSetPrototypeOf,
   ObjectDefineProperty,
   ObjectCreate,
   ObjectFreeze,
