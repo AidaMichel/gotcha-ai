@@ -103,6 +103,7 @@ replace_once(
     '''function captureRequiredUndiciProbe(
   constructorName,
   expectedConstructorLength,
+  alternateExpectedConstructorLength,
   propertyName,
   kind,
   expectedLength,
@@ -117,10 +118,20 @@ replace_once(
       constructorName,
       0
     ) ||''',
-    '''    !hasExpectedCallableMetadata(
-      constructor,
-      constructorName,
-      expectedConstructorLength
+    '''    !(
+      hasExpectedCallableMetadata(
+        constructor,
+        constructorName,
+        expectedConstructorLength
+      ) ||
+      (
+        alternateExpectedConstructorLength !== null &&
+        hasExpectedCallableMetadata(
+          constructor,
+          constructorName,
+          alternateExpectedConstructorLength
+        )
+      )
     ) ||''',
     "Undici constructor metadata",
 )
@@ -169,6 +180,7 @@ const additionalHostBrandMethodProbes =
   captureRequiredUndiciProbe(
     "Headers",
     0,
+    null,
     "get",
     "method",
     1,
@@ -178,6 +190,7 @@ const additionalHostBrandMethodProbes =
 const formDataBrandProbe =
   captureRequiredUndiciProbe(
     "FormData",
+    0,
     1,
     "get",
     "method",
@@ -189,6 +202,7 @@ const requestBrandProbe =
   captureRequiredUndiciProbe(
     "Request",
     1,
+    null,
     "url",
     "getter",
     0,
@@ -199,22 +213,12 @@ const responseBrandProbe =
   captureRequiredUndiciProbe(
     "Response",
     0,
+    null,
     "status",
     "getter",
     0,
     []
   );
-
-if (process.env.GOTCHA_PR20_DIAGNOSTIC === "1") {
-  console.error(JSON.stringify({
-    undiciHostBrandAuthorityAvailable,
-    headersBrandProbe: headersBrandProbe !== null,
-    formDataBrandProbe: formDataBrandProbe !== null,
-    requestBrandProbe: requestBrandProbe !== null,
-    responseBrandProbe: responseBrandProbe !== null,
-    setPrototypeOf: typeof setPrototypeOf
-  }));
-}
 
 const additionalHostBrandMethodAuthorityAvailable =
   !undiciRuntimeExpected ||
@@ -366,7 +370,7 @@ for (const name of ["Headers", "FormData", "Request", "Response"]) {
       value.foo = { nested: true };
       Object.setPrototypeOf(value, Object.prototype);
       const rewrittenPrototype = Object.getPrototypeOf(value);
-      assert.throws(() => cloneAiData(value), /unsupported runtime object|Host brand probe authority/);
+      assert.throws(() => cloneAiData(value), /unsupported runtime object/);
       assert.equal(Object.getPrototypeOf(value), rewrittenPrototype);
     `);
   });
