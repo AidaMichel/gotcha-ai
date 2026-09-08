@@ -1,0 +1,73 @@
+name: PR20 Headers discriminator
+
+on:
+  push:
+    branches:
+      - fix/pr20-late-m8-undici
+
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 24, 26]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Probe Headers operations after prototype rewrite
+        shell: bash
+        run: |
+          node <<'NODE'
+          "use strict";
+          const util = require("node:util");
+          if (typeof Headers !== "function") process.exit(0);
+          const C = Headers;
+          const inspectKey = Symbol.for("nodejs.util.inspect.custom");
+          const candidates = [
+            ["get", ["x"]],
+            ["has", ["x"]],
+            ["getSetCookie", []],
+            ["keys", []],
+            ["values", []],
+            ["entries", []],
+            [Symbol.iterator, []],
+            [inspectKey, [0, {}, () => ""]]
+          ];
+          const genuine = new C({ a: "b" });
+          const plain = {};
+          Object.setPrototypeOf(genuine, Object.prototype);
+          function run(receiver, key, args) {
+            const d = Object.getOwnPropertyDescriptor(C.prototype, key);
+            const fn = d && d.value;
+            if (typeof fn !== "function") return { missing: true };
+            try {
+              const out = Reflect.apply(fn, receiver, args);
+              let summary;
+              if (out && typeof out.next === "function") {
+                try { summary = out.next(); } catch (e) { summary = { iteratorError: e.message }; }
+              } else if (out && typeof out === "object") {
+                summary = Object.prototype.toString.call(out);
+              } else {
+                summary = String(out);
+              }
+              return { ok: true, summary };
+            } catch (e) {
+              return { ok: false, name: e && e.name, message: e && e.message };
+            }
+          }
+          console.log("node", process.version, "utilTypes", Object.keys(util.types || {}).filter((k) => /header/i.test(k)));
+          for (const [key, args] of candidates) {
+            console.log(JSON.stringify({
+              key: String(key),
+              genuine: run(genuine, key, args),
+              plain: run(plain, key, args)
+            }));
+          }
+          console.log("toString", {
+            genuine: Object.prototype.toString.call(genuine),
+            plain: Object.prototype.toString.call(plain)
+          });
+          NODE
