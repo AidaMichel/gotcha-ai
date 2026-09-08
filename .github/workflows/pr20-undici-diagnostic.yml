@@ -1,0 +1,45 @@
+name: PR20 Undici diagnostic
+
+on:
+  push:
+    branches:
+      - fix/pr20-late-m8-undici
+
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22, 24, 26]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Print Undici prototype metadata
+        shell: bash
+        run: |
+          node <<'NODE'
+          "use strict";
+          for (const name of ["Headers", "FormData", "Request", "Response"]) {
+            const C = globalThis[name];
+            console.log(`=== ${name} ===`);
+            if (typeof C !== "function") {
+              console.log("missing");
+              continue;
+            }
+            console.log("constructor.length", C.length, "name", JSON.stringify(C.name));
+            for (const key of Reflect.ownKeys(C.prototype)) {
+              if (key === "constructor") continue;
+              const d = Object.getOwnPropertyDescriptor(C.prototype, key);
+              if (!d) continue;
+              if (typeof d.value === "function") {
+                console.log("method", String(key), "length", d.value.length, "name", JSON.stringify(d.value.name));
+              }
+              if (typeof d.get === "function") {
+                console.log("getter", String(key), "length", d.get.length, "name", JSON.stringify(d.get.name));
+              }
+            }
+          }
+          NODE
