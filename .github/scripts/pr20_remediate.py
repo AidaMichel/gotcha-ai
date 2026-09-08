@@ -205,6 +205,17 @@ const responseBrandProbe =
     []
   );
 
+if (process.env.GOTCHA_PR20_DIAGNOSTIC === "1") {
+  console.error(JSON.stringify({
+    undiciHostBrandAuthorityAvailable,
+    headersBrandProbe: headersBrandProbe !== null,
+    formDataBrandProbe: formDataBrandProbe !== null,
+    requestBrandProbe: requestBrandProbe !== null,
+    responseBrandProbe: responseBrandProbe !== null,
+    setPrototypeOf: typeof setPrototypeOf
+  }));
+}
+
 const additionalHostBrandMethodAuthorityAvailable =
   !undiciRuntimeExpected ||
   (
