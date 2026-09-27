@@ -118,6 +118,11 @@ function writeLine(output, value) {
   output.write(`${value}\n`);
 }
 
+function writeSection(output, step, title) {
+  writeLine(output, "");
+  writeLine(output, `[${step}] ${title}`);
+}
+
 function normalizeChoice(answer) {
   return String(answer).trim().toLowerCase();
 }
@@ -232,6 +237,8 @@ function presentNoSurvivor(output) {
 }
 
 function presentSurvivors(survivors, output) {
+  writeSection(output, "3/4", "GOTCHA — BLIND SPOTS FOUND");
+  writeLine(output, "Your evaluator said PASS to outputs that violate confirmed quality rules.");
   writeLine(output, "");
   writeLine(output, "GOTCHA FINDINGS");
 
@@ -316,7 +323,8 @@ async function runGuided(options = {}) {
   try {
     const adapters = createRunAdapters(publicApi, config.provider);
 
-    writeLine(output, "DRAFTING QUALITY CONTRACT");
+    writeSection(output, "1/4", "DEFINE QUALITY");
+    writeLine(output, "Turning your examples into a draft Quality Contract...");
     const draft = await publicApi.draftQualityContract({
       task: config.task,
       examples: config.examples,
@@ -336,8 +344,8 @@ async function runGuided(options = {}) {
       return { state: "no-active-rules", sessionPath: null };
     }
 
-    writeLine(output, "");
-    writeLine(output, "ATTACKING CURRENT EVALUATOR");
+    writeSection(output, "2/4", "ATTACK THE CURRENT EVALUATOR");
+    writeLine(output, "Looking for realistic failures your evaluator still accepts...");
     const attackResult = await publicApi.runContractAttacks({
       contract: confirmed,
       input: config.case.input,
@@ -363,9 +371,9 @@ async function runGuided(options = {}) {
     const sourceAttackId = await selectSurvivor(survivors, io);
     const selectedAttack = findDisplayedAttack(survivors, sourceAttackId);
 
-    writeLine(output, "");
-    writeLine(output, `SELECTED FINDING: ${sourceAttackId}`);
-    writeLine(output, "GENERATING PROPOSED PROTECTION");
+    writeSection(output, "4/4", "PROTECT THIS BLIND SPOT");
+    writeLine(output, `Selected finding: ${sourceAttackId}`);
+    writeLine(output, "Generating a proposed protection for human review...");
 
     const generated = await publicApi.generateContractProtectionProposal({
       experiment: survivors.experiment,
@@ -386,9 +394,10 @@ async function runGuided(options = {}) {
     const proposal = generated.proposal;
     writeLine(output, "");
     writeLine(output, "PROPOSED PROTECTION");
-    writeLine(output, `Statement: ${proposal.protection.statement}`);
-    writeLine(output, `Rationale: ${proposal.protection.rationale}`);
-    writeLine(output, "This proposal has not been applied or verified.");
+    writeLine(output, `  ${proposal.protection.statement}`);
+    writeLine(output, "");
+    writeLine(output, `Why this helps: ${proposal.protection.rationale}`);
+    writeLine(output, "Status: proposed only — not applied or verified.");
 
     const session = {
       version: SESSION_VERSION,
@@ -407,18 +416,14 @@ async function runGuided(options = {}) {
     });
 
     writeLine(output, "");
-    writeLine(output, `SESSION SAVED: ${sessionPath}`);
+    writeLine(output, "NEXT STEP");
+    writeLine(output, "Apply the human-approved evaluator change, then verify the same blind spot.");
+    writeLine(output, `Session: ${sessionPath}`);
+    writeLine(output, "Keep the baseline evaluator unchanged and add stronger behavior separately as improvedEvaluator.");
+    writeLine(output, "Session data may contain sensitive local evaluation evidence.");
     writeLine(
       output,
-      "Session data contains local evaluation evidence and may be sensitive project data."
-    );
-    writeLine(
-      output,
-      "Keep the baseline evaluator unchanged and add stronger behavior separately as improvedEvaluator."
-    );
-    writeLine(
-      output,
-      `Command: gotcha-ai verify ${JSON.stringify(sessionPath)} --config ${JSON.stringify(loaded.configPath)}`
+      `Run: gotcha-ai verify ${JSON.stringify(sessionPath)} --config ${JSON.stringify(loaded.configPath)}`
     );
 
     return {
