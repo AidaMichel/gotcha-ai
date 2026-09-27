@@ -12,6 +12,7 @@ function printHelp() {
   console.log("  gotcha-ai demo");
   console.log("  gotcha-ai init [directory]");
   console.log("  gotcha-ai run [--config path] [--session path]");
+  console.log("  gotcha-ai probe [--config path]");
   console.log("  gotcha-ai verify <session-path> [--config path]");
   console.log("  gotcha-ai --help");
 }
@@ -96,6 +97,15 @@ function runVerifyCommand(args) {
   );
 }
 
+function runProbeCommand(args) {
+  runAsyncGuided(
+    () => require("../src/guided-probe").runGuidedProbe,
+    args,
+    "Unable to load Gotcha evaluator probe.",
+    "Gotcha evaluator probe failed."
+  );
+}
+
 const args = process.argv.slice(2);
 const command = args[0];
 
@@ -113,6 +123,8 @@ if (
   runInit(args.slice(1));
 } else if (command === "run") {
   runGuidedCommand(args.slice(1));
+} else if (command === "probe") {
+  runProbeCommand(args.slice(1));
 } else if (command === "verify") {
   runVerifyCommand(args.slice(1));
 } else {
