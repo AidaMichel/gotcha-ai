@@ -161,7 +161,7 @@ function produceSession(directory) {
   const result = runCli(
     directory,
     ["run", "--config", configPath, "--session", sessionPath],
-    "accept\n\n999\n1\n"
+    "accept\n\n999\n1\nconfirm\n"
   );
   assert.equal(result.status, 0, result.stderr);
   return { configPath, sessionPath, transportLog, result };
@@ -204,7 +204,7 @@ test(
 
     assert.equal(output.includes("[1/4] DEFINE QUALITY"), true);
     assert.equal(output.includes("[2/4] ATTACK THE CURRENT EVALUATOR"), true);
-    assert.equal(output.includes("[3/4] GOTCHA — YOUR EVALUATOR MISSED THIS"), true);
+    assert.equal(output.includes("[3/4] CANDIDATE BLIND SPOTS"), true);
     assert.equal(output.includes("EXPECTED OUTPUT"), true);
     assert.equal(output.includes('"time": "3 PM"'), true);
     assert.equal(output.includes("SURVIVING BAD OUTPUTS"), true);
@@ -212,7 +212,8 @@ test(
     assert.equal(output.includes("YOUR EVALUATOR: PASS  ← this is the blind spot"), true);
     assert.equal(output.includes("Evidence note:"), true);
     assert.equal(output.includes("Select one displayed finding explicitly."), true);
-    assert.equal(output.includes("[4/4] PROTECT THIS BLIND SPOT"), true);
+    assert.equal(output.includes("CONFIRMED BLIND SPOT"), true);
+    assert.equal(output.includes("[4/4] PROTECT THIS CONFIRMED BLIND SPOT"), true);
     assert.equal(output.includes("Selected finding: wrong-time"), true);
     assert.equal(output.includes("PROPOSED PROTECTION"), true);
     assert.equal(output.includes("Status: proposed only — not applied or verified."), true);
@@ -227,6 +228,27 @@ test(
     assert.deepEqual(
       fs.readFileSync(produced.transportLog, "utf8").trim().split("\n"),
       ["quality-contract", "contract-attacks", "contract-protection"]
+    );
+  })
+);
+
+test(
+  "guided run refuses remediation when every displayed survivor is dismissed",
+  () => withTempDirectory("gotcha-m14-dismissed-", (directory) => {
+    const logPath = path.join(directory, "transport.log");
+    const configPath = writeRunConfig(directory, logPath);
+    const result = runCli(
+      directory,
+      ["run", "--config", configPath],
+      "accept\n1\ndismiss\n"
+    );
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.includes("NO HUMAN-CONFIRMED BLIND SPOT"), true);
+    assert.equal(result.stdout.includes("PROPOSED PROTECTION"), false);
+    assert.deepEqual(
+      fs.readFileSync(logPath, "utf8").trim().split("\n"),
+      ["quality-contract", "contract-attacks"]
     );
   })
 );
