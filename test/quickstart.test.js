@@ -38,10 +38,22 @@ test(
     assert.equal(
       result.stdout,
       [
-        "Evaluator said: PASS",
-        "Gotcha: wrong-price survived",
-        "Why: Changes the price while keeping the product correct.",
-        "Protection: Product price must remain correct.",
+        "EXPECTED",
+        "{",
+        '  "product": "Starter Plan",',
+        '  "price": 20',
+        "}",
+        "",
+        "BAD OUTPUT",
+        "{",
+        '  "product": "Starter Plan",',
+        '  "price": 200',
+        "}",
+        "",
+        "YOUR EVALUATOR: PASS",
+        "GOTCHA: wrong-price survived",
+        "Why it is wrong: Changes the price while keeping the product correct.",
+        "Proposed protection: Product price must remain correct.",
         "Re-attack: CAUGHT",
         ""
       ].join("\n")
