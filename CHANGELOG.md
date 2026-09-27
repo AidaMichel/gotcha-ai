@@ -18,6 +18,11 @@ All notable changes to Gotcha are documented here.
 - CI across Node 20, 22, 24, and 26.
 - Packed-artifact install, CLI demo, and public-API smoke checks.
 - First-run and guided CLI UX focused on a clear blind-spot “Gotcha” moment.
+- Human confirmation of generated survivor candidates before remediation.
+- Trusted-severity ranking for contract survivors; generator self-scores are descriptive only.
+- Async/score evaluator probing with repeated trials, confidence intervals, multi-case support, and baseline-stability gating.
+- Language-neutral command evaluator adapter.
+- `gotcha-ai probe` CLI for stable survivors, flaky candidates, caught candidates, and unstable baselines.
 
 ### Release status
 

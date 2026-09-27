@@ -52,7 +52,7 @@ function runInit(args) {
     console.log("  2. Configure provider.model and provider.transport before running the guided AI flow.");
     console.log("  3. Run: npx gotcha-ai run");
     console.log("");
-    console.log("No provider yet? Run `npx gotcha-ai demo` for the zero-config deterministic flow.");
+    console.log("No provider yet? Use `gotcha-ai demo` for the deterministic loop, or add probe.cases and run `gotcha-ai probe`.");
   } catch (error) {
     fail(errorMessage(error, "Unable to initialize Gotcha project."));
   }

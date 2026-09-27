@@ -54,7 +54,25 @@ module.exports = {
       // }
       throw new Error("Configure provider.transport before running Gotcha.");
     }
-  }
+  },
+
+  // Optional direct evaluator probe. This path does NOT require a provider.
+  // probe: {
+  //   trials: 3,
+  //   scoreThreshold: 0.8,
+  //   cases: [
+  //     {
+  //       id: "case-1",
+  //       expectedOutput: { value: "known-good" },
+  //       candidates: [
+  //         {
+  //           id: "candidate-1",
+  //           output: { value: "candidate" }
+  //         }
+  //       ]
+  //     }
+  //   ]
+  // }
 
   // After you apply a human-approved protection, ADD a separate function:
   // improvedEvaluator(output) {
