@@ -350,6 +350,52 @@ test(
           ""
         ].join("\n")
       );
+      const contractAttackExample =
+        path.join(
+          consumerDir,
+          "node_modules",
+          "gotcha-ai",
+          "examples",
+          "contract-attacks.js"
+        );
+
+      assert.ok(
+        fs.existsSync(
+          contractAttackExample
+        ),
+        "packed package did not include the M9 contract attack example"
+      );
+
+      const contractAttackExampleResult =
+        run(
+          process.execPath,
+          [
+            contractAttackExample
+          ],
+          {
+            cwd:
+              consumerDir
+          }
+        );
+
+      assert.equal(
+        contractAttackExampleResult.status,
+        0,
+        contractAttackExampleResult.stderr
+      );
+
+      assert.equal(
+        contractAttackExampleResult.stdout,
+        [
+          "TEACH: examples accepted",
+          "CONTRACT: 1 rule proposed",
+          "CONFIRM: confirmed",
+          "ATTACK: 1 candidate generated",
+          "GOTCHA: wrong-time survived",
+          ""
+        ].join("\n")
+      );
+
       const consumerCode = `
         const {
           runGotcha
@@ -560,6 +606,162 @@ test(
           ""
         ].join("\n")
       );
+      const m9ConsumerCode = `
+        const {
+          runContractAttacks
+        } = require("gotcha-ai");
+
+        async function main() {
+          const contract = {
+            version: 1,
+            status: "confirmed",
+
+            task:
+              "Schedule the requested person at the requested time.",
+
+            rules: [
+              {
+                id:
+                  "time-rule",
+
+                statement:
+                  "The scheduled time must match the requested time.",
+
+                kind:
+                  "required",
+
+                severity:
+                  "critical"
+              }
+            ]
+          };
+
+          const result =
+            await runContractAttacks({
+              contract,
+
+              input: {
+                request:
+                  "Schedule Sara at 3 PM."
+              },
+
+              expectedOutput: {
+                person:
+                  "Sara",
+
+                time:
+                  "3 PM"
+              },
+
+              evaluator(output) {
+                return (
+                  output.person ===
+                    "Sara"
+                );
+              },
+
+              generator() {
+                return {
+                  version: 1,
+
+                  task:
+                    contract.task,
+
+                  attacks: [
+                    {
+                      id:
+                        "wrong-time",
+
+                      ruleId:
+                        "time-rule",
+
+                      type:
+                        "wrong-time",
+
+                      description:
+                        "Changes the requested time.",
+
+                      rationale:
+                        "The evaluator ignores the confirmed time rule.",
+
+                      mutatedOutput: {
+                        person:
+                          "Sara",
+
+                        time:
+                          "4 PM"
+                      },
+
+                      scores: {
+                        realism:
+                          0.9,
+
+                        subtlety:
+                          0.9,
+
+                        novelty:
+                          0.8,
+
+                        fixability:
+                          1
+                      }
+                    }
+                  ]
+                };
+              }
+            });
+
+          console.log(
+            String(
+              result.attack
+                .survivors.length
+            )
+          );
+
+          console.log(
+            result.topFinding.id
+          );
+        }
+
+        main().catch(
+          (error) => {
+            console.error(
+              error.message
+            );
+
+            process.exitCode = 1;
+          }
+        );
+      `;
+
+      const m9ApiResult =
+        run(
+          process.execPath,
+          [
+            "-e",
+            m9ConsumerCode
+          ],
+          {
+            cwd:
+              consumerDir
+          }
+        );
+
+      assert.equal(
+        m9ApiResult.status,
+        0,
+        m9ApiResult.stderr
+      );
+
+      assert.equal(
+        m9ApiResult.stdout,
+        [
+          "1",
+          "wrong-time",
+          ""
+        ].join("\n")
+      );
+
     } finally {
       fs.rmSync(
         tempRoot,
