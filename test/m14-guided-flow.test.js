@@ -313,7 +313,7 @@ module.exports = {
     );
 
     assert.equal(result.status, 0, result.stderr);
-    assert.equal(result.stdout.includes("CURRENT PROTECTION DRAFT"), true);
+    assert.equal(result.stdout.includes("REVIEW THE CURRENT PROTECTION"), true);
     assert.equal(result.stdout.includes("State: verified"), true);
     assert.equal(result.stdout.includes("Source finding caught: true"), true);
     assert.equal(result.stdout.includes("Eliminated attacks: wrong-time"), true);
