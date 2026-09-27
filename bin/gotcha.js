@@ -45,6 +45,13 @@ function runInit(args) {
     console.log("Gotcha project initialized.");
     console.log(`Config: ${path.relative(process.cwd(), result.configPath) || "gotcha.config.js"}`);
     console.log(`Sessions: ${path.relative(process.cwd(), path.dirname(result.ignorePath)) || ".gotcha"}`);
+    console.log("");
+    console.log("Next:");
+    console.log("  1. Edit gotcha.config.js with your task, examples, eval case, and baseline evaluator.");
+    console.log("  2. Configure provider.model and provider.transport before running the guided AI flow.");
+    console.log("  3. Run: npx gotcha-ai run");
+    console.log("");
+    console.log("No provider yet? Run `npx gotcha-ai demo` for the zero-config deterministic flow.");
   } catch (error) {
     fail(errorMessage(error, "Unable to initialize Gotcha project."));
   }
