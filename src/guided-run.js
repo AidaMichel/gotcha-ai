@@ -245,8 +245,8 @@ function presentNoSurvivor(output) {
 }
 
 function presentSurvivors(survivors, output) {
-  writeSection(output, "3/4", "GOTCHA — YOUR EVALUATOR MISSED THIS");
-  writeLine(output, "A provider-generated candidate violated a confirmed quality rule and still passed your evaluator.");
+  writeSection(output, "3/4", "CANDIDATE BLIND SPOTS");
+  writeLine(output, "These provider-generated candidates were intended to violate confirmed quality rules and still passed your evaluator.");
   writeLine(output, "");
   writeLine(output, "EXPECTED OUTPUT");
   writeLine(output, renderEvidenceValue(survivors.experiment.case.expectedOutput));
@@ -312,6 +312,69 @@ function findDisplayedAttack(survivors, sourceAttackId) {
       return survivors.displayed[index].attack;
     }
   }
+  return null;
+}
+
+async function confirmCandidateSurvivor(attack, io) {
+  writeLine(io.output, "");
+  writeLine(io.output, "CONFIRM CANDIDATE");
+  writeLine(io.output, `Rule: ${attack.rule.statement}`);
+  writeLine(io.output, `Candidate: ${attack.id}`);
+  writeLine(io.output, "Confirm only if this output is genuinely wrong for the rule and plausible enough to matter.");
+
+  return io.prompt({
+    message: "Decision [confirm/dismiss]: ",
+    invalidMessage: "Choose confirm or dismiss explicitly.\n",
+    parse(answer) {
+      const value = normalizeChoice(answer);
+      return value === "confirm" || value === "dismiss"
+        ? value
+        : null;
+    }
+  });
+}
+
+async function selectConfirmedSurvivor(survivors, io) {
+  const remaining = survivors.displayed.slice();
+
+  while (remaining.length > 0) {
+    const selectionView = {
+      ...survivors,
+      displayed: remaining
+    };
+    const sourceAttackId =
+      await selectSurvivor(selectionView, io);
+    const selectedAttack =
+      findDisplayedAttack(selectionView, sourceAttackId);
+    const decision =
+      await confirmCandidateSurvivor(selectedAttack, io);
+
+    if (decision === "confirm") {
+      writeLine(io.output, "");
+      writeLine(io.output, "CONFIRMED BLIND SPOT");
+      writeLine(io.output, `${sourceAttackId} is now human-confirmed as genuinely wrong and relevant enough to remediate.`);
+      return {
+        sourceAttackId,
+        selectedAttack
+      };
+    }
+
+    const index = remaining.findIndex(
+      (item) => item.id === sourceAttackId
+    );
+    if (index >= 0) {
+      remaining.splice(index, 1);
+    }
+    writeLine(io.output, `Dismissed candidate: ${sourceAttackId}`);
+
+    if (remaining.length === 0) {
+      writeLine(io.output, "");
+      writeLine(io.output, "NO HUMAN-CONFIRMED BLIND SPOT");
+      writeLine(io.output, "Every displayed survivor was dismissed, so Gotcha will not propose a protection.");
+      return null;
+    }
+  }
+
   return null;
 }
 
@@ -387,10 +450,22 @@ async function runGuided(options = {}) {
     }
 
     presentSurvivors(survivors, output);
-    const sourceAttackId = await selectSurvivor(survivors, io);
-    const selectedAttack = findDisplayedAttack(survivors, sourceAttackId);
+    const confirmedSurvivor =
+      await selectConfirmedSurvivor(survivors, io);
 
-    writeSection(output, "4/4", "PROTECT THIS BLIND SPOT");
+    if (confirmedSurvivor === null) {
+      return {
+        state: "no-confirmed-survivor",
+        sessionPath: null
+      };
+    }
+
+    const sourceAttackId =
+      confirmedSurvivor.sourceAttackId;
+    const selectedAttack =
+      confirmedSurvivor.selectedAttack;
+
+    writeSection(output, "4/4", "PROTECT THIS CONFIRMED BLIND SPOT");
     writeLine(output, `Selected finding: ${sourceAttackId}`);
     writeLine(output, "Generating a proposed protection for human review...");
 
@@ -467,5 +542,7 @@ module.exports = {
   displayedSurvivors,
   resultHasNoSurvivors,
   selectSurvivor,
+  confirmCandidateSurvivor,
+  selectConfirmedSurvivor,
   runGuided
 };
