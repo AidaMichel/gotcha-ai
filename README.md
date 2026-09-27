@@ -81,6 +81,10 @@ node bin/gotcha.js run
 
 Generated survivors are **candidates**, not automatic truth. A selected candidate must be explicitly confirmed by a human as genuinely wrong and relevant enough to remediate before Gotcha will generate a protection proposal.
 
+#### Attack from a confirmed Quality Contract
+
+`runContractAttacks()` connects a human-confirmed Quality Contract to **provider-independent AI-assisted attack generation**. The provider proposes declarative candidate outputs; Gotcha validates the boundary, runs candidates against the evaluator, and keeps semantic confirmation with the human.
+
 After you make the evaluator change yourself:
 
 ```bash
