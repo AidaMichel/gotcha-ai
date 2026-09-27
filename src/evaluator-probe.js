@@ -1,9 +1,5 @@
 "use strict";
 
-const {
-  spawn
-} = require("node:child_process");
-
 const RESULT_VERSION = 1;
 const RESULT_KIND = "evaluator-probe-result";
 const REQUEST_KIND = "gotcha-evaluator-request";
@@ -608,6 +604,10 @@ function createCommandEvaluator(
       "timeoutMs must be an integer between 1 and 120000."
     );
   }
+
+  const {
+    spawn
+  } = require("node:child_process");
 
   const command =
     options.command;
