@@ -17,6 +17,7 @@ const authorityConsumerModulePaths = [
   "./contract-quality-loop",
   "./contract-remediation",
   "./engine",
+  "./evaluator-probe",
   "./mutation-pack",
   "./provider-adapter-m13",
   "./provider-adapter",
@@ -102,6 +103,7 @@ function bindImplementationGeneration() {
     const proposal = require("./contract-protection-proposal");
     const provider = require("./provider-adapter-m13");
     const qualityLoop = require("./contract-quality-loop");
+    const evaluatorProbe = require("./evaluator-probe");
     const mutationPack = require("./mutation-pack");
     const engine = require("./engine");
 
@@ -118,6 +120,8 @@ function bindImplementationGeneration() {
         provider.createStructuredProviderAdapter,
       prepareContractQualityLoop: qualityLoop.prepareContractQualityLoop,
       completeContractQualityLoop: qualityLoop.completeContractQualityLoop,
+      probeEvaluator: evaluatorProbe.probeEvaluator,
+      createCommandEvaluator: evaluatorProbe.createCommandEvaluator,
       compileMutationPack: mutationPack.compileMutationPack,
       runImprovementLoop: engine.runImprovementLoop
     };
@@ -133,6 +137,8 @@ function bindImplementationGeneration() {
       typeof bound.createStructuredProviderAdapter !== "function" ||
       typeof bound.prepareContractQualityLoop !== "function" ||
       typeof bound.completeContractQualityLoop !== "function" ||
+      typeof bound.probeEvaluator !== "function" ||
+      typeof bound.createCommandEvaluator !== "function" ||
       typeof bound.compileMutationPack !== "function" ||
       typeof bound.runImprovementLoop !== "function"
     ) return null;
@@ -175,6 +181,8 @@ const exported = {
   verifyContractProtection: unavailableAsyncBoundary,
   generateContractProtectionProposal: unavailableAsyncBoundary,
   createStructuredProviderAdapter: unavailableAdapterBoundary,
+  probeEvaluator: unavailableAsyncBoundary,
+  createCommandEvaluator: unavailableAdapterBoundary,
   prepareContractQualityLoop: unavailableAsyncBoundary,
   completeContractQualityLoop: unavailableAsyncBoundary
 };
@@ -236,6 +244,14 @@ defineLazyExport(
 );
 defineLazyExport(
   "createStructuredProviderAdapter",
+  unavailableAdapterBoundary
+);
+defineLazyExport(
+  "probeEvaluator",
+  unavailableAsyncBoundary
+);
+defineLazyExport(
+  "createCommandEvaluator",
   unavailableAdapterBoundary
 );
 defineLazyExport(
