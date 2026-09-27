@@ -110,6 +110,28 @@ test(
         result.stdout.includes("Gotcha project initialized."),
         true
       );
+      assert.equal(
+        result.stdout.includes("Next:"),
+        true
+      );
+      assert.equal(
+        result.stdout.includes("Configure provider.model and provider.transport"),
+        true
+      );
+      assert.equal(
+        result.stdout.includes("No provider yet?"),
+        true
+      );
+      const starter = fs.readFileSync(
+        path.join(target, "gotcha.config.js"),
+        "utf8"
+      );
+      assert.equal(starter.includes("M7"), false);
+      assert.equal(starter.includes("M11"), false);
+      assert.equal(
+        starter.includes('kind: "gotcha-provider-response"'),
+        true
+      );
     } finally {
       fs.rmSync(parent, { recursive: true, force: true });
     }

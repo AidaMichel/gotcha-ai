@@ -25,7 +25,7 @@ module.exports = {
   task: "Describe what your AI should do.",
 
   examples: [
-    // Add M7 teaching examples here.
+    // Add teaching examples marked good/bad or preference evidence here.
   ],
 
   case: {
@@ -45,7 +45,13 @@ module.exports = {
     async transport(request) {
       // Trusted caller-owned provider integration.
       // Read credentials here (for example from process.env), not in Gotcha.
-      // Translate request to your provider and return the M11 response envelope.
+      // Send request.instructions + request.input to your provider.
+      // Return exactly:
+      // {
+      //   version: 1,
+      //   kind: "gotcha-provider-response",
+      //   output: <structured provider output>
+      // }
       throw new Error("Configure provider.transport before running Gotcha.");
     }
   }
