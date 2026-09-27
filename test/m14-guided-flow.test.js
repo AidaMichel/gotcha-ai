@@ -202,11 +202,17 @@ test(
     const produced = produceSession(directory);
     const output = produced.result.stdout;
 
+    assert.equal(output.includes("[1/4] DEFINE QUALITY"), true);
+    assert.equal(output.includes("[2/4] ATTACK THE CURRENT EVALUATOR"), true);
+    assert.equal(output.includes("[3/4] GOTCHA — BLIND SPOTS FOUND"), true);
     assert.equal(output.includes("GOTCHA FINDINGS"), true);
+    assert.equal(output.includes("PASS  ← blind spot"), true);
     assert.equal(output.includes("Select one displayed finding explicitly."), true);
-    assert.equal(output.includes("SELECTED FINDING: wrong-time"), true);
+    assert.equal(output.includes("[4/4] PROTECT THIS BLIND SPOT"), true);
+    assert.equal(output.includes("Selected finding: wrong-time"), true);
     assert.equal(output.includes("PROPOSED PROTECTION"), true);
-    assert.equal(output.includes("has not been applied or verified"), true);
+    assert.equal(output.includes("Status: proposed only — not applied or verified."), true);
+    assert.equal(output.includes("NEXT STEP"), true);
 
     const session = readSession(produced.sessionPath);
     assert.equal(session.sourceAttackId, "wrong-time");
@@ -311,6 +317,7 @@ module.exports = {
     assert.equal(result.stdout.includes("State: verified"), true);
     assert.equal(result.stdout.includes("Source finding caught: true"), true);
     assert.equal(result.stdout.includes("Eliminated attacks: wrong-time"), true);
+    assert.equal(result.stdout.includes("VERIFIED — BLIND SPOT CAUGHT"), true);
     assert.equal(
       fs.readFileSync(produced.transportLog, "utf8"),
       beforeTransport
