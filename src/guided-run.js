@@ -251,7 +251,7 @@ function presentSurvivors(survivors, output) {
     writeLine(output, `Severity: ${attack.rule.severity}`);
     writeLine(output, `Why: ${attack.description}`);
     writeLine(output, `Rationale: ${attack.rationale}`);
-    writeLine(output, "Current evaluator: PASS");
+    writeLine(output, "Current evaluator: PASS  ← blind spot");
   }
 
   if (survivors.total > survivors.displayed.length) {
