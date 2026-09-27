@@ -1,12 +1,12 @@
 {
   "name": "gotcha-ai",
   "version": "0.1.0",
-  "description": "Catch what your AI evals miss.",
+  "description": "Find the AI failures your evals still pass.",
   "main": "src/index.js",
   "exports": "./src/index.js",
   "type": "commonjs",
   "engines": {
-    "node": ">=14.18.0"
+    "node": ">=20"
   },
   "bin": {
     "gotcha-ai": "bin/gotcha.js"
@@ -33,5 +33,22 @@
     "url": "https://github.com/AidaMichel/gotcha-ai/issues"
   },
   "homepage": "https://github.com/AidaMichel/gotcha-ai#readme",
-  "license": "MIT"
+  "license": "MIT",
+  "keywords": [
+    "ai",
+    "llm",
+    "evals",
+    "evaluation",
+    "llm-evaluation",
+    "testing",
+    "red-team",
+    "red-teaming",
+    "quality",
+    "ai-testing",
+    "ai-safety",
+    "developer-tools"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
 }
