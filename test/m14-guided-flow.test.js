@@ -204,9 +204,13 @@ test(
 
     assert.equal(output.includes("[1/4] DEFINE QUALITY"), true);
     assert.equal(output.includes("[2/4] ATTACK THE CURRENT EVALUATOR"), true);
-    assert.equal(output.includes("[3/4] GOTCHA — BLIND SPOTS FOUND"), true);
-    assert.equal(output.includes("GOTCHA FINDINGS"), true);
-    assert.equal(output.includes("PASS  ← blind spot"), true);
+    assert.equal(output.includes("[3/4] GOTCHA — YOUR EVALUATOR MISSED THIS"), true);
+    assert.equal(output.includes("EXPECTED OUTPUT"), true);
+    assert.equal(output.includes('"time": "3 PM"'), true);
+    assert.equal(output.includes("SURVIVING BAD OUTPUTS"), true);
+    assert.equal(output.includes('"time": "4 PM"'), true);
+    assert.equal(output.includes("YOUR EVALUATOR: PASS  ← this is the blind spot"), true);
+    assert.equal(output.includes("Evidence note:"), true);
     assert.equal(output.includes("Select one displayed finding explicitly."), true);
     assert.equal(output.includes("[4/4] PROTECT THIS BLIND SPOT"), true);
     assert.equal(output.includes("Selected finding: wrong-time"), true);
