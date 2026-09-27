@@ -145,6 +145,10 @@ test(
         starter.includes('kind: "gotcha-provider-response"'),
         true
       );
+      assert.equal(
+        starter.includes("probe:"),
+        true
+      );
     } finally {
       fs.rmSync(parent, { recursive: true, force: true });
     }
