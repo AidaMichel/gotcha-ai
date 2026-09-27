@@ -23,14 +23,26 @@ npx gotcha-ai demo
 No clone. No config. No API key.
 
 ```text
-Evaluator said: PASS
-Gotcha: wrong-price survived
-Why: Changes the price while keeping the product correct.
-Protection: Product price must remain correct.
+EXPECTED
+{
+  "product": "Starter Plan",
+  "price": 20
+}
+
+BAD OUTPUT
+{
+  "product": "Starter Plan",
+  "price": 200
+}
+
+YOUR EVALUATOR: PASS
+GOTCHA: wrong-price survived
+Why it is wrong: Changes the price while keeping the product correct.
+Proposed protection: Product price must remain correct.
 Re-attack: CAUGHT
 ```
 
-That is the whole idea: **a bad output passed the evaluator, Gotcha exposed the blind spot, and the protection caught it on replay.**
+That is the whole idea: **you can see the wrong output, see your evaluator accept it, and then verify that the blind spot is closed on replay.**
 
 ### Why Gotcha is different
 
