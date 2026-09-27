@@ -432,6 +432,72 @@ test(
 );
 
 test(
+  "contract survivor ranking ignores generator self-scores",
+  async () => {
+    const contract =
+      makeContract([
+        {
+          id: "rule-major",
+          statement:
+            "Time must remain correct.",
+          kind: "required",
+          severity: "major"
+        }
+      ]);
+
+    const result =
+      await runContractAttacks({
+        ...baseOptions({ contract }),
+
+        evaluator() {
+          return true;
+        },
+
+        generator() {
+          return {
+            version: 1,
+            task: contract.task,
+            attacks: [
+              makeAttack({
+                id: "z-high-self-score",
+                ruleId: "rule-major",
+                mutatedOutput: { time: "4 PM" },
+                scores: {
+                  realism: 1,
+                  subtlety: 1,
+                  novelty: 1,
+                  fixability: 1
+                }
+              }),
+              makeAttack({
+                id: "a-low-self-score",
+                ruleId: "rule-major",
+                mutatedOutput: { time: "2 PM" },
+                scores: {
+                  realism: 0,
+                  subtlety: 0,
+                  novelty: 0,
+                  fixability: 0
+                }
+              })
+            ]
+          };
+        }
+      });
+
+    assert.deepEqual(
+      result.attack.survivors.map((item) => item.id),
+      ["a-low-self-score", "z-high-self-score"]
+    );
+
+    assert.equal(
+      result.topFinding.id,
+      "a-low-self-score"
+    );
+  }
+);
+
+test(
   "unchanged generated outputs are discarded",
   async () => {
     const contract =
