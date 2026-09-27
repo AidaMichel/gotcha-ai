@@ -55,8 +55,14 @@ const result =
     mutationPack
   });
 
+console.log("EXPECTED");
+console.log(JSON.stringify(expectedOutput, null, 2));
+console.log("");
+console.log("BAD OUTPUT");
+console.log(JSON.stringify(result.topFinding.output, null, 2));
+console.log("");
 console.log(
-  `Evaluator said: ${
+  `YOUR EVALUATOR: ${
     result.before
       .survivors.length > 0
       ? "PASS"
@@ -65,15 +71,15 @@ console.log(
 );
 
 console.log(
-  `Gotcha: ${result.topFinding.id} survived`
+  `GOTCHA: ${result.topFinding.id} survived`
 );
 
 console.log(
-  `Why: ${result.topFinding.description}`
+  `Why it is wrong: ${result.topFinding.description}`
 );
 
 console.log(
-  `Protection: ${result.proposedProtection}`
+  `Proposed protection: ${result.proposedProtection}`
 );
 
 console.log(
