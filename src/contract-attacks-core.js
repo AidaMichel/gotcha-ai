@@ -4460,6 +4460,29 @@ function compileAllGeneratedAttacks(
   );
 }
 
+function rankSurvivorsByTrustedAuthority(attackResult) {
+  const survivors =
+    attackResult.survivors;
+
+  survivors.sort((left, right) => {
+    if (right.severity !== left.severity) {
+      return right.severity - left.severity;
+    }
+
+    if (left.id < right.id) {
+      return -1;
+    }
+
+    if (left.id > right.id) {
+      return 1;
+    }
+
+    return 0;
+  });
+
+  return attackResult;
+}
+
 function buildEmptyAttackResult() {
   return {
     results: [],
@@ -4672,9 +4695,11 @@ async function runContractAttacks(
   const attackResult =
     generatedAttacks.length === 0
       ? buildEmptyAttackResult()
-      : attack(
-          safeEvaluator,
-          generatedAttacks
+      : rankSurvivorsByTrustedAuthority(
+          attack(
+            safeEvaluator,
+            generatedAttacks
+          )
         );
 
   const topFinding =
