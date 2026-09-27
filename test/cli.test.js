@@ -32,6 +32,7 @@ const helpOutput = [
   "  gotcha-ai demo",
   "  gotcha-ai init [directory]",
   "  gotcha-ai run [--config path] [--session path]",
+  "  gotcha-ai probe [--config path]",
   "  gotcha-ai verify <session-path> [--config path]",
   "  gotcha-ai --help",
   ""
