@@ -78,6 +78,11 @@ function writeLine(output, value) {
   output.write(`${value}\n`);
 }
 
+function writeSection(output, title) {
+  writeLine(output, "");
+  writeLine(output, title);
+}
+
 function normalizeChoice(answer) {
   return String(answer).trim().toLowerCase();
 }
@@ -94,7 +99,8 @@ function presentCurrentDraft(checkpoint, output) {
   }
 
   const draft = checkpoint.draft;
-  writeLine(output, "CURRENT PROTECTION DRAFT");
+  writeSection(output, "REVIEW THE CURRENT PROTECTION");
+  writeLine(output, "Nothing is accepted automatically.");
   writeLine(output, `Source finding: ${draft.source.attackId}`);
   writeLine(output, `Rule: ${draft.rule.statement}`);
   writeLine(output, `Protection: ${draft.protection.statement}`);
@@ -193,11 +199,15 @@ function presentVerificationResult(result, output) {
   writeLine(output, `Failure reasons: ${joinIds(verification.failureReasons)}`);
 
   if (verification.state === "verified") {
-    writeLine(output, "VERIFIED: the selected source finding is caught in this bound replay.");
+    writeLine(output, "");
+    writeLine(output, "VERIFIED — BLIND SPOT CAUGHT");
+    writeLine(output, "The selected source finding no longer passes this bound replay.");
   } else {
+    writeLine(output, "");
+    writeLine(output, "NOT VERIFIED");
     writeLine(
       output,
-      `NOT VERIFIED: Gotcha preserved the semantic state ${verification.state}.`
+      `Gotcha preserved the semantic state: ${verification.state}.`
     );
   }
 }
@@ -229,7 +239,8 @@ async function runGuidedVerify(options = {}) {
       : promptSession.prompt;
 
   try {
-    writeLine(output, "PREPARING CURRENT PROTECTION CHECKPOINT");
+    writeLine(output, "VERIFYING PROTECTION");
+    writeLine(output, "Replaying the same bound finding against your evaluator change...");
     const checkpoint = await publicApi.prepareContractQualityLoop({
       experiment: session.experiment,
       sourceAttackId: session.sourceAttackId,
