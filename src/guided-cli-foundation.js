@@ -136,6 +136,8 @@ function capturePublicApi() {
     draftQualityContract: api.draftQualityContract,
     confirmQualityContract: api.confirmQualityContract,
     runContractAttacks: api.runContractAttacks,
+    probeEvaluator: api.probeEvaluator,
+    createCommandEvaluator: api.createCommandEvaluator,
     createStructuredProviderAdapter: api.createStructuredProviderAdapter,
     generateContractProtectionProposal: api.generateContractProtectionProposal,
     prepareContractQualityLoop: api.prepareContractQualityLoop,
