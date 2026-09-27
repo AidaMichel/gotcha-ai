@@ -127,6 +127,14 @@ function normalizeChoice(answer) {
   return String(answer).trim().toLowerCase();
 }
 
+function renderEvidenceValue(value) {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return "[unable to display structured value]";
+  }
+}
+
 async function collectContractDecisions(draft, io) {
   const decisions = [];
 
@@ -237,10 +245,13 @@ function presentNoSurvivor(output) {
 }
 
 function presentSurvivors(survivors, output) {
-  writeSection(output, "3/4", "GOTCHA — BLIND SPOTS FOUND");
-  writeLine(output, "Your evaluator said PASS to outputs that violate confirmed quality rules.");
+  writeSection(output, "3/4", "GOTCHA — YOUR EVALUATOR MISSED THIS");
+  writeLine(output, "A provider-generated candidate violated a confirmed quality rule and still passed your evaluator.");
   writeLine(output, "");
-  writeLine(output, "GOTCHA FINDINGS");
+  writeLine(output, "EXPECTED OUTPUT");
+  writeLine(output, renderEvidenceValue(survivors.experiment.case.expectedOutput));
+  writeLine(output, "");
+  writeLine(output, "SURVIVING BAD OUTPUTS");
 
   for (let index = 0; index < survivors.displayed.length; index += 1) {
     const item = survivors.displayed[index];
@@ -249,11 +260,19 @@ function presentSurvivors(survivors, output) {
     writeLine(output, `[${item.rank}] ${item.id}`);
     writeLine(output, `Rule: ${attack.rule.statement}`);
     writeLine(output, `Severity: ${attack.rule.severity}`);
-    writeLine(output, `Why: ${attack.description}`);
-    writeLine(output, `Rationale: ${attack.rationale}`);
-    writeLine(output, "Current evaluator: PASS  ← blind spot");
+    writeLine(output, `Why it is wrong: ${attack.description}`);
+    writeLine(output, "Bad output:");
+    writeLine(output, renderEvidenceValue(attack.output));
+    writeLine(output, "YOUR EVALUATOR: PASS  ← this is the blind spot");
+    writeLine(output, `Generator rationale: ${attack.rationale}`);
+    writeLine(
+      output,
+      `Generator scores: realism ${attack.realism.toFixed(2)} · subtlety ${attack.subtlety.toFixed(2)} · novelty ${attack.novelty.toFixed(2)}`
+    );
   }
 
+  writeLine(output, "");
+  writeLine(output, "Evidence note: generated attacks are candidates. A survivor proves the evaluator accepted that candidate; Gotcha does not independently prove the candidate would occur in production.");
   if (survivors.total > survivors.displayed.length) {
     writeLine(
       output,
