@@ -2,58 +2,25 @@
 
 > **Your evals said “pass.” Gotcha disagrees.**
 
-Gotcha helps you discover important AI failures your current quality checks still allow through.
+[![CI](https://github.com/AidaMichel/gotcha-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/AidaMichel/gotcha-ai/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+![Node.js >=20](https://img.shields.io/badge/Node.js-%3E%3D20-339933)
 
-Most evals ask:
+**Gotcha finds important AI failures that your current evaluator still accepts — then helps you turn one of those blind spots into a verified protection.**
 
-> “Did this output pass the checks I wrote?”
+Most eval tooling asks whether an AI output passes the checks you already wrote.
 
-Gotcha asks:
+Gotcha asks the more uncomfortable question:
 
-> **“What important failure can still pass those checks?”**
+> **What important failure can still pass those checks?**
 
-The larger Gotcha loop is:
-
-```text
-TEACH
-  ↓
-CONTRACT
-  ↓
-CONFIRM
-  ↓
-ATTACK
-  ↓
-RANK
-  ↓
-GOTCHA
-  ↓
-CATCH THIS
-  ↓
-RE-ATTACK
-```
-
-Today, Gotcha supports both sides of that flow:
-
-- teach Gotcha what quality means using examples and judgments
-- generate a structured Quality Contract for human confirmation
-- generate attacks from confirmed Quality Contracts through an injected AI generator
-- attack an evaluator with meaningful mutations
-- rank the failures that survive
-- generate a declarative protection proposal for a caller-selected replayable survivor
-- require explicit human confirmation before remediation verification
-- re-attack to see whether quality improved
-
-**Quality should be teachable, testable, attackable, and improvable.**
-
-## See the Gotcha moment in 5 seconds
+### The 5-second Aha moment
 
 ```bash
 npx gotcha-ai demo
 ```
 
 No clone. No config. No API key.
-
-You should see:
 
 ```text
 Evaluator said: PASS
@@ -63,9 +30,29 @@ Protection: Product price must remain correct.
 Re-attack: CAUGHT
 ```
 
-The evaluator passed a bad output because it was not checking an important value.
+That is the whole idea: **a bad output passed the evaluator, Gotcha exposed the blind spot, and the protection caught it on replay.**
 
-**Gotcha.**
+### Why Gotcha is different
+
+- **Attack the evaluator, not just the model.** Find failures your current quality checks still let through.
+- **Human authority stays explicit.** Quality rules, survivor selection, and remediation confirmation are not silently delegated to the model.
+- **Close the loop.** Go from teaching evidence → confirmed quality contract → attack → survivor → protection proposal → re-attack verification.
+- **Provider-independent core.** Bring your own model/provider; Gotcha owns the quality and verification boundaries.
+- **Useful before you have a provider.** The deterministic demo and Mutation Pack path run without an API key.
+
+```text
+TEACH → CONTRACT → CONFIRM → ATTACK → RANK
+                         ↓
+                      GOTCHA
+                         ↓
+                 PROTECT → RE-ATTACK
+```
+
+### Who this is for
+
+Gotcha is for developers building AI features who already have evals, checks, or acceptance logic and want to know **what those checks are missing**.
+
+It is not trying to replace observability platforms, dataset managers, or full red-team suites. The wedge is narrower: **find a meaningful blind spot in the evaluator, make it obvious, and verify that you actually closed it.**
 
 ## Guided V0: find, protect, and verify
 
