@@ -67,7 +67,7 @@ The evaluator passed a bad output because it was not checking an important value
 
 **Gotcha.**
 
-## Guided V0: find, protect, and verify in five minutes
+## Guided V0: find, protect, and verify
 
 The installed CLI can now guide the public Gotcha APIs without making hidden product decisions for you.
 
@@ -78,6 +78,24 @@ npx gotcha-ai init
 ```
 
 That creates `gotcha.config.js` and `.gotcha/.gitignore`. Fill in the starter config with your task, teaching examples, one known-good case, your **current baseline evaluator**, and your provider transport/model. The starter intentionally does not create an `improvedEvaluator` for you.
+
+The zero-config demo does **not** require a provider account. The guided `run` command **does** require a real caller-owned provider integration. If you do not have one yet, you can still try the deterministic product loop with:
+
+```bash
+npx gotcha-ai demo
+```
+
+Your `provider.transport(request)` receives Gotcha-owned instructions, structured input, the selected model name, and an output-format description. It should call the provider you choose and return this outer envelope:
+
+```js
+{
+  version: 1,
+  kind: "gotcha-provider-response",
+  output: providerStructuredOutput
+}
+```
+
+Keep credentials in caller-owned environment/configuration rather than in Gotcha or committed source.
 
 Run the guided discovery flow:
 
@@ -908,6 +926,8 @@ Gotcha currently supports:
 - domain-independent evaluators
 - npm installation
 - a zero-config CLI demo
+- GitHub Actions CI across supported release-test runtimes
+- fresh packed-artifact installation and public-API smoke checks
 
 Gotcha intentionally does **not** yet try to be:
 
@@ -918,7 +938,6 @@ Gotcha intentionally does **not** yet try to be:
 - a multi-agent framework
 - a JavaScript sandbox
 - an enterprise auth or billing system
-- a GitHub Actions integration
 
 Those are separate product layers.
 
